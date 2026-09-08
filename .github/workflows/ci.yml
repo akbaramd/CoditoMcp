@@ -117,6 +117,9 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           version: "0.12.5"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
       - run: uv python install 3.12
       - run: uv export --frozen --all-packages --all-groups --no-emit-workspace --format requirements-txt --output-file /tmp/requirements.txt
       - run: uvx --from pip-audit==2.9.0 pip-audit --requirement /tmp/requirements.txt

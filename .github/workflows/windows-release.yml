@@ -63,6 +63,8 @@ jobs:
           uv run mypy -p codito_protocol -p codito_relay -p codito_agent
       - run: uv run --package codito-agent pytest agent/tests -m "not e2e"
       - run: dotnet test agent/broker/Codito.Broker.sln --configuration Release --maxcpucount:1
+      - name: Install packaging extras
+        run: uv sync --frozen --package codito-agent --extra ui --extra package
       - name: Build stable Windows package
         shell: pwsh
         run: >-

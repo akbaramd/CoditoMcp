@@ -16,11 +16,12 @@ from starlette.applications import Starlette  # noqa: E402
 from starlette.routing import Mount, Route, WebSocketRoute  # noqa: E402
 from starlette.types import ASGIApp  # noqa: E402
 
+from codito_relay.core.diagnostics import AuthDiagnosticASGI  # noqa: E402
 from codito_relay.core.mcp_server import DeviceMCPGateway, mcp_http_app, mcp_lifespan  # noqa: E402
 from codito_relay.core.websocket import device_websocket  # noqa: E402
 from codito_relay.health import live, metrics, ready  # noqa: E402
 
-application = Starlette(
+router = Starlette(
     routes=[
         Route("/health/live", live, methods=["GET"]),
         Route("/health/ready", ready, methods=["GET"]),
@@ -31,3 +32,4 @@ application = Starlette(
     ],
     lifespan=mcp_lifespan,
 )
+application = AuthDiagnosticASGI(router)

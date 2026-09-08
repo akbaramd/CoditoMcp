@@ -22,6 +22,11 @@ x-relay-base: &relay-base
   platform: linux/amd64
   environment: *relay-environment
   restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
   init: true
   read_only: true
   tmpfs:

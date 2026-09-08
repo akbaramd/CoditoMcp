@@ -21,6 +21,8 @@ from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauthlib.oauth2.rfc6749 import errors  # type: ignore[import-untyped]
 from redis.exceptions import RedisError
 
+from .diagnostics import emit, scope_summary
+
 
 def exact_resource_match(request_uri: str, audiences: list[str]) -> bool:
     """Require the one per-device resource audience to match the request exactly."""
@@ -61,7 +63,12 @@ class CoditoCIMDMetadataFetcher(SafeMetadataFetcher):  # type: ignore[misc]
         if not host or not validate_host(host, settings.CHATGPT_CLIENT_METADATA_HOSTS):
             raise CIMDError("client metadata host is not approved by Codito")
 
-        raw_metadata, raw_max_age = super().fetch(client_id)
+        try:
+            raw_metadata, raw_max_age = super().fetch(client_id)
+        except CIMDError:
+            emit("oauth.cimd_rejected", reason="metadata_fetch")
+            raise
+        emit("oauth.cimd_fetched")
         metadata = dict(raw_metadata)
         method = metadata.get("token_endpoint_auth_method")
         supported = metadata.get("token_endpoint_auth_methods_supported")
@@ -136,6 +143,12 @@ class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
         against the client's live, SSRF-hardened metadata and JWKS documents.
         """
 
+        stage = "request"
+
+        def rejected() -> bool:
+            emit("oauth.assertion_rejected", stage=stage)
+            return False
+
         try:
             assertion = getattr(request, "client_assertion", None)
             assertion_type = getattr(request, "client_assertion_type", None)
@@ -147,24 +160,29 @@ class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
                 or getattr(request, "client_secret", None)
                 or self._extract_basic_auth(request)
             ):
-                return False
+                return rejected()
 
+            stage = "header"
             parts = assertion.split(".")
             if len(parts) != 3:
-                return False
+                return rejected()
             header = self._decode_jwt_part(parts[0])
             unverified_claims = self._decode_jwt_part(parts[1])
             if header.get("alg") != "RS256" or not isinstance(header.get("kid"), str):
-                return False
+                return rejected()
+            stage = "issuer"
             issuer = self._approved_https_url(unverified_claims.get("iss"))
             if unverified_claims.get("sub") != issuer or (client_id and client_id != issuer):
-                return False
+                return rejected()
 
+            stage = "client_registration"
             client = self._load_application(issuer, request)
             if not is_allowed_mcp_application(client):
-                return False
+                return rejected()
 
+            stage = "metadata_fetch"
             metadata, _ = SafeMetadataFetcher().fetch(issuer)
+            stage = "metadata_policy"
             supported = metadata.get("token_endpoint_auth_methods_supported", [])
             if (
                 metadata.get("client_id") != issuer
@@ -173,12 +191,14 @@ class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
                 or "private_key_jwt" not in supported
                 or metadata.get("token_endpoint_auth_signing_alg") != "RS256"
             ):
-                return False
+                return rejected()
+            stage = "jwks_fetch"
             jwks_uri = self._approved_https_url(metadata.get("jwks_uri"))
             jwks_document, _ = SafeMetadataFetcher().fetch(jwks_uri)
+            stage = "key_selection"
             keys = jwks_document.get("keys")
             if not isinstance(keys, list):
-                return False
+                return rejected()
             public_keys = [
                 value
                 for value in keys
@@ -188,15 +208,17 @@ class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
                 and "d" not in value
             ]
             if len(public_keys) != 1:
-                return False
+                return rejected()
 
+            stage = "signature"
             verifier = jws.JWS()
             verifier.deserialize(assertion)
             verifier.verify(jwk.JWK(**public_keys[0]), alg="RS256")
             claims = json.loads(verifier.payload)
             if not isinstance(claims, dict) or claims != unverified_claims:
-                return False
+                return rejected()
 
+            stage = "claims_time_audience"
             now = int(time.time())
             exp = claims.get("exp")
             issued_at = claims.get("iat")
@@ -228,13 +250,15 @@ class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
                     for allowed in valid_audiences
                 )
             ):
-                return False
+                return rejected()
 
+            stage = "replay_protection"
             replay_key = f"codito:oauth:private-key-jwt:{sha256(jti.encode()).hexdigest()}"
             if not cache.add(replay_key, True, timeout=max(1, exp - now + 60)):
-                return False
+                return rejected()
             request.client = client
             request.client_id = issuer
+            emit("oauth.assertion_accepted")
             return True
         except (
             CIMDError,
@@ -245,7 +269,7 @@ class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
             ValueError,
             json.JSONDecodeError,
         ):
-            return False
+            return rejected()
 
     def validate_scopes(
         self,
@@ -257,6 +281,7 @@ class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
         **kwargs: Any,
     ) -> bool:
         if not super().validate_scopes(client_id, scopes, client, request, *args, **kwargs):
+            emit("oauth.scopes_rejected", reason="provider_policy", **scope_summary(scopes))
             return False
         if self._is_desktop(client):
             allowed = {"openid", "profile", "device:manage"}
@@ -264,7 +289,10 @@ class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
             allowed = set(settings.MCP_TOOL_SCOPES)
         else:
             allowed = set()
-        return set(scopes).issubset(allowed)
+        valid = set(scopes).issubset(allowed)
+        if not valid:
+            emit("oauth.scopes_rejected", reason="client_policy", **scope_summary(scopes))
+        return valid
 
     def validate_redirect_uri(
         self,
@@ -275,6 +303,7 @@ class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
         **kwargs: Any,
     ) -> bool:
         if not super().validate_redirect_uri(client_id, redirect_uri, request, *args, **kwargs):
+            emit("oauth.redirect_rejected", reason="registered_uri_mismatch")
             return False
         parsed = urlsplit(redirect_uri)
         if parsed.scheme != "http":
@@ -290,6 +319,7 @@ class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
     def _enforce_client_resource(self, request: Any, resources: list[str]) -> None:
         client = getattr(request, "client", None)
         if len(resources) != 1:
+            emit("oauth.resource_rejected", reason="resource_count", resource_count=len(resources))
             raise errors.CustomOAuth2Error(
                 error="invalid_target",
                 description="Codito grants require exactly one resource indicator",
@@ -316,6 +346,7 @@ class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
         else:
             valid = False
         if not valid:
+            emit("oauth.resource_rejected", reason="client_resource_policy")
             raise errors.CustomOAuth2Error(
                 error="invalid_target",
                 description="The OAuth client class is not allowed to use this resource",

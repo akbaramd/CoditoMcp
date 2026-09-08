@@ -80,6 +80,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "codito_relay.core.diagnostics.OAuthDiagnosticMiddleware",
     "django.middleware.security.SecurityMiddleware",
     *([] if DEBUG else ["whitenoise.middleware.WhiteNoiseMiddleware"]),
     "codito_relay.core.middleware.PublicRateLimitMiddleware",
@@ -284,6 +285,16 @@ LOGGING = {
             "style": "{",
         }
     },
-    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "json"}},
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "json"},
+        "auth_diagnostics": {"class": "logging.StreamHandler"},
+    },
+    "loggers": {
+        "codito.auth_diagnostics": {
+            "handlers": ["auth_diagnostics"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
     "root": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO")},
 }

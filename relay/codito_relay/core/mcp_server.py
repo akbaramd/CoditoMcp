@@ -262,6 +262,9 @@ class DeviceMCPGateway:
                 {key.lower(): value for key, value in headers.items()}, link_id
             )
         except AuthorizationFailure as exc:
+            from .diagnostics import emit, safe_error
+
+            emit("mcp.authorization_rejected", error=safe_error(exc.code), status=exc.status)
             metadata_url = (
                 f"{settings.PUBLIC_BASE_URL}/.well-known/oauth-protected-resource/mcp/d/{link_id}"
             )

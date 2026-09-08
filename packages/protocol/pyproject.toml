@@ -1,6 +1,6 @@
 [project]
 name = "codito-protocol"
-version = "0.1.12"
+version = "0.1.13"
 description = "Versioned data contracts shared by the Codito relay and device agent"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

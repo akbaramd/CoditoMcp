@@ -8,4 +8,4 @@ from .errors import AgentError
 from .models import Project, ProjectMode
 
 __all__ = ["AgentError", "Project", "ProjectMode"]
-__version__ = "0.1.1"
+__version__ = "0.1.2"

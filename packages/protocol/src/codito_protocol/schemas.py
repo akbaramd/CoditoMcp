@@ -14,9 +14,12 @@ from .errors import ToolError
 from .manage import ProjectManageInput, ProjectManageResult
 from .patch import ProjectApplyPatchInput, ProjectApplyPatchResult
 from .read import ProjectReadInput, ProjectReadResult
+from .screenshot import DeviceScreenshotInput, DeviceScreenshotResult
 from .shell import ProjectShellInput, ProjectShellResult
 
 _ADAPTERS: dict[str, TypeAdapter[Any]] = {
+    "device-screenshot-input": TypeAdapter(DeviceScreenshotInput),
+    "device-screenshot-result": TypeAdapter(DeviceScreenshotResult),
     "device-read-input": TypeAdapter(DeviceReadInput),
     "device-read-result": TypeAdapter(DeviceReadResult),
     "project-read-input": TypeAdapter(ProjectReadInput),

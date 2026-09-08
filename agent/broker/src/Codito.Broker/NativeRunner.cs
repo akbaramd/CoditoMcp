@@ -151,7 +151,8 @@ internal static class NativeRunner
         }
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(specification.ProjectRoot));
         var working = Path.TrimEndingDirectorySeparator(Path.GetFullPath(specification.WorkingDirectory));
-        if (!working.Equals(root, StringComparison.OrdinalIgnoreCase)
+        if (!specification.ExternalWorkingDirectoryAuthorized
+            && !working.Equals(root, StringComparison.OrdinalIgnoreCase)
             && !working.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException("Working directory is outside the registered project");

@@ -8,18 +8,21 @@ import secrets
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
-from .approvals import ApprovalManager, ApprovalRisk, action_digest
+from .approvals import ApprovalManager, ApprovalRequest, ApprovalRisk, action_digest
 from .broker_client import BrokerClient
 from .db import AgentDatabase
+from .device_paths import WindowsReadScope
+from .diagnostics import event
 from .errors import AgentError
 from .models import OperationState, Project, ProjectMode
 from .operation_gate import ProjectOperationGate
 from .paths import ProjectPathResolver
 from .read_tools import ToolResponse
+from .shell_policy import outside_references, permission_scope
 
 
 class ProcessLike(Protocol):
@@ -40,6 +43,7 @@ ProcessStarter = Callable[[dict[str, Any], bool], Awaitable[ProcessLike]]
 
 
 class ShellState:
+    PENDING_APPROVAL = "pending_approval"
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -88,6 +92,7 @@ class ShellJob:
     task: asyncio.Task[None] | None = None
     changed: asyncio.Condition = field(default_factory=asyncio.Condition)
     disconnected_killer: asyncio.Task[None] | None = None
+    pending_canceller: asyncio.Task[ToolResponse] | None = None
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -302,16 +307,55 @@ class ShellManager:
         if prior is not None:
             return self._existing_start(prior, digest)
         working_relative = str(request.get("working_directory", ".")) or "."
-        working = self.resolver.resolve(project, working_relative, directory=True, allow_root=True)
+        external_cwd = request.get("external_working_directory")
+        approval_timeout = int(request.get("approval_timeout_seconds", 180))
+        if not 15 <= approval_timeout <= 300:
+            raise AgentError("invalid_request", "Approval timeout is out of range")
+        if external_cwd is not None:
+            from codito_protocol.device_read import normalize_read_scope
+
+            if working_relative != ".":
+                raise AgentError("invalid_request", "Specify only one working directory")
+            working_path = Path(normalize_read_scope(str(external_cwd)))
+            if mode is ProjectMode.ISOLATED:
+                raise AgentError(
+                    "sandbox_policy_denied", "External cwd needs explicit native execution"
+                )
+        else:
+            working_path = self.resolver.resolve(
+                project, working_relative, directory=True, allow_root=True
+            ).absolute
+        references = outside_references(
+            str(project.root),
+            str(working_path),
+            command,
+            request.get("requested_external_paths", []),
+        )
+        needs_approval = (
+            mode is ProjectMode.NATIVE_APPROVAL
+            or external_cwd is not None
+            or (mode is ProjectMode.NATIVE_PROJECT and bool(references))
+        )
         specification = self._build_specification(
             project,
-            working.absolute,
+            working_path,
             command,
             timeout,
             output_limit,
             native=mode is not ProjectMode.ISOLATED,
         )
         capabilities = await self.broker.probe()
+        if mode is ProjectMode.ISOLATED and not capabilities.isolation_proven:
+            raise AgentError(
+                "sandbox_unavailable",
+                "Isolated execution is disabled because confinement was not proven",
+            )
+        if mode is ProjectMode.ISOLATED and references:
+            raise AgentError(
+                "sandbox_policy_denied", "Isolated commands cannot request external paths"
+            )
+        # This is internal broker authority, never accepted from an MCP input.
+        specification["external_working_directory_authorized"] = False
         approval_generation = self.approvals.generation
         approval = ApprovalManager.build_request(
             account_id=self.account_id,
@@ -323,7 +367,9 @@ class ShellManager:
             capability="shell:execute",
             action_digest=action_digest(request),
             connection_epoch=connection_epoch,
-            deadline_at=deadline_at,
+            deadline_at=datetime.now(UTC) + timedelta(seconds=approval_timeout)
+            if needs_approval
+            else deadline_at,
             risk=ApprovalRisk.NATIVE_EXECUTION,
             summary=(
                 purpose
@@ -333,19 +379,10 @@ class ShellManager:
                 "authority; the working directory is not a security boundary."
             ),
             command=command,
-            working_directory=str(working.absolute),
+            working_directory=str(working_path),
             environment_differences=specification["environment"],
             requested_network=mode is not ProjectMode.ISOLATED,
-            requested_external_paths=(
-                ("logged-in user's accessible filesystem",)
-                if mode is not ProjectMode.ISOLATED
-                else ()
-            ),
-        )
-        await self.approvals.authorize_shell(
-            mode=mode,
-            sandbox_proven=capabilities.isolation_proven,
-            request=approval,
+            requested_external_paths=references,
         )
         if deadline_at <= datetime.now(UTC):
             raise AgentError("deadline_exceeded", "Operation deadline elapsed before command start")
@@ -378,13 +415,14 @@ class ShellManager:
                     connection_epoch=connection_epoch,
                     timeout_seconds=timeout,
                     output_limit_bytes=output_limit,
+                    state=ShellState.PENDING_APPROVAL if needs_approval else ShellState.QUEUED,
                 )
                 self._jobs[job.job_id] = job
                 stored = {
                     "action": "start",
                     "project_id": project_id,
                     "job_id": job.job_id,
-                    "state": ShellState.QUEUED,
+                    "state": job.state,
                     "connection_epoch": connection_epoch,
                 }
                 self.database.put_idempotency(
@@ -398,7 +436,18 @@ class ShellManager:
                 )
                 journal_created = True
                 job.task = asyncio.create_task(
-                    self._run_job(job, specification, mode is ProjectMode.ISOLATED),
+                    self._run_job(
+                        job,
+                        specification,
+                        mode is ProjectMode.ISOLATED,
+                        approval=approval,
+                        generation=approval_generation,
+                        needs_approval=needs_approval,
+                        persistent=mode is not ProjectMode.ISOLATED
+                        and self.approvals.supports_saved_permissions,
+                        reuse_permission=execution != "native_approval",
+                        external_cwd=external_cwd is not None,
+                    ),
                     name=f"codito-shell-{job.job_id}",
                 )
             except Exception:
@@ -478,8 +527,43 @@ class ShellManager:
             "nonce": uuid.uuid4().hex,
         }
 
-    async def _run_job(self, job: ShellJob, specification: dict[str, Any], isolated: bool) -> None:
+    async def _run_job(
+        self,
+        job: ShellJob,
+        specification: dict[str, Any],
+        isolated: bool,
+        *,
+        approval: ApprovalRequest,
+        generation: int,
+        needs_approval: bool,
+        persistent: bool,
+        reuse_permission: bool,
+        external_cwd: bool,
+    ) -> None:
+        pinned: WindowsReadScope | None = None
         try:
+            self._require_enabled(job.project_id)
+            identity = specification["root_fingerprint"]
+            if external_cwd:
+                pinned = WindowsReadScope(specification["working_directory"]).__enter__()
+                identity += ":" + pinned.identity
+            if needs_approval:
+                scope = (
+                    permission_scope(
+                        specification["working_directory"], approval.requested_external_paths
+                    ),
+                    identity,
+                )
+                await self.approvals.request(
+                    approval,
+                    session_eligible=False,
+                    shell_scope=scope if persistent else None,
+                    reuse_shell_permission=reuse_permission,
+                )
+            self.approvals.ensure_current(generation, approval.deadline_at)
+            self._require_enabled(job.project_id)
+            specification["external_working_directory_authorized"] = external_cwd
+            event("shell_starting", job.job_id)
             process = await self._process_starter(specification, isolated)
             job.process = process
             job.state = ShellState.RUNNING
@@ -501,12 +585,19 @@ class ShellManager:
             if job.state not in ShellState.TERMINAL:
                 job.state = ShellState.COMPLETED if job.exit_code == 0 else ShellState.FAILED
         except AgentError as exc:
+            event("shell_failed", job.job_id, exc.code)
             self._append(job, "system", f"{exc.code}: {exc.message}\n")
             job.state = ShellState.FAILED
+        except asyncio.CancelledError:
+            if job.process is not None:
+                await self._terminate(job.process)
+            job.state = ShellState.CANCELLED
         except Exception:
             self._append(job, "system", "internal_error: command runner failed\n")
             job.state = ShellState.FAILED
         finally:
+            if pinned is not None:
+                pinned.close()
             async with self._guard:
                 self.operation_gate.release(job.project_id, f"shell:{job.idempotency_key}")
             terminal_result = self._poll_result(job, 0)
@@ -697,6 +788,13 @@ class ShellManager:
 
     def disconnected(self) -> None:
         for job in self._jobs.values():
+            if job.state == ShellState.PENDING_APPROVAL and job.task is not None:
+                job.pending_canceller = asyncio.create_task(
+                    self.cancel(
+                        job.project_id, job.job_id, grant_id=job.grant_id, link_id=job.link_id
+                    )
+                )
+                continue
             if job.state not in ShellState.TERMINAL and job.disconnected_killer is None:
                 job.disconnected_killer = asyncio.create_task(self._kill_after_grace(job))
 

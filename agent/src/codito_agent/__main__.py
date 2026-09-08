@@ -75,7 +75,7 @@ def _database(config: AgentConfig) -> AgentDatabase:
 
 
 def _require_trusted_ack(mode: ProjectMode, acknowledged: bool) -> None:
-    if mode is ProjectMode.NATIVE_TRUSTED and not acknowledged:
+    if mode in {ProjectMode.NATIVE_TRUSTED, ProjectMode.NATIVE_PROJECT} and not acknowledged:
         raise AgentError(
             "confirmation_required",
             "native_trusted grants commands your full filesystem and network authority; "

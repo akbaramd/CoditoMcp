@@ -29,6 +29,8 @@ public sealed class ProbeTests
             1024,
             "nonce");
         Assert.Throws<InvalidDataException>(() => NativeRunner.ValidateSpecification(specification));
+        // Only the local daemon may set this flag after its approval decision.
+        NativeRunner.ValidateSpecification(specification with { ExternalWorkingDirectoryAuthorized = true });
     }
 
     [Fact]

@@ -103,7 +103,7 @@ class ProjectSummary(CoditoModel):
     project_id: OpaqueId
     title: str = Field(min_length=1, max_length=200)
     device_id: OpaqueId
-    mode: Literal["isolated", "native_approval", "native_trusted"]
+    mode: Literal["isolated", "native_approval", "native_trusted", "native_project"]
     online: bool
 
 

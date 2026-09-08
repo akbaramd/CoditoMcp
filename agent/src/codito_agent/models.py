@@ -9,6 +9,7 @@ class ProjectMode(StrEnum):
     ISOLATED = "isolated"
     NATIVE_APPROVAL = "native_approval"
     NATIVE_TRUSTED = "native_trusted"
+    NATIVE_PROJECT = "native_project"
 
 
 @dataclass(frozen=True, slots=True)

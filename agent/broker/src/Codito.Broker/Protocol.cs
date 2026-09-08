@@ -6,7 +6,13 @@ internal sealed record BrokerRequest(
     [property: JsonPropertyName("version")] int Version,
     [property: JsonPropertyName("operation")] string Operation,
     [property: JsonPropertyName("mode")] string? Mode,
-    [property: JsonPropertyName("specification")] RunSpecification? Specification);
+    [property: JsonPropertyName("specification")] RunSpecification? Specification,
+    [property: JsonPropertyName("toast")] ToastSpecification? Toast = null);
+
+internal sealed record ToastSpecification(
+    [property: JsonPropertyName("xml")] string Xml,
+    [property: JsonPropertyName("tag")] string Tag,
+    [property: JsonPropertyName("expires_at")] DateTimeOffset ExpiresAt);
 
 internal sealed record RunSpecification(
     [property: JsonPropertyName("project_root")] string ProjectRoot,
@@ -16,7 +22,8 @@ internal sealed record RunSpecification(
     [property: JsonPropertyName("environment")] Dictionary<string, string> Environment,
     [property: JsonPropertyName("timeout_seconds")] int TimeoutSeconds,
     [property: JsonPropertyName("output_limit_bytes")] int OutputLimitBytes,
-    [property: JsonPropertyName("nonce")] string Nonce);
+    [property: JsonPropertyName("nonce")] string Nonce,
+    [property: JsonPropertyName("external_working_directory_authorized")] bool ExternalWorkingDirectoryAuthorized = false);
 
 internal sealed record CommandSpecification(
     [property: JsonPropertyName("kind")] string Kind,
@@ -37,4 +44,3 @@ internal sealed record ProbeResponse(
     [property: JsonPropertyName("version")] int Version,
     [property: JsonPropertyName("capabilities")] CapabilitySet Capabilities,
     [property: JsonPropertyName("reason")] string? Reason);
-

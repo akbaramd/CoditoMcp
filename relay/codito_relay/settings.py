@@ -194,6 +194,7 @@ MCP_TOOL_SCOPES = (
     "files:read",
     "files:write",
     "shell:execute",
+    "screen:read",
 )
 
 OAUTH2_PROVIDER = {
@@ -212,6 +213,7 @@ OAUTH2_PROVIDER = {
         "files:read": "Read files in registered projects",
         "files:write": "Apply anchored file patches in registered projects",
         "shell:execute": "Run bounded commands in registered projects",
+        "screen:read": "View the Windows primary display after separate local consent",
         "device:manage": "Enroll and reconnect the signed-in user's Windows devices",
     },
     "RESOURCE_SERVER_INTROSPECTION_URL": f"{PUBLIC_BASE_URL}/o/introspect/",

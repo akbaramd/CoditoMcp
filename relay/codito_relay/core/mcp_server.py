@@ -8,7 +8,7 @@ from typing import Any, Literal
 from codito_protocol import TOOL_CONTRACTS
 from django.conf import settings
 from mcp.server.mcpserver import Context, MCPServer
-from mcp_types import CallToolResult, TextContent, ToolAnnotations
+from mcp_types import CallToolResult, ImageContent, TextContent, ToolAnnotations
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 
@@ -47,7 +47,10 @@ async def _run(context: Context, name: str, arguments: dict[str, Any]) -> CallTo
     except ToolDispatchError as exc:
         result = error_tool_result(exc)
     return CallToolResult(
-        content=[TextContent(type="text", text=result["content"][0]["text"])],
+        content=[
+            ImageContent(**item) if item["type"] == "image" else TextContent(**item)
+            for item in result["content"]
+        ],
         structuredContent=result["structuredContent"],
         isError=result["isError"],
     )
@@ -148,12 +151,18 @@ async def project_shell(
     wait_milliseconds: int = 0,
     reason: str = "cancelled by caller",
     execution: Literal["project_policy", "native_approval"] = "project_policy",
+    external_working_directory: str | None = None,
+    requested_external_paths: list[str] | None = None,
+    approval_timeout_seconds: int = 180,
 ) -> CallToolResult:
     if action == "start":
         arguments = {
             "action": action,
             "project_id": project_id,
             "execution": execution,
+            "external_working_directory": external_working_directory,
+            "requested_external_paths": requested_external_paths or [],
+            "approval_timeout_seconds": approval_timeout_seconds,
             "working_directory": working_directory,
             "purpose": purpose,
             "timeout_seconds": timeout_seconds,
@@ -241,6 +250,19 @@ async def device_read(
     )
 
 
+async def device_screenshot(
+    context: Context,
+    purpose: str,
+    display: Literal["primary"] = "primary",
+    max_dimension: int = 1600,
+) -> CallToolResult:
+    return await _run(
+        context,
+        "device_screenshot",
+        {"purpose": purpose, "display": display, "max_dimension": max_dimension},
+    )
+
+
 def _register_tool(name: str, function: Any) -> None:
     contract = TOOL_CONTRACTS[name]
     annotations = ToolAnnotations(**contract["annotations"])
@@ -259,6 +281,7 @@ _register_tool("project_apply_patch", project_apply_patch)
 _register_tool("project_shell", project_shell)
 _register_tool("project_manage", project_manage)
 _register_tool("device_read", device_read)
+_register_tool("device_screenshot", device_screenshot)
 
 mcp_http_app = mcp.streamable_http_app(
     streamable_http_path="/",

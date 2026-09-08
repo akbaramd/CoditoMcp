@@ -5,8 +5,9 @@ from __future__ import annotations
 import re
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
+from .device_read import normalize_read_scope
 from .types import MAX_SCRIPT_BYTES, CoditoModel, OpaqueId, RelativePath
 
 
@@ -83,6 +84,48 @@ class ShellStartInput(CoditoModel):
     working_directory: RelativePath = Field(
         default="", description="Project-relative working directory; empty means root."
     )
+    external_working_directory: str | None = Field(
+        default=None,
+        description=(
+            "Absolute local Windows cwd outside the project, e.g. C:/. "
+            "Requires local consent; never marks a request approved."
+        ),
+    )
+    requested_external_paths: list[str] = Field(
+        default_factory=list,
+        max_length=32,
+        description=(
+            "Declare every intended outside-project file/directory access. "
+            "Native project policy checks declared and literal paths, "
+            "not arbitrary program behavior. Requires Windows consent."
+        ),
+    )
+    approval_timeout_seconds: int = Field(
+        default=180,
+        ge=15,
+        le=300,
+        description=(
+            "Time allowed for Windows consent, separate from process timeout. "
+            "Start returns pending_approval promptly; poll the job while the user responds."
+        ),
+    )
+
+    @field_validator("external_working_directory")
+    @classmethod
+    def validate_external_cwd(cls, value: str | None) -> str | None:
+        return normalize_read_scope(value) if value is not None else None
+
+    @field_validator("requested_external_paths")
+    @classmethod
+    def validate_external_paths(cls, value: list[str]) -> list[str]:
+        return [normalize_read_scope(path) for path in value]
+
+    @model_validator(mode="after")
+    def one_working_directory(self) -> ShellStartInput:
+        if self.external_working_directory is not None and self.working_directory:
+            raise ValueError("Specify only one working directory")
+        return self
+
     purpose: str = Field(
         min_length=1,
         max_length=1000,
@@ -146,7 +189,16 @@ class ShellStartResult(CoditoModel):
     action: Literal["start"] = "start"
     project_id: OpaqueId
     job_id: OpaqueId
-    state: Literal["pending_approval", "queued", "running", "completed", "denied"]
+    state: Literal[
+        "pending_approval",
+        "queued",
+        "running",
+        "completed",
+        "denied",
+        "failed",
+        "cancelled",
+        "outcome_unknown",
+    ]
     connection_epoch: int = Field(ge=1)
 
 

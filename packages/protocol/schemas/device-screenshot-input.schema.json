@@ -1,0 +1,31 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/device-screenshot-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "display": {
+      "const": "primary",
+      "default": "primary",
+      "title": "Display",
+      "type": "string"
+    },
+    "max_dimension": {
+      "default": 1600,
+      "maximum": 2048,
+      "minimum": 640,
+      "title": "Max Dimension",
+      "type": "integer"
+    },
+    "purpose": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    }
+  },
+  "required": [
+    "purpose"
+  ],
+  "title": "DeviceScreenshotInput",
+  "type": "object"
+}

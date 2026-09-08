@@ -101,6 +101,7 @@ jobs:
           dotnet-version: 8.0.x
       - run: uv python install 3.12
       - run: uv sync --frozen --all-packages --all-groups
+      - run: uv sync --frozen --all-packages --all-groups --extra ui
       - run: dotnet test agent/broker/Codito.Broker.sln --configuration Release --maxcpucount:1
       - name: Strict Windows agent type checks
         shell: pwsh

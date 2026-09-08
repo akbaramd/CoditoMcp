@@ -464,7 +464,9 @@ class DeviceWebSocketClient:
                 mode="json", exclude_none=True
             )
             state = OperationState.FAILED
-        self.database.transition_operation(envelope.message_id, state, payload)
+        from codito_protocol.screenshot import durable_tool_result
+
+        self.database.transition_operation(envelope.message_id, state, durable_tool_result(payload))
         await self._send_new(
             MessageKind.OPERATION_RESULT,
             correlation_id=envelope.correlation_id,

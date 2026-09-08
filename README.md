@@ -1,5 +1,18 @@
 # Codito
 
+## Native Windows work and screenshots
+
+Choose **Project access (native)** locally to use installed tools (`uv`, `.NET`, Git,
+SSH, Docker) for prompt-free project work. Outside cwd / declared external paths
+require Windows Deny/Allow/Always allow. This is cooperative native approval routing,
+not an OS sandbox; arbitrary native commands still have the Windows user's authority.
+Shell starts return a job immediately while waiting for approval; use poll/cancel.
+
+`device_screenshot` sends a current primary-display PNG directly to ChatGPT after
+separate local screen consent. Re-authorize `screen:read` when adding this tool to
+an existing connection. It cannot control the mouse/keyboard, elevate, or capture
+the secure desktop. [Acceptance guide](docs/operations/2026-09-08-approval-and-screen-release.md).
+
 Codito is a self-hosted, OAuth-protected bridge that lets ChatGPT work with
 registered projects on a user's Windows device, with Windows-approved access
 outside projects when requested. Registered roots stay local; explicitly requested

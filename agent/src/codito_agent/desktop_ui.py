@@ -41,8 +41,10 @@ from PySide6.QtWidgets import (
 from . import __version__
 from .account import sign_in, sign_out
 from .config import AgentConfig
+from .diagnostics import event
 from .errors import AgentError
 from .ipc import NamedPipeClient
+from .notifications import register_activation, show_native_toast
 from .updates import GitHubUpdateService, ReleaseUpdate
 
 APP_STYLE = """
@@ -175,6 +177,7 @@ QStatusBar { background: #ffffff; color: #667085; border-top: 1px solid #eaecf0;
 """
 
 MODE_LABELS = {
+    "native_project": "Project access (native)",
     "isolated": "Isolated",
     "native_approval": "Native approval",
     "native_trusted": "Native trusted",
@@ -273,6 +276,23 @@ class UpdateWorker(QThread):  # type: ignore[misc, unused-ignore]  # PySide whee
             self.failed.emit("The update operation failed unexpectedly")
 
 
+class ApprovalToastWorker(QThread):  # type: ignore[misc, unused-ignore]
+    failed = Signal()
+
+    def __init__(self, broker: Path | None, approval: dict[str, Any]) -> None:
+        super().__init__()
+        self.broker = broker
+        self.approval = approval
+
+    def run(self) -> None:
+        try:
+            show_native_toast(self.broker, self.approval)
+            event("toast_shown", str(self.approval.get("request_id", "")))
+        except Exception as exc:
+            event("toast_failed", str(self.approval.get("request_id", "")), type(exc).__name__)
+            self.failed.emit()
+
+
 class AccountWorker(QThread):  # type: ignore[misc, unused-ignore]
     completed = Signal(str, object)
     failed = Signal(str)
@@ -316,6 +336,12 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         self._update_check_silent = False
         self._quitting = False
         self._approval_dialog_active = False
+        self._toast_workers: list[ApprovalToastWorker] = []
+        try:
+            self._actionable_toasts = register_activation()
+        except Exception as exc:
+            event("toast_registration_failed", detail=type(exc).__name__)
+            self._actionable_toasts = False
         self.setWindowTitle("Codito — Device MCP")
         self.setMinimumSize(920, 620)
         self.resize(1120, 740)
@@ -329,6 +355,9 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         self.approval_timer = QTimer(self)
         self.approval_timer.timeout.connect(self.poll_approval)
         self.approval_timer.start(750)
+        self.capture_timer = QTimer(self)
+        self.capture_timer.timeout.connect(self.poll_capture)
+        self.capture_timer.start(750)
         self.project_request_timer = QTimer(self)
         self.project_request_timer.timeout.connect(self.poll_project_request)
         self.project_request_timer.start(1200)
@@ -455,6 +484,7 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             "project_shell",
             "project_manage",
             "device_read",
+            "device_screenshot",
         ):
             badge = _label(name, "HeroBadge")
             badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -471,6 +501,12 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         metrics.addWidget(self.projects_metric)
         metrics.addWidget(self.approvals_metric)
         layout.addLayout(metrics)
+        self.review_approvals_button = QPushButton("Review pending approvals")
+        self.review_approvals_button.clicked.connect(self.poll_approval)
+        layout.addWidget(self.review_approvals_button)
+        test_notification = QPushButton("Test Windows approval notification (no command)")
+        test_notification.clicked.connect(lambda: self._request({"action": "approval.test"}))
+        layout.addWidget(test_notification)
 
         connection = QFrame()
         connection.setObjectName("Card")
@@ -655,6 +691,9 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         permissions_button = QPushButton("Review / revoke saved read permissions")
         permissions_button.clicked.connect(self.review_read_permissions)
         permissions_layout.addWidget(permissions_button)
+        shell_permissions_button = QPushButton("Review / revoke saved shell permissions")
+        shell_permissions_button.clicked.connect(self.review_shell_permissions)
+        permissions_layout.addWidget(shell_permissions_button)
         layout.addWidget(permissions)
 
         endpoint = QFrame()
@@ -754,6 +793,10 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         menu.addAction(quit_action)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self._tray_activated)
+        self.tray.messageClicked.connect(self.poll_approval)
+        approvals_action = QAction("Review pending approvals", self)
+        approvals_action.triggered.connect(self.poll_approval)
+        menu.addAction(approvals_action)
 
     def _show_page(self, index: int) -> None:
         names = ("Overview", "Projects", "Activity", "Settings")
@@ -768,7 +811,8 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
     def _request(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         try:
             response = self.client.request(payload)
-        except Exception:
+        except Exception as exc:
+            event("ipc_error", detail=type(exc).__name__)
             return None
         return response if isinstance(response, dict) else None
 
@@ -1022,13 +1066,19 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         if mode == previous:
             return
         acknowledged = False
-        if mode == "native_trusted":
+        if mode in {"native_trusted", "native_project"}:
             answer = QMessageBox.warning(
                 self,
-                "Enable Native trusted?",
-                "Native trusted commands run with your full Windows user filesystem and network "
-                "authority without a local prompt. A project working directory is not a security "
-                "boundary.\n\nEnable this mode only for a project and account you fully trust.",
+                f"Enable {MODE_LABELS[mode]}?",
+                (
+                    "Project commands run without prompts. Outside working directories and "
+                    "declared/detected external paths require approval. "
+                    if mode == "native_project"
+                    else "All native commands run without prompts. "
+                )
+                + "Commands have your full Windows user filesystem and network authority. "
+                "This is NOT a sandbox: scripts can construct other paths and child processes "
+                "can access them.\n\nEnable only for a project and account you trust.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Cancel,
             )
@@ -1278,18 +1328,43 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         self._approval_dialog_active = True
         try:
             self._show_approval(approval)
+        except Exception as exc:
+            event(
+                "approval_display_failed", str(approval.get("request_id", "")), type(exc).__name__
+            )
+            self.statusBar().showMessage(
+                "Approval display failed. Request is retained; retry from Overview."
+            )
         finally:
             self._approval_dialog_active = False
 
     def _show_approval(self, approval: dict[str, Any]) -> None:
-        self.tray.showMessage(
-            "Codito approval required",
-            f"{approval.get('project_title')}: {approval.get('summary')}",
-            QSystemTrayIcon.MessageIcon.Warning,
-            10_000,
-        )
-        self.show_window()
+        def fallback_toast() -> None:
+            self.tray.showMessage(
+                "Codito approval required — open Codito to decide",
+                str(approval.get("project_title", "")),
+                QSystemTrayIcon.MessageIcon.Warning,
+                10_000,
+            )
+
+        if self._actionable_toasts and approval.get("toast_tokens"):
+            worker = ApprovalToastWorker(self.config.broker_path, approval)
+            self._toast_workers.append(worker)
+            worker.failed.connect(fallback_toast)
+
+            def completed() -> None:
+                self._toast_workers.remove(worker)
+                worker.deleteLater()
+
+            worker.finished.connect(completed)
+            worker.start()
+        else:
+            fallback_toast()
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
         dialog = QMessageBox(self)
+        dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
         dialog.setIcon(QMessageBox.Icon.Warning)
         dialog.setWindowTitle("Codito local approval")
         dialog.setTextFormat(Qt.TextFormat.PlainText)
@@ -1299,6 +1374,13 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             f"Capability: {approval.get('capability')}\n"
             f"Risk: {approval.get('risk')}\n\n"
             "Review the exact operation details before allowing it."
+            + (
+                "\n\nAlways allow shell saves native execution for this project and requested "
+                "scope/account/link. It grants full Windows user authority, not confinement to "
+                "these paths. A different requested scope asks again. Revoke in Settings."
+                if approval.get("persistent_shell_eligible")
+                else ""
+            )
             + (
                 "\n\nAlways allow saves READ access to the shown directory and all descendants. "
                 "Private files and secrets there could be sent to the requesting client. "
@@ -1324,12 +1406,19 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             "requested_external_paths": approval.get("requested_external_paths"),
             "action_digest": approval.get("action_digest"),
         }
-        dialog.setDetailedText(json.dumps(details, indent=2, ensure_ascii=False))
+        dialog.setDetailedText(json.dumps(details, indent=2, ensure_ascii=False, default=str))
+        # QMessageBox.setDetailedText rebuilds its window flags; set this afterwards.
+        dialog.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         deny = dialog.addButton("Deny", QMessageBox.ButtonRole.RejectRole)
         dialog.setDefaultButton(deny)
         dialog.setEscapeButton(deny)
         once = dialog.addButton("Allow once", QMessageBox.ButtonRole.AcceptRole)
         always_read = None
+        always_shell = None
+        if approval.get("persistent_shell_eligible"):
+            always_shell = dialog.addButton(
+                "Always allow shell for this scope", QMessageBox.ButtonRole.YesRole
+            )
         if approval.get("persistent_read_eligible"):
             always_read = dialog.addButton(
                 "Always allow reading this folder", QMessageBox.ButtonRole.YesRole
@@ -1339,8 +1428,51 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             session = dialog.addButton(
                 "Allow similar access for this session", QMessageBox.ButtonRole.YesRole
             )
+
+        # Mark delivery after Qt has shown the dialog, not when IPC fetched it.
+        def displayed() -> None:
+            if dialog.isVisible():
+                self._request(
+                    {"action": "approval.displayed", "request_id": approval["request_id"]}
+                )
+                QApplication.alert(dialog, 10_000)
+                dialog.raise_()
+                dialog.activateWindow()
+
+        # Close stale dialogs: they must never offer an actionable expired Allow.
+        deadline = datetime.fromisoformat(str(approval["deadline_at"]))
+        remaining = max(0, int((deadline - datetime.now(UTC)).total_seconds() * 1000))
+        expiry = QTimer(dialog)
+        expiry.setSingleShot(True)
+        expiry.timeout.connect(dialog.reject)
+        expiry.start(min(remaining, 2_147_483_647))
+        resolved_elsewhere = False
+
+        def check_resolved() -> None:
+            nonlocal resolved_elsewhere
+            response = self._request(
+                {"action": "approval.pending", "request_id": approval["request_id"]}
+            )
+            if response and response.get("ok") and response.get("pending") is False:
+                resolved_elsewhere = True
+                dialog.reject()  # A toast decision/expiry already resolved this request.
+
+        decision_timer = QTimer(dialog)
+        decision_timer.timeout.connect(check_resolved)
+        decision_timer.start(500)
+        delivery_timer = QTimer(dialog)
+        delivery_timer.setSingleShot(True)
+        delivery_timer.timeout.connect(displayed)
+        delivery_timer.start(0)
         dialog.exec()
+        decision_timer.stop()
+        delivery_timer.stop()
+        expiry.stop()
         clicked = dialog.clickedButton()
+        if resolved_elsewhere:
+            self.refresh()
+            dialog.deleteLater()
+            return
         decision = "deny"
         if clicked is once:
             decision = "allow_once"
@@ -1348,14 +1480,43 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             decision = "allow_session"
         elif always_read is not None and clicked is always_read:
             decision = "allow_always_read"
-        self._request(
+        elif always_shell is not None and clicked is always_shell:
+            decision = "allow_always_shell"
+        response = self._request(
             {
                 "action": "approval.respond",
                 "request_id": approval["request_id"],
                 "decision": decision,
             }
         )
+        if not response or not response.get("ok"):
+            self.statusBar().showMessage(
+                "Decision was not accepted (expired or disconnected). Refresh pending approvals.",
+                10000,
+            )
         self.refresh()
+        dialog.deleteLater()
+
+    def poll_capture(self) -> None:
+        if self._approval_dialog_active:
+            return
+        response = self._request({"action": "screen.next"})
+        request = response.get("capture") if response else None
+        if not isinstance(request, dict):
+            return
+        try:
+            from .desktop_capture import capture_primary_screen
+
+            if datetime.fromisoformat(request["deadline_at"]) <= datetime.now(UTC):
+                raise ValueError("Capture expired")
+            result = capture_primary_screen(int(request["max_dimension"]))
+            event("screen_captured", str(request["capture_id"]))
+        except Exception as exc:
+            event("screen_capture_failed", str(request.get("capture_id", "")), type(exc).__name__)
+            result = {"ok": False}
+        self._request(
+            {"action": "screen.respond", "capture_id": request["capture_id"], "result": result}
+        )
 
     def review_read_permissions(self) -> None:
         response = self._request({"action": "read_permissions.list"})
@@ -1379,7 +1540,31 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         if dialog.clickedButton() is revoke:
             self._request({"action": "read_permissions.revoke_all"})
 
+    def review_shell_permissions(self) -> None:
+        response = self._request({"action": "shell_permissions.list"})
+        if not response:
+            return
+        permissions = response.get("permissions", [])
+        dialog = QMessageBox(self)
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.setWindowTitle("Codito saved shell permissions")
+        dialog.setText(f"{len(permissions)} saved native shell permission(s)")
+        dialog.setInformativeText(
+            "These grants allow full-user native commands for their request scope, not just "
+            "reading. They do not provide filesystem confinement."
+        )
+        dialog.setDetailedText(json.dumps(permissions, indent=2, ensure_ascii=False))
+        dialog.addButton("Close", QMessageBox.ButtonRole.RejectRole)
+        revoke = dialog.addButton(
+            "Revoke all shell permissions", QMessageBox.ButtonRole.DestructiveRole
+        )
+        dialog.exec()
+        if dialog.clickedButton() is revoke:
+            self._request({"action": "shell_permissions.revoke_all"})
+
     def poll_project_request(self) -> None:
+        if self._approval_dialog_active:
+            return
         response = self._request({"action": "project.request.next"})
         request = response.get("request") if response else None
         if not isinstance(request, dict):

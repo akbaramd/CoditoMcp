@@ -15,6 +15,7 @@ from codito_protocol import (
     TunnelBindings,
     TunnelEnvelope,
 )
+from codito_protocol.screenshot import durable_tool_result
 from django.db import transaction
 from django.utils import timezone
 from pydantic import ValidationError
@@ -154,7 +155,7 @@ def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelop
     }
     if operation.status in terminal_statuses:
         if envelope.kind is MessageKind.OPERATION_RESULT:
-            if operation.result == envelope.payload:
+            if operation.result == durable_tool_result(envelope.payload):
                 return operation
             reconcilable_errors = {
                 "device_offline",
@@ -176,7 +177,7 @@ def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelop
                     if validated_payload.get("ok") is False or validated_payload.get("error")
                     else Operation.Status.SUCCEEDED
                 )
-                operation.result = validated_payload
+                operation.result = durable_tool_result(validated_payload)
                 device_error = validated_payload.get("error")
                 operation.error_code = (
                     str(device_error.get("code", "device_error"))
@@ -232,7 +233,7 @@ def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelop
     if status and state_rank.get(status, 0) >= state_rank.get(operation.status, 0):
         operation.status = status
     if envelope.kind is MessageKind.OPERATION_RESULT:
-        operation.result = envelope.payload
+        operation.result = durable_tool_result(envelope.payload)
     operation.connection_epoch = connection.epoch
     operation.last_device_sequence = envelope.sequence
     operation.last_device_sequence_epoch = connection.epoch

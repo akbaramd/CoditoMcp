@@ -21,6 +21,7 @@ class ApprovalDecision(StrEnum):
     ALLOW_ONCE = "allow_once"
     ALLOW_SESSION = "allow_session"
     ALLOW_ALWAYS_READ = "allow_always_read"
+    ALLOW_ALWAYS_SHELL = "allow_always_shell"
 
 
 class ApprovalRisk(StrEnum):
@@ -54,6 +55,7 @@ class ApprovalRequest:
     requested_external_paths: tuple[str, ...] = ()
     session_eligible: bool = False
     persistent_read_eligible: bool = False
+    persistent_shell_eligible: bool = False
 
 
 @dataclass(slots=True)
@@ -102,9 +104,38 @@ class ApprovalManager:
         *,
         session_eligible: bool,
         read_scope: tuple[str, str] | None = None,
+        shell_scope: tuple[str, str] | None = None,
+        reuse_shell_permission: bool = True,
     ) -> None:
         self._ensure_before_deadline(request)
         permission_key = ""
+        if shell_scope is not None:
+            if (
+                read_scope is not None
+                or request.capability != "shell:execute"
+                or request.risk is not ApprovalRisk.NATIVE_EXECUTION
+                or request.command is None
+                or request.patch is not None
+                or session_eligible
+                or self._database is None
+            ):
+                raise AgentError("invalid_approval", "Persistent shell permission is unavailable")
+            permission_key = action_digest(
+                [
+                    request.account_id,
+                    request.grant_id,
+                    request.link_id,
+                    request.device_id,
+                    request.project_id,
+                    "shell:execute",
+                    shell_scope[0],
+                ]
+            )
+            with self._lock:
+                if reuse_shell_permission and self._database.has_shell_permission(
+                    permission_key, shell_scope[1]
+                ):
+                    return
         if read_scope is not None:
             if (
                 request.capability != "device:read"
@@ -138,6 +169,7 @@ class ApprovalManager:
             request,
             session_eligible=session_eligible,
             persistent_read_eligible=read_scope is not None,
+            persistent_shell_eligible=shell_scope is not None,
         )
         with self._lock:
             security_generation = self._security_generation
@@ -162,6 +194,13 @@ class ApprovalManager:
                     raise AgentError("invalid_approval", "Always allow is unavailable here")
                 self._database.save_read_permission(
                     permission_key, *read_scope, request.account_id, request.link_id
+                )
+                return
+            if decision is ApprovalDecision.ALLOW_ALWAYS_SHELL:
+                if shell_scope is None or self._database is None:
+                    raise AgentError("invalid_approval", "Always allow shell is unavailable here")
+                self._database.save_shell_permission(
+                    permission_key, *shell_scope, request.account_id, request.link_id
                 )
                 return
         if decision is ApprovalDecision.DENY:
@@ -274,6 +313,10 @@ class ApprovalManager:
             self._security_generation += 1
 
     @property
+    def supports_saved_permissions(self) -> bool:
+        return self._database is not None
+
+    @property
     def generation(self) -> int:
         with self._lock:
             return self._security_generation
@@ -287,6 +330,11 @@ class ApprovalManager:
         with self._lock:
             self._security_generation += 1
             return self._database.revoke_read_permissions() if self._database else 0
+
+    def revoke_shell_permissions(self) -> int:
+        with self._lock:
+            self._security_generation += 1
+            return self._database.revoke_shell_permissions() if self._database else 0
 
     @staticmethod
     def _ensure_before_deadline(request: ApprovalRequest) -> None:

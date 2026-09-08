@@ -41,6 +41,7 @@ async def sign_in(config: AgentConfig, *, reenroll: bool = False) -> EnrollmentR
     state = await relay.exchange_code(authorization)
     if reenroll and credentials.metadata_path.exists():
         database.revoke_read_permissions()
+        database.revoke_shell_permissions()
         identity = credentials.rotate()
         database.rotate_project_ids()
     elif credentials.metadata_path.exists():
@@ -73,6 +74,7 @@ async def sign_out(config: AgentConfig) -> None:
             await relay.revoke_device(state, state.device_id)
     finally:
         database.revoke_read_permissions()
+        database.revoke_shell_permissions()
         tokens.clear()
     if credentials.metadata_path.exists():
         credentials.rotate()

@@ -164,7 +164,8 @@
           "enum": [
             "isolated",
             "native_approval",
-            "native_trusted"
+            "native_trusted",
+            "native_project"
           ],
           "title": "Mode",
           "type": "string"

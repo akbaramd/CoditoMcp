@@ -13,6 +13,7 @@ from .digest import compute_action_digest
 from .manage import ProjectManageInput
 from .patch import ProjectApplyPatchInput
 from .read import ProjectReadInput
+from .screenshot import DeviceScreenshotInput
 from .shell import ProjectShellInput
 from .types import PROTOCOL_VERSION, CoditoModel, OpaqueId, Sha256, ensure_utc, utc_now
 
@@ -43,13 +44,19 @@ class TunnelBindings(CoditoModel):
 
 class OperationPayload(CoditoModel):
     tool_name: Literal[
-        "project_read", "project_apply_patch", "project_shell", "project_manage", "device_read"
+        "project_read",
+        "project_apply_patch",
+        "project_shell",
+        "project_manage",
+        "device_read",
+        "device_screenshot",
     ]
     input: dict[str, Any]
 
     @model_validator(mode="after")
     def validate_tool_input(self) -> OperationPayload:
         adapters: dict[str, TypeAdapter[Any]] = {
+            "device_screenshot": TypeAdapter(DeviceScreenshotInput),
             "device_read": TypeAdapter(DeviceReadInput),
             "project_read": TypeAdapter(ProjectReadInput),
             "project_apply_patch": TypeAdapter(ProjectApplyPatchInput),

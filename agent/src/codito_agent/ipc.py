@@ -5,17 +5,18 @@ import dataclasses
 import getpass
 import hashlib
 import json
-import queue
 import secrets
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from multiprocessing.connection import Client, Listener
 from pathlib import Path
 from typing import Any
 
 from .approvals import ApprovalDecision, ApprovalRequest
 from .credentials import DataProtector, DpapiProtector
+from .diagnostics import event
 from .errors import AgentError
 
 MAX_IPC_MESSAGE = 1_048_576
@@ -125,13 +126,14 @@ class _PendingApproval:
     request: ApprovalRequest
     loop: asyncio.AbstractEventLoop
     future: asyncio.Future[ApprovalDecision]
+    displayed: bool = False
+    toast_tokens: dict[str, str] = field(default_factory=dict)
 
 
 class QueuedApprovalPrompt:
     """Bridge async daemon approvals to a persistent tray-owned dialog queue."""
 
     def __init__(self) -> None:
-        self._queue: queue.Queue[str] = queue.Queue()
         self._pending: dict[str, _PendingApproval] = {}
         self._lock = threading.Lock()
 
@@ -139,26 +141,65 @@ class QueuedApprovalPrompt:
         loop = asyncio.get_running_loop()
         future: asyncio.Future[ApprovalDecision] = loop.create_future()
         with self._lock:
-            self._pending[request.request_id] = _PendingApproval(request, loop, future)
-        self._queue.put(request.request_id)
+            decisions = ["deny", "allow_once", "review"]
+            if request.persistent_read_eligible:
+                decisions.append("allow_always_read")
+            if request.persistent_shell_eligible:
+                decisions.append("allow_always_shell")
+            pending = _PendingApproval(request, loop, future)
+            pending.toast_tokens = {decision: secrets.token_urlsafe(32) for decision in decisions}
+            self._pending[request.request_id] = pending
+        event("approval_created", request.request_id)
         try:
             return await future
         finally:
+            event("approval_closed", request.request_id)
             with self._lock:
                 self._pending.pop(request.request_id, None)
 
     def next_request(self) -> dict[str, Any] | None:
-        try:
-            request_id = self._queue.get_nowait()
-        except queue.Empty:
-            return None
         with self._lock:
-            pending = self._pending.get(request_id)
+            # Peek, never consume. A tray crash/IPC error must not lose a prompt.
+            pending = next((p for p in self._pending.values() if not p.future.done()), None)
         if pending is None:
             return None
         value = dataclasses.asdict(pending.request)
         value["risk"] = pending.request.risk.value
+        value["toast_tokens"] = dict(pending.toast_tokens)
         return value
+
+    def respond_toast(self, request_id: str, decision: str, token: str) -> bool:
+        with self._lock:
+            pending = self._pending.get(request_id)
+            if (
+                pending is None
+                or pending.future.done()
+                or pending.request.deadline_at <= datetime.now(UTC)
+            ):
+                return False
+            expected = pending.toast_tokens.get(decision)
+            if expected is None or not secrets.compare_digest(expected, token):
+                return False
+            if decision == "review":
+                return True
+            # Consume every button token together; duplicate activations cannot change a choice.
+            pending.toast_tokens.clear()
+        return self.respond(request_id, decision)
+
+    def is_pending(self, request_id: str) -> bool:
+        with self._lock:
+            pending = self._pending.get(request_id)
+            return pending is not None and not pending.future.done()
+
+    def mark_displayed(self, request_id: str) -> bool:
+        with self._lock:
+            pending = self._pending.get(request_id)
+            if pending is None or pending.future.done():
+                return False
+            if not pending.displayed:
+                pending.displayed = True
+                event("approval_displayed", request_id)
+            return True
 
     @property
     def pending_count(self) -> int:
@@ -181,6 +222,7 @@ class QueuedApprovalPrompt:
     def _resolve(pending: _PendingApproval, decision: ApprovalDecision) -> None:
         # Expiry, disconnect and a UI click can race before the event-loop callback.
         if not pending.future.done():
+            event("approval_decision", pending.request.request_id, decision.value)
             pending.future.set_result(decision)
 
     def deny_all(self) -> None:

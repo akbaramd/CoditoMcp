@@ -1,0 +1,55 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/device-screenshot-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "captured_at": {
+      "format": "date-time",
+      "title": "Captured At",
+      "type": "string"
+    },
+    "display": {
+      "const": "primary",
+      "default": "primary",
+      "title": "Display",
+      "type": "string"
+    },
+    "height": {
+      "maximum": 2048,
+      "minimum": 1,
+      "title": "Height",
+      "type": "integer"
+    },
+    "image_base64": {
+      "maxLength": 800000,
+      "minLength": 1,
+      "title": "Image Base64",
+      "type": "string"
+    },
+    "mime_type": {
+      "const": "image/png",
+      "default": "image/png",
+      "title": "Mime Type",
+      "type": "string"
+    },
+    "sha256": {
+      "title": "Sha256",
+      "type": "string"
+    },
+    "width": {
+      "maximum": 2048,
+      "minimum": 1,
+      "title": "Width",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "width",
+    "height",
+    "captured_at",
+    "sha256",
+    "image_base64"
+  ],
+  "title": "DeviceScreenshotResult",
+  "type": "object"
+}

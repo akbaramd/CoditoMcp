@@ -10,6 +10,25 @@ def _oauth_scheme(*scopes: str) -> dict[str, Any]:
 
 
 TOOL_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
+    "device_screenshot": {
+        "title": "Capture the Windows primary display with local consent",
+        "description": (
+            "Request a current screenshot of this device's primary Windows display. "
+            "Returns an actual PNG image for visual inspection, not a filesystem path. "
+            "Requires separate Windows screen consent; file/shell permissions do not authorize it. "
+            "Shows all visible primary-display windows, potentially including private data. "
+            "Cannot capture the lock screen/UAC secure desktop or control mouse/keyboard. "
+            "Image is scaled within max_dimension and 600 KB; repeat for a new capture."
+        ),
+        "required_scopes": ["screen:read"],
+        "securitySchemes": [_oauth_scheme("screen:read")],
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    },
     "device_read": {
         "title": "Request Windows read access outside projects",
         "description": (
@@ -80,7 +99,13 @@ TOOL_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
             "for full logged-in-user authority and the host tool PATH. A script may change "
             "directory after approval. Never claim that a working directory confines native "
             "commands. Missing tools or failed isolation never silently bypass consent. "
-            "Default project_policy keeps locally selected isolation/trust settings."
+            "Default project_policy keeps locally selected isolation/trust settings. "
+            "In native_project mode, ordinary project commands use installed Windows tools "
+            "without prompts. For outside-project work set external_working_directory "
+            "and declare requested_external_paths; Windows approval is required. "
+            "Start returns pending_approval immediately; poll that job while the user decides, "
+            "do not resubmit a new start. Approval timeout is separate from process timeout. "
+            "Native project checks declared and literal paths, NOT arbitrary program behavior."
         ),
         "required_scopes": ["projects:read", "shell:execute"],
         "securitySchemes": [_oauth_scheme("projects:read", "shell:execute")],

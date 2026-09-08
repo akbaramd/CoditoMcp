@@ -107,6 +107,14 @@ class AgentDatabase:
                     link_id TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS shell_permissions (
+                    permission_key TEXT PRIMARY KEY,
+                    scope_path TEXT NOT NULL,
+                    root_identity TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    link_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS project_registration_requests (
                     request_id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
@@ -126,6 +134,32 @@ class AgentDatabase:
                     ON project_registration_requests(status, created_at);
                 """
             )
+            # Rebuild only the CHECK constraint; preserve IDs and referencing journals.
+            schema = str(
+                connection.execute(
+                    "SELECT sql FROM sqlite_master WHERE name='projects'"
+                ).fetchone()[0]
+            )
+            if "native_project" not in schema:
+                connection.execute("PRAGMA foreign_keys=OFF")
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                    connection.execute(
+                        schema.replace("projects", "projects_v2", 1).replace(
+                            "'native_trusted'", "'native_trusted','native_project'"
+                        )
+                    )
+                    connection.execute("INSERT INTO projects_v2 SELECT * FROM projects")
+                    connection.execute("DROP TABLE projects")
+                    connection.execute("ALTER TABLE projects_v2 RENAME TO projects")
+                    if connection.execute("PRAGMA foreign_key_check").fetchone():
+                        raise AgentError("migration_failed", "Project references failed validation")
+                    connection.execute("COMMIT")
+                except BaseException:
+                    connection.execute("ROLLBACK")
+                    raise
+                finally:
+                    connection.execute("PRAGMA foreign_keys=ON")
             columns = {
                 str(row["name"])
                 for row in connection.execute("PRAGMA table_info(operations)").fetchall()
@@ -309,7 +343,40 @@ class AgentDatabase:
     def revoke_read_permissions(self) -> int:
         with self._connect() as connection:
             cursor = connection.execute("DELETE FROM read_permissions")
-        return cursor.rowcount
+            return cursor.rowcount
+
+    def has_shell_permission(self, key: str, identity: str) -> bool:
+        with self._connect() as connection:
+            return (
+                connection.execute(
+                    "SELECT 1 FROM shell_permissions WHERE permission_key=? AND root_identity=?",
+                    (key, identity),
+                ).fetchone()
+                is not None
+            )
+
+    def save_shell_permission(
+        self, key: str, scope: str, identity: str, account: str, link: str
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO shell_permissions VALUES (?,?,?,?,?,?)",
+                (key, scope, identity, account, link, _now()),
+            )
+
+    def list_shell_permissions(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            return [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT scope_path,account_id,link_id,created_at FROM shell_permissions "
+                    "ORDER BY created_at DESC"
+                )
+            ]
+
+    def revoke_shell_permissions(self) -> int:
+        with self._connect() as connection:
+            return connection.execute("DELETE FROM shell_permissions").rowcount
 
     def set_setting(self, key: str, value: str) -> None:
         if not key or len(key) > 100 or len(value) > 4096:

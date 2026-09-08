@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import platform
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .approvals import ApprovalManager
+from .approvals import ApprovalManager, ApprovalRisk
 from .broker_client import BrokerClient
 from .config import AgentConfig
 from .credentials import DeviceCredentialStore
@@ -29,6 +29,9 @@ class CoditoDaemon:
     def __init__(self, config: AgentConfig) -> None:
         self.config = config
         config.ensure_directories()
+        from .diagnostics import configure
+
+        configure(config.data_directory, "daemon")
         self.database = AgentDatabase(config.data_directory / "agent.sqlite3")
         self.credentials = DeviceCredentialStore(config.data_directory / "credentials")
         self.token_store = RelayTokenStore(config.data_directory / "tokens.dpapi")
@@ -98,6 +101,7 @@ class CoditoDaemon:
         self._stop = asyncio.Event()
         self._grant_clear_task: asyncio.Task[None] | None = None
         self._metadata_sync_task: asyncio.Task[None] | None = None
+        self._notification_test_task: asyncio.Task[None] | None = None
         ipc_key = IpcSecretStore(config.data_directory / "ipc-key.dpapi").load_or_create()
         self.ipc = NamedPipeServer(default_pipe_name(), ipc_key, self._handle_ipc)
 
@@ -120,6 +124,30 @@ class CoditoDaemon:
             self.approval_queue.deny_all()
             self.approvals.clear("shutdown")
             self.ipc.close()
+
+    async def _test_notification(self) -> None:
+        request = ApprovalManager.build_request(
+            account_id="local_diagnostic",
+            grant_id="local_diagnostic",
+            link_id="local_diagnostic",
+            device_id="local_diagnostic",
+            project_id="local_diagnostic",
+            project_title="Notification test (no command)",
+            capability="diagnostic:test",
+            action_digest="0" * 64,
+            connection_epoch=self.websocket.connection_epoch,
+            deadline_at=datetime.now(UTC) + timedelta(seconds=180),
+            risk=ApprovalRisk.READ,
+            summary=(
+                "Notification test only. Allow or Deny closes this test; neither runs "
+                "a command, reads a file, nor saves a permission."
+            ),
+        )
+        try:
+            # Deliberately bypass permission storage and execution, not real authorization.
+            await asyncio.wait_for(self.approval_queue(request), timeout=180)
+        except TimeoutError:
+            pass
 
     async def _execute_operation(
         self,
@@ -205,6 +233,43 @@ class CoditoDaemon:
             }
         if action == "approval.next":
             return {"ok": True, "approval": self.approval_queue.next_request()}
+        if action == "screen.next":
+            return {"ok": True, "capture": self.adapter.screen_queue.next_request()}
+        if action == "screen.respond":
+            result = request.get("result")
+            return {
+                "ok": isinstance(result, dict)
+                and self.adapter.screen_queue.respond(str(request.get("capture_id", "")), result)
+            }
+        if action == "approval.test" and self._loop is not None:
+
+            def schedule_test() -> None:
+                if self._notification_test_task is None or self._notification_test_task.done():
+                    self._notification_test_task = asyncio.create_task(self._test_notification())
+
+            self._loop.call_soon_threadsafe(schedule_test)
+            return {"ok": True}
+        if action == "approval.displayed":
+            return {"ok": self.approval_queue.mark_displayed(str(request.get("request_id", "")))}
+        if action == "approval.pending":
+            return {
+                "ok": True,
+                "pending": self.approval_queue.is_pending(str(request.get("request_id", ""))),
+            }
+        if action == "approval.toast":
+            return {
+                "ok": self.approval_queue.respond_toast(
+                    str(request.get("request_id", "")),
+                    str(request.get("decision", "")),
+                    str(request.get("token", "")),
+                )
+            }
+        if action == "shell_permissions.list":
+            return {"ok": True, "permissions": self.database.list_shell_permissions()}
+        if action == "shell_permissions.revoke_all":
+            count = self.approvals.revoke_shell_permissions()
+            self.approval_queue.deny_all()
+            return {"ok": True, "revoked": count}
         if action == "read_permissions.list":
             return {"ok": True, "permissions": self.database.list_read_permissions()}
         if action == "read_permissions.revoke_all":
@@ -242,7 +307,7 @@ class CoditoDaemon:
         if action == "project.mode":
             mode = ProjectMode(str(request.get("mode", "")))
             if (
-                mode is ProjectMode.NATIVE_TRUSTED
+                mode in {ProjectMode.NATIVE_TRUSTED, ProjectMode.NATIVE_PROJECT}
                 and request.get("acknowledge_full_user_authority") is not True
             ):
                 raise AgentError(

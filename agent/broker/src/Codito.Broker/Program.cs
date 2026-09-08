@@ -20,6 +20,12 @@ try
         await JsonSerializer.SerializeAsync(Console.OpenStandardOutput(), CapabilityProbe.Probe());
         return 0;
     }
+    if (args[0] == "--json" && request.Operation == "notify" && request.Toast is not null)
+    {
+        ApprovalToast.Show(request.Toast);
+        await JsonSerializer.SerializeAsync(Console.OpenStandardOutput(), new { ok = true });
+        return 0;
+    }
     if (args[0] == "--run-json" && request.Operation == "run" && request.Specification is not null)
     {
         if (request.Mode == "isolated")
@@ -42,4 +48,3 @@ catch (Exception exception) when (
     Console.Error.WriteLine(exception.Message);
     return 65;
 }
-

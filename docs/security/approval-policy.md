@@ -1,5 +1,11 @@
 # Local approval policy
 
+Updated 2026-09-08: [ADR 0013](../adr/0013-native-project-approvals.md) extends the
+original matrix below with opt-in native_project, separate persistent shell grants,
+non-consuming approval delivery and one-use native-toast action tokens.
+[ADR 0014](../adr/0014-consented-screenshots.md) adds separate one-shot screen consent.
+These are implemented cooperative native policies, not a completed AppContainer sandbox.
+
 Authorization and approval are separate. OAuth answers whether a remote client may
 request a capability. The Windows policy/UI answers whether this exact device action
 may execute under the selected local mode.

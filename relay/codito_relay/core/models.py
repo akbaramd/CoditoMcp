@@ -169,6 +169,7 @@ class Project(models.Model):
         ISOLATED = "isolated", "Isolated"
         NATIVE_APPROVAL = "native_approval", "Native approval"
         NATIVE_TRUSTED = "native_trusted", "Native trusted"
+        NATIVE_PROJECT = "native_project", "Project access (native)"
 
     class Status(models.TextChoices):
         AVAILABLE = "available", "Available"
@@ -302,6 +303,7 @@ class Operation(models.Model):
         SHELL = "project_shell", "Project shell"
         MANAGE = "project_manage", "Project management"
         DEVICE_READ = "device_read", "Approved device read"
+        DEVICE_SCREENSHOT = "device_screenshot", "Approved screenshot"
 
     class Status(models.TextChoices):
         ACCEPTED = "accepted", "Accepted"

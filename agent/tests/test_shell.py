@@ -31,7 +31,7 @@ async def test_isolated_project_can_request_native_but_never_bypass_consent(
 
     async def prompt(request):
         assert request.requested_network
-        assert request.requested_external_paths
+        assert request.working_directory == str(project_root)
         assert not request.persistent_read_eligible
         prompted.append(request)
         return decision
@@ -71,8 +71,10 @@ async def test_isolated_project_can_request_native_but_never_bypass_consent(
         # No project trust setting is changed by an approved native request.
         assert database.get_project(project.project_id).mode is ProjectMode.ISOLATED
     else:
-        with pytest.raises(AgentError):
-            await manager.start(request, **binding)
+        result = await manager.start(request, **binding)
+        job = manager._jobs[result.structured["job_id"]]
+        await job.task
+        assert job.state == "failed"
         assert started == []
     assert len(prompted) == 1
 
@@ -347,5 +349,5 @@ async def test_native_approval_discloses_full_host_and_network_authority(
     await manager._jobs[response.structured["job_id"]].task
     assert len(displayed) == 1
     assert displayed[0].requested_network is True
-    assert displayed[0].requested_external_paths
+    assert displayed[0].working_directory == str(project_root)
     assert "working directory is not a security boundary" in displayed[0].summary

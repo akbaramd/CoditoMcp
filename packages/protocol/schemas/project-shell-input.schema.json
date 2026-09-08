@@ -139,6 +139,14 @@
           "title": "Action",
           "type": "string"
         },
+        "approval_timeout_seconds": {
+          "default": 180,
+          "description": "Time allowed for Windows consent, separate from process timeout. Start returns pending_approval promptly; poll the job while the user responds.",
+          "maximum": 300,
+          "minimum": 15,
+          "title": "Approval Timeout Seconds",
+          "type": "integer"
+        },
         "command": {
           "$ref": "#/$defs/ShellCommand",
           "description": "Structured argv or an explicit PowerShell/cmd script."
@@ -152,6 +160,19 @@
           ],
           "title": "Execution",
           "type": "string"
+        },
+        "external_working_directory": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Absolute local Windows cwd outside the project, e.g. C:/. Requires local consent; never marks a request approved.",
+          "title": "External Working Directory"
         },
         "idempotency_key": {
           "description": "Detect duplicate submission; never authorizes automatic uncertain replay.",
@@ -177,6 +198,15 @@
           "minLength": 1,
           "title": "Purpose",
           "type": "string"
+        },
+        "requested_external_paths": {
+          "description": "Declare every intended outside-project file/directory access. Native project policy checks declared and literal paths, not arbitrary program behavior. Requires Windows consent.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Requested External Paths",
+          "type": "array"
         },
         "timeout_seconds": {
           "default": 300,

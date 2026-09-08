@@ -168,7 +168,10 @@
             "queued",
             "running",
             "completed",
-            "denied"
+            "denied",
+            "failed",
+            "cancelled",
+            "outcome_unknown"
           ],
           "title": "State",
           "type": "string"

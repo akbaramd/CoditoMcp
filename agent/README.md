@@ -10,12 +10,18 @@ connection to the Codito relay.
 
 ## Security modes
 
+- **Project access (native)** is the opt-in workflow for installed Windows developer
+  tools: prompt-free project work, approval for declared/detected external requests.
+  This is not an OS sandbox. Native programs have full Windows-user authority and
+  can dynamically access other paths. See [ADR 0013](../docs/adr/0013-native-project-approvals.md).
+
 - **Isolated** is the default. A command runs only when the .NET broker proves all
   AppContainer, project ACL, network-denial, and child-containment self-tests. The
   current MVP broker deliberately fails this proof until those AppContainer tests
   are implemented; it never falls back to native execution.
 - **Native approval** uses the logged-in user's full filesystem and network
-  authority after a one-shot local dialog. A working directory inside a project is
+  authority after local consent (or a matching explicitly saved shell grant).
+  Explicit `execution=native_approval` still forces a prompt. A project cwd is
   not a security boundary.
 - **Native trusted** is a strong, explicit local opt-in. Commands still use bounded
   output, timeouts, sanitized environment, and a kill-on-close Job Object, but they
@@ -68,6 +74,14 @@ and explicit signing hook live in [`packaging/`](packaging/). See
 [`../docs/operations/windows-release.md`](../docs/operations/windows-release.md).
 
 ## Broker contract
+
+Pending approvals remain available in Overview and the tray menu. Eligible requests
+have native Deny/Allow/Always allow buttons; Settings revokes saved shell and read
+permissions separately. Test Windows approval notification is a no-op display test.
+
+`device_screenshot` returns a current primary-display PNG after **separate one-shot
+screen consent**. It does not control input or capture secure desktops. ChatGPT must
+authorize the new `screen:read` scope. See [ADR 0014](../docs/adr/0014-consented-screenshots.md).
 
 The Python process invokes the self-contained `.NET 8` broker over a bounded JSON
 stdin/stdout contract. The broker owns Job Object and future AppContainer/CNG and

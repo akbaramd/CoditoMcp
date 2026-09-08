@@ -28,13 +28,14 @@ IDEMPOTENCY_KEY = "idemkey_01J123456789ABCDEF"
 HASH = "0" * 64
 
 
-def test_exactly_five_tools_are_public() -> None:
+def test_exactly_six_tools_are_public() -> None:
     assert set(TOOL_CONTRACTS) == {
         "project_read",
         "project_apply_patch",
         "project_shell",
         "project_manage",
         "device_read",
+        "device_screenshot",
     }
     assert TOOL_CONTRACTS["project_read"]["securitySchemes"][0]["scopes"] == [
         "projects:read",

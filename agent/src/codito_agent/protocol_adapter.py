@@ -17,6 +17,7 @@ from codito_protocol import (
     validate_project_read,
     validate_project_shell,
 )
+from codito_protocol.screenshot import DeviceScreenshotInput, DeviceScreenshotResult
 from pydantic import TypeAdapter, ValidationError
 
 from .approvals import ApprovalManager, ApprovalRisk, action_digest
@@ -26,6 +27,7 @@ from .errors import AgentError
 from .patching import PatchService
 from .project_management import ProjectManagementService
 from .read_tools import ProjectReadService, ToolResponse, _decode_cursor, _encode_cursor
+from .screen_capture import DeviceScreenshotService, ScreenCaptureQueue
 from .shell import ShellManager
 
 
@@ -59,6 +61,10 @@ class AgentProtocolAdapter:
         self._shell_result: TypeAdapter[Any] = TypeAdapter(ProjectShellResult)
         self._manage_result: TypeAdapter[Any] = TypeAdapter(ProjectManageResult)
         self.device_reads = DeviceReadService(approvals, account_id=account_id, device_id=device_id)
+        self.screen_queue = ScreenCaptureQueue()
+        self.screenshots = DeviceScreenshotService(
+            approvals, self.screen_queue, account_id=account_id, device_id=device_id
+        )
 
     async def execute(
         self,
@@ -73,7 +79,17 @@ class AgentProtocolAdapter:
     ) -> ToolResponse:
         try:
             validated: Any
-            if tool_name == "device_read":
+            if tool_name == "device_screenshot":
+                async with self._read_semaphore:
+                    response = await self.screenshots.execute(
+                        DeviceScreenshotInput.model_validate(payload),
+                        grant_id=grant_id,
+                        link_id=link_id,
+                        connection_epoch=connection_epoch,
+                        deadline_at=deadline_at,
+                    )
+                validated = DeviceScreenshotResult.model_validate(response.structured)
+            elif tool_name == "device_read":
                 device_request = DeviceReadInput.model_validate(payload)
                 async with self._read_semaphore:
                     response = await self.device_reads.execute(
@@ -108,8 +124,11 @@ class AgentProtocolAdapter:
                             cached.text,
                         )
                 sections = self.patches.parser.parse(patch_request.patch)
-                if not patch_request.dry_run and any(
-                    section.action in {"delete", "move"} for section in sections
+                project = self.database.get_project(patch_request.project_id)
+                if (
+                    project.mode.value != "native_project"
+                    and not patch_request.dry_run
+                    and any(section.action in {"delete", "move"} for section in sections)
                 ):
                     project = self.database.get_project(patch_request.project_id)
                     approval = ApprovalManager.build_request(

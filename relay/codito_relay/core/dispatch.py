@@ -23,6 +23,11 @@ from codito_protocol import (
     validate_project_read,
     validate_project_shell,
 )
+from codito_protocol.screenshot import (
+    DeviceScreenshotInput,
+    DeviceScreenshotResult,
+    durable_tool_result,
+)
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -215,7 +220,9 @@ def _validate_device_result(tool_name: str, payload: dict[str, Any]) -> dict[str
         raise ToolDispatchError("protocol_error", "Device result omitted ok/result fields")
     try:
         validated_result: Any
-        if tool_name == "device_read":
+        if tool_name == "device_screenshot":
+            validated_result = DeviceScreenshotResult.model_validate(payload["result"])
+        elif tool_name == "device_read":
             validated_result = DeviceReadResult.model_validate(payload["result"])
         elif tool_name == "project_read":
             validated_result = TypeAdapter(ProjectReadResult).validate_python(payload["result"])
@@ -239,6 +246,8 @@ def _validate_device_result(tool_name: str, payload: dict[str, Any]) -> dict[str
 
 
 def _required_scopes(tool_name: str, operation: str) -> frozenset[str]:
+    if tool_name == "device_screenshot":
+        return frozenset({"screen:read"})
     if tool_name == "device_read":
         return frozenset({"files:read"})
     if tool_name == "project_read":
@@ -270,6 +279,8 @@ def _validate_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, 
             details={"fields": sorted(supplied)},
         )
     try:
+        if tool_name == "device_screenshot":
+            return DeviceScreenshotInput.model_validate(arguments).model_dump(mode="json")
         if tool_name == "device_read":
             return DeviceReadInput.model_validate(arguments).model_dump(mode="json")
         if tool_name == "project_read":
@@ -303,7 +314,7 @@ def _lookup_route(
     except Device.DoesNotExist as exc:
         raise ToolDispatchError("device_not_found", "The bound device no longer exists") from exc
     operation = str(arguments.get("operation", ""))
-    if tool_name == "device_read":
+    if tool_name in {"device_read", "device_screenshot"}:
         return device, None
     if (tool_name == "project_read" and operation == "list_projects") or (
         tool_name == "project_manage" and operation in {"get_projects", "request_add_project"}
@@ -450,7 +461,7 @@ def _finish(operation_id: uuid.UUID, result: dict[str, Any]) -> None:
             Operation.Status.RECEIVED,
             Operation.Status.RUNNING,
         ],
-    ).update(status=terminal_status, result=result)
+    ).update(status=terminal_status, result=durable_tool_result(result))
 
 
 def _mark_delivery_failure(
@@ -612,9 +623,18 @@ async def dispatch_tool(
 def success_tool_result(receipt: DispatchReceipt) -> dict[str, Any]:
     failed = receipt.result.get("ok") is False
     text = str(receipt.result.get("text") or f"Codito operation {receipt.operation_id} completed.")
+    content: list[dict[str, Any]] = [{"type": "text", "text": text}]
+    structured = {"operation_id": receipt.operation_id, **receipt.result}
+    result = receipt.result.get("result")
+    if not failed and isinstance(result, dict) and "image_base64" in result:
+        screenshot = DeviceScreenshotResult.model_validate(result)
+        content.append(
+            {"type": "image", "data": screenshot.image_base64, "mimeType": screenshot.mime_type}
+        )
+        structured["result"] = screenshot.model_dump(mode="json", exclude={"image_base64"})
     return {
-        "content": [{"type": "text", "text": text}],
-        "structuredContent": {"operation_id": receipt.operation_id, **receipt.result},
+        "content": content,
+        "structuredContent": structured,
         "isError": failed,
     }
 

@@ -26,6 +26,8 @@ LOCAL_ERROR_MAP: dict[str, ErrorCode] = {
     "file_too_large": ErrorCode.FILE_TOO_LARGE,
     "idempotency_conflict": ErrorCode.IDEMPOTENCY_CONFLICT,
     "internal_error": ErrorCode.INTERNAL_ERROR,
+    "migration_failed": ErrorCode.INTERNAL_ERROR,
+    "screenshot_unavailable": ErrorCode.INTERNAL_ERROR,
     "invalid_approval": ErrorCode.APPROVAL_DENIED,
     "invalid_config": ErrorCode.INTERNAL_ERROR,
     "invalid_cursor": ErrorCode.INVALID_REQUEST,

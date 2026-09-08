@@ -37,3 +37,33 @@ do not bypass Windows ACLs or follow reparse/placeholder/hardlink targets. A nat
 process has the logged-in user's authority, not an enforceable project boundary.
 Saved directory read permissions require specifying that same `scope_path` in
 later calls and selecting descendants via the relative `path` parameter.
+
+## Release and deployment evidence
+
+- Published GitHub release: v0.1.7, source
+  `9f8a97728cb1ed3a0f631e76ca07b68fe849d2d3` (feature commit `c28c43e`).
+- CI 34221333552 and Windows release 34221333528 both completed successfully,
+  including dependency/secret scans and PostgreSQL/Redis integration jobs.
+- Windows ZIP: 140,023,704 bytes; SHA-256
+  `7c50013af6029abdfd2f42897905c6536c9fec9b8e272d5ea691798ae68b7a8c`.
+  Installed through the checksum-verifying bootstrap. Both running executables
+  are from the per-user `app/0.1.7` directory; current-version is 0.1.7.
+- Relay image: `docker.wa-nezam.org/codito/relay:0.1.7-9f8a97728cb1`;
+  digest `sha256:c55b586c989bee72b33020f69efd80bb7dd7c47ea391c23d612678b118aa54a4`.
+- Pre-deployment backup:
+  `/data/backups/codito/daily/codito-20260908T114317Z.dump`.
+  Migration 0008 applied successfully. Only relay was recreated; existing shared
+  PostgreSQL/Redis containers and networks were reused without pulling images.
+- Public `/health/ready`: 0.1.7, database/Redis/OIDC signing key all `ok`.
+  Unauthenticated MCP still returns 401 with the device-specific OAuth challenge.
+- Windows GUI visibly reports 0.1.7 and ONLINE; local IPC and relay DB agree on
+  connection epoch 128. Relay heartbeat age observed 3.7 seconds. Five tool
+  contracts are loaded in the deployed relay, including `device_read`.
+- Important existing local configuration: CoditoMcp was already `native_trusted`.
+  This setting was preserved, not silently changed. Default project-policy commands
+  inherit that existing trust; `execution=native_approval` always requests consent.
+  To require consent for every native command, the owner must choose Native approval
+  in the project's local Windows execution-policy selector.
+- Final interactive acceptance still requires the user to refresh ChatGPT's tool
+  list and make a real Windows consent decision. No security dialog was approved
+  by automation.

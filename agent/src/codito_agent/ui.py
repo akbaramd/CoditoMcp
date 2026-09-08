@@ -16,6 +16,7 @@ def main(argv: list[str] | None = None) -> None:
         help="Start in the notification area instead of opening the dashboard",
     )
     parser.add_argument("--show-status", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--toast-activation", help=argparse.SUPPRESS)
     arguments = parser.parse_args(argv)
     try:
         from .desktop_ui import run_desktop
@@ -26,8 +27,21 @@ def main(argv: list[str] | None = None) -> None:
         ) from exc
 
     config = AgentConfig.load(arguments.config)
+    from .diagnostics import configure
+
+    configure(config.data_directory, "desktop")
     key = IpcSecretStore(config.data_directory / "ipc-key.dpapi").load_or_create()
     client = NamedPipeClient(default_pipe_name(), key)
+    if arguments.toast_activation:
+        from .diagnostics import event
+        from .notifications import activation_request
+
+        try:
+            result = client.request(activation_request(arguments.toast_activation))
+            event("toast_activation", detail="accepted" if result.get("ok") else "rejected")
+        except Exception as exc:
+            event("toast_activation_failed", detail=type(exc).__name__)
+        return  # Never start a second desktop instance on notification activation.
     minimized = arguments.minimized and not arguments.show_status
     raise SystemExit(run_desktop(config, client, minimized=minimized))
 

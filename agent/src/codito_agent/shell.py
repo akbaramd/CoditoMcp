@@ -142,6 +142,7 @@ def _native_environment(explicit: dict[str, str], data_directory: Path) -> dict[
     """Standard user tool environment, not the Codito process's secrets/packager variables."""
     environment = _safe_environment(explicit, data_directory)
     standard = {
+        "USERNAME",
         "USERPROFILE",
         "HOMEDRIVE",
         "HOMEPATH",
@@ -309,8 +310,11 @@ class ShellManager:
         working_relative = str(request.get("working_directory", ".")) or "."
         external_cwd = request.get("external_working_directory")
         approval_timeout = int(request.get("approval_timeout_seconds", 180))
+        start_wait_milliseconds = int(request.get("start_wait_milliseconds", 30_000))
         if not 15 <= approval_timeout <= 300:
             raise AgentError("invalid_request", "Approval timeout is out of range")
+        if not 0 <= start_wait_milliseconds <= 30_000:
+            raise AgentError("invalid_request", "Start wait is out of range")
         if external_cwd is not None:
             from codito_protocol.device_read import normalize_read_scope
 
@@ -458,6 +462,7 @@ class ShellManager:
                 self.operation_gate.release(project_id, owner)
                 raise
         assert job is not None
+        await self._wait_for_start_transition(job, start_wait_milliseconds, deadline_at)
         return self._start_response(job)
 
     def _existing_start(self, prior: dict[str, Any], digest: str) -> ToolResponse:
@@ -560,6 +565,11 @@ class ShellManager:
                     shell_scope=scope if persistent else None,
                     reuse_shell_permission=reuse_permission,
                 )
+                # Approval is a meaningful lifecycle transition of its own. Wake the
+                # bounded start waiter before process creation so a slow native launch
+                # cannot consume the MCP response budget after the user already decided.
+                job.state = ShellState.QUEUED
+                await self._notify(job)
             self.approvals.ensure_current(generation, approval.deadline_at)
             self._require_enabled(job.project_id)
             specification["external_working_directory_authorized"] = external_cwd
@@ -785,6 +795,33 @@ class ShellManager:
             "connection_epoch": job.connection_epoch,
         }
         return ToolResponse(result, f"Shell job {job.job_id} is {job.state}.")
+
+    @staticmethod
+    async def _wait_for_start_transition(
+        job: ShellJob, wait_milliseconds: int, deadline_at: datetime
+    ) -> None:
+        if wait_milliseconds <= 0 or job.state not in {
+            ShellState.PENDING_APPROVAL,
+            ShellState.QUEUED,
+        }:
+            return
+        # Leave a small response margin inside the tunnel operation budget. The
+        # shell job itself continues independently after this bounded wait.
+        remaining_seconds = max(0.0, (deadline_at - datetime.now(UTC)).total_seconds() - 0.25)
+        timeout_seconds = min(wait_milliseconds / 1000, remaining_seconds)
+        if timeout_seconds <= 0:
+            return
+        initial_state = job.state
+        async with job.changed:
+            if job.state != initial_state:
+                return
+            try:
+                await asyncio.wait_for(
+                    job.changed.wait_for(lambda: job.state != initial_state),
+                    timeout=timeout_seconds,
+                )
+            except TimeoutError:
+                pass
 
     def disconnected(self) -> None:
         for job in self._jobs.values():

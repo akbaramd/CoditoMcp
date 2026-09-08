@@ -104,9 +104,16 @@ class ShellStartInput(CoditoModel):
         default=180,
         ge=15,
         le=300,
+        description=("Time allowed for Windows consent, separate from process timeout."),
+    )
+    start_wait_milliseconds: int = Field(
+        default=30_000,
+        ge=0,
+        le=30_000,
         description=(
-            "Time allowed for Windows consent, separate from process timeout. "
-            "Start returns pending_approval promptly; poll the job while the user responds."
+            "Bounded event-driven wait for the first start-state transition. This keeps the "
+            "initial tool call open briefly while the user answers Windows approval without "
+            "turning approval into a blocking process execution. Zero returns immediately."
         ),
     )
 

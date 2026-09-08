@@ -82,10 +82,12 @@ async def test_isolated_project_can_request_native_but_never_bypass_consent(
 def test_native_environment_keeps_tools_but_not_process_secrets(
     tmp_path: Path, monkeypatch
 ) -> None:
+    monkeypatch.setenv("USERNAME", "codito-test-user")
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setenv("CODITO_SECRET_KEY", "not-for-child")
     monkeypatch.setenv("OPENAI_API_KEY", "not-for-child")
     environment = _native_environment({}, tmp_path)
+    assert environment["USERNAME"] == "codito-test-user"
     assert environment["USERPROFILE"] == str(tmp_path)
     assert "CODITO_SECRET_KEY" not in environment
     assert "OPENAI_API_KEY" not in environment

@@ -186,6 +186,7 @@ async def project_shell(
     external_working_directory: str | None = None,
     requested_external_paths: list[str] | None = None,
     approval_timeout_seconds: int = 180,
+    start_wait_milliseconds: int = 30_000,
 ) -> CallToolResult:
     if action == "start":
         arguments = {
@@ -195,6 +196,7 @@ async def project_shell(
             "external_working_directory": external_working_directory,
             "requested_external_paths": requested_external_paths or [],
             "approval_timeout_seconds": approval_timeout_seconds,
+            "start_wait_milliseconds": start_wait_milliseconds,
             "working_directory": working_directory,
             "purpose": purpose,
             "timeout_seconds": timeout_seconds,

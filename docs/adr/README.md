@@ -16,3 +16,4 @@ adds a new ADR that marks the prior one superseded.
 | [0014](0014-consented-screenshots.md) | Separate-consent primary-display screenshots | Partially superseded by 0015 |
 | [0015](0015-selected-display-and-browser-consent.md) | Selected-display Always allow and bounded browser opening | Accepted |
 | [0016](0016-oauth-refresh-continuity.md) | Bounded longer OAuth continuity and safe concurrent refresh | Accepted |
+| [0017](0017-hybrid-durable-async-operations.md) | Hybrid HTTP/WSS durable async operations and approval continuation | Accepted |

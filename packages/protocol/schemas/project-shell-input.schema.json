@@ -141,7 +141,7 @@
         },
         "approval_timeout_seconds": {
           "default": 180,
-          "description": "Time allowed for Windows consent, separate from process timeout. Start returns pending_approval promptly; poll the job while the user responds.",
+          "description": "Time allowed for Windows consent, separate from process timeout.",
           "maximum": 300,
           "minimum": 15,
           "title": "Approval Timeout Seconds",
@@ -207,6 +207,14 @@
           "maxItems": 32,
           "title": "Requested External Paths",
           "type": "array"
+        },
+        "start_wait_milliseconds": {
+          "default": 30000,
+          "description": "Bounded event-driven wait for the first start-state transition. This keeps the initial tool call open briefly while the user answers Windows approval without turning approval into a blocking process execution. Zero returns immediately.",
+          "maximum": 30000,
+          "minimum": 0,
+          "title": "Start Wait Milliseconds",
+          "type": "integer"
         },
         "timeout_seconds": {
           "default": 300,

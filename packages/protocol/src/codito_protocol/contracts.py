@@ -126,8 +126,12 @@ TOOL_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
             "In native_project mode, ordinary project commands use installed Windows tools "
             "without prompts. For outside-project work set external_working_directory "
             "and declare requested_external_paths; Windows approval is required. "
-            "Start returns pending_approval immediately; poll that job while the user decides, "
-            "do not resubmit a new start. Approval timeout is separate from process timeout. "
+            "Start uses a bounded event-driven wait (default 30 seconds) for the first approval/"
+            "queue state transition. If start returns any non-terminal state (pending_approval, "
+            "queued, or running), immediately poll the same job with wait_milliseconds=30000; "
+            "keep the same job_id, do not resubmit start, and do not require another chat message "
+            "just to continue. "
+            "Approval timeout is separate from process timeout. "
             "Native project checks declared and literal paths, NOT arbitrary program behavior."
         ),
         "required_scopes": ["projects:read", "shell:execute"],

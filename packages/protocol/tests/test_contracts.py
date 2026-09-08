@@ -181,6 +181,31 @@ def test_shell_poll_keeps_project_binding() -> None:
     assert request.sequence_cursor == 4
 
 
+def test_shell_start_defaults_to_bounded_interaction_wait() -> None:
+    request = validate_project_shell(
+        {
+            "action": "start",
+            "project_id": PROJECT_ID,
+            "purpose": "Run approved tool",
+            "idempotency_key": IDEMPOTENCY_KEY,
+            "command": {"kind": "exec", "executable": "git", "arguments": ["status"]},
+        }
+    )
+    assert request.start_wait_milliseconds == 30_000
+
+    with pytest.raises(ValidationError):
+        validate_project_shell(
+            {
+                "action": "start",
+                "project_id": PROJECT_ID,
+                "purpose": "Run approved tool",
+                "idempotency_key": IDEMPOTENCY_KEY,
+                "start_wait_milliseconds": 30_001,
+                "command": {"kind": "exec", "executable": "git", "arguments": ["status"]},
+            }
+        )
+
+
 def test_operation_envelope_requires_digest() -> None:
     sent_at = datetime.now(UTC)
     with pytest.raises(ValidationError):

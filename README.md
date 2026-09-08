@@ -6,7 +6,9 @@ Choose **Project access (native)** locally to use installed tools (`uv`, `.NET`,
 SSH, Docker) for prompt-free project work. Outside cwd / declared external paths
 require Windows Deny/Allow/Always allow. This is cooperative native approval routing,
 not an OS sandbox; arbitrary native commands still have the Windows user's authority.
-Shell starts return a job immediately while waiting for approval; use poll/cancel.
+Shell starts return a stable job ID and use a bounded event-driven wait for approval/state
+changes. If the start result is still non-terminal, long-poll/cancel that same job; never
+resubmit the intended command merely to continue an approval flow.
 
 `device_screenshot` lists monitors and sends a selected-display PNG to ChatGPT.
 Re-authorize `screen:read` when adding it to an existing connection. Windows offers

@@ -57,6 +57,7 @@ async def start_job(manager, project, **extra):
             "project_id": project.project_id,
             "purpose": "Synthetic shell policy test",
             "idempotency_key": "project_policy_key",
+            "start_wait_milliseconds": 0,
             "command": {"kind": "exec", "executable": "uv"},
             **extra,
         },
@@ -117,6 +118,86 @@ async def test_external_literal_waits_and_decision_controls_execution(
         await manager._jobs[again.structured["job_id"]].task
         assert len(started) == 2
         assert len(prompted) == 1
+
+
+@pytest.mark.asyncio
+async def test_start_wait_stays_in_same_call_until_local_approval_changes_state(
+    tmp_path, project_root
+):
+    release = asyncio.Event()
+    opened = asyncio.Event()
+
+    async def prompt(_):
+        opened.set()
+        await release.wait()
+        return ApprovalDecision.ALLOW_ONCE
+
+    manager, project, _ = manager_for(tmp_path, project_root, prompt)
+    command = {"kind": "script", "shell": "powershell", "script": "Get-ChildItem C:\\"}
+    start_task = asyncio.create_task(
+        start_job(
+            manager,
+            project,
+            command=command,
+            start_wait_milliseconds=30_000,
+            idempotency_key="interactive_wait_key",
+        )
+    )
+    await opened.wait()
+    await asyncio.sleep(0)
+    assert not start_task.done()
+
+    release.set()
+    response = await asyncio.wait_for(start_task, 1)
+    assert response.structured["state"] != "pending_approval"
+    await manager._jobs[response.structured["job_id"]].task
+
+
+@pytest.mark.asyncio
+async def test_start_wait_timeout_returns_same_durable_job_for_later_poll(tmp_path, project_root):
+    release = asyncio.Event()
+    opened = asyncio.Event()
+
+    async def prompt(_):
+        opened.set()
+        await release.wait()
+        return ApprovalDecision.ALLOW_ONCE
+
+    manager, project, started = manager_for(tmp_path, project_root, prompt)
+    command = {"kind": "script", "shell": "powershell", "script": "Get-ChildItem C:\\"}
+    response = await start_job(
+        manager,
+        project,
+        command=command,
+        start_wait_milliseconds=5,
+        idempotency_key="interactive_wait_timeout_key",
+    )
+    await opened.wait()
+    job_id = response.structured["job_id"]
+    assert response.structured["state"] == "pending_approval"
+    assert started == []
+
+    pending = await manager.poll(
+        project.project_id,
+        job_id,
+        0,
+        wait_milliseconds=5,
+        grant_id="grant",
+        link_id="link",
+    )
+    assert pending.structured["state"] == "pending_approval"
+
+    release.set()
+    await manager._jobs[job_id].task
+    terminal = await manager.poll(
+        project.project_id,
+        job_id,
+        0,
+        grant_id="grant",
+        link_id="link",
+    )
+    assert terminal.structured["state"] == "completed"
+    assert len(started) == 1
 
 
 @pytest.mark.asyncio

@@ -106,3 +106,42 @@ sequenceDiagram
     D->>D: Deny and audit reason
   end
 ```
+
+## Shell approval continuation
+
+```mermaid
+sequenceDiagram
+  participant GPT as MCP client / ChatGPT
+  participant Relay
+  participant Agent
+  participant UI as Windows approval UI
+  actor User
+  GPT->>Relay: project_shell(start)
+  Relay->>Agent: operation over outbound WSS
+  Agent->>Agent: Create durable job_id; state=pending_approval
+  Agent->>UI: Request local approval
+  par bounded start wait
+    Agent->>Agent: Wait on state-change condition (<=30s)
+  and user decision
+    UI-->>User: Show approval
+    User->>UI: Allow / deny
+  end
+  alt decision arrives inside bounded wait
+    Agent-->>Relay: Same job_id, queued/running/terminal
+    Relay-->>GPT: Start result
+  else decision takes longer
+    Agent-->>Relay: Same job_id, pending_approval
+    Relay-->>GPT: Start result
+    loop while job is non-terminal
+      GPT->>Relay: project_shell(poll, same job_id, wait=30s)
+      Relay->>Agent: Poll over WSS
+      Agent-->>Relay: Current state + sequenced output
+      Relay-->>GPT: Poll result
+    end
+  end
+  Note over GPT,Agent: Never resubmit start to continue the same intended action.
+```
+
+When a client explicitly advertises the official `io.modelcontextprotocol/tasks` extension,
+Codito can later expose the same durable state through a Tasks adapter. The shell-job path above
+remains the compatibility path for clients that do not negotiate Tasks.

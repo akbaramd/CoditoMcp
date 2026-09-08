@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -11,7 +13,7 @@ from codito_protocol import MessageKind, TunnelBindings, TunnelEnvelope, compute
 from codito_agent.db import AgentDatabase
 from codito_agent.models import OperationState
 from codito_agent.read_tools import ToolResponse
-from codito_agent.websocket_client import DeviceWebSocketClient, WebSocketTicket
+from codito_agent.websocket_client import DeviceWebSocketClient, WebSocketTicket, _ExecutionBudget
 
 
 class FakeSocket:
@@ -23,6 +25,56 @@ class FakeSocket:
 
     async def close(self, *, code: int, reason: str) -> None:
         self.closed = (code, reason)
+
+
+def budget_client(tmp_path, operation):
+    database = AgentDatabase(tmp_path / "clock-budget.sqlite")
+    ticket = WebSocketTicket(
+        "ticket_abcdefghijkl",
+        "account_abcdefghijkl",
+        "device_abcdefghijkl",
+        "link_abcdefghijklmnop",
+        "challenge_abcdefgh",
+        datetime.now(UTC) + timedelta(minutes=2),
+    )
+
+    async def tickets():
+        return ticket
+
+    client = DeviceWebSocketClient(
+        url="wss://example.test/ws/device",
+        database=database,
+        credentials=object(),
+        ticket_provider=tickets,
+        operation_handler=operation,
+        project_metadata=lambda: [],
+    )
+    client._ticket = ticket
+    client._epoch = 1
+    client._socket = FakeSocket()
+    return client
+
+
+def budget_envelope(client, *, seconds=45, skew=58):
+    sent = datetime.now(UTC) + timedelta(seconds=skew)
+    action = {"tool_name": "project_read", "input": {"operation": "list_projects"}}
+    return TunnelEnvelope(
+        kind=MessageKind.OPERATION,
+        message_id="message_clock_budget",
+        correlation_id="correlation_clock_budget",
+        sequence=1,
+        connection_epoch=client._epoch,
+        sent_at=sent,
+        deadline_at=sent + timedelta(seconds=seconds),
+        bindings=TunnelBindings(
+            account_id=client._ticket.account_id,
+            device_id=client._ticket.device_id,
+            link_id=client._ticket.link_id,
+            grant_id="grant_abcdefghijklmn",
+        ),
+        action_digest=compute_action_digest(action),
+        payload=action,
+    )
 
 
 @pytest.mark.asyncio
@@ -530,3 +582,251 @@ async def test_reconnected_duplicate_shell_start_is_never_replayed(
         MessageKind.OPERATION_RECEIVED,
         MessageKind.OPERATION_RESULT,
     ]
+
+
+@pytest.mark.parametrize("skew,expected_seconds", [(58, 45), (0, 45), (-10, 35)])
+def test_clock_translation_never_extends_wire_duration(tmp_path, skew, expected_seconds):
+    client = budget_client(tmp_path, None)
+    envelope = budget_envelope(client, skew=skew)
+    received_at = envelope.sent_at - timedelta(seconds=skew)
+    original = envelope.model_dump_json()
+    budget = _ExecutionBudget.from_envelope(envelope, received_at, 100.0)
+    assert budget.local_deadline == received_at + timedelta(seconds=expected_seconds)
+    assert budget.monotonic_deadline == 100.0 + expected_seconds
+    assert envelope.model_dump_json() == original
+
+
+@pytest.mark.asyncio
+async def test_skewed_clock_handler_gets_local_deadline_but_journal_preserves_wire(tmp_path):
+    deadlines = []
+
+    async def operation(_tool, _input, _grant, _link, _epoch, deadline, _reconcile):
+        deadlines.append(deadline)
+        return ToolResponse({}, "Synthetic result")
+
+    client = budget_client(tmp_path, operation)
+    envelope = budget_envelope(client)
+    original = envelope.model_dump_json()
+    before = datetime.now(UTC)
+    await client._receive(original)
+    await asyncio.gather(*client._pending)
+    assert before + timedelta(seconds=44) <= deadlines[0] <= before + timedelta(seconds=46)
+    stored = client.database.get_operation(envelope.message_id)
+    assert stored["deadline_at"] == envelope.deadline_at.isoformat()
+    assert stored["action_digest"] == envelope.action_digest
+    assert envelope.model_dump_json() == original
+    assert client._operation_budgets == {}
+
+
+@pytest.mark.asyncio
+async def test_monotonic_timeout_closes_pending_approval_and_survives_clock_rollback(
+    tmp_path, monkeypatch
+):
+    from codito_agent import websocket_client
+    from codito_agent.approvals import ApprovalManager, ApprovalRisk
+    from codito_agent.ipc import QueuedApprovalPrompt
+
+    queue = QueuedApprovalPrompt()
+    real_datetime = datetime
+    entered = []
+
+    class BackwardClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime.now(tz) - timedelta(hours=1)
+
+    async def operation(_tool, _input, grant, link, epoch, deadline, _reconcile):
+        entered.append(True)
+        monkeypatch.setattr(websocket_client, "datetime", BackwardClock)
+        await queue(
+            ApprovalManager.build_request(
+                account_id="account",
+                grant_id=grant,
+                link_id=link,
+                device_id="device",
+                project_id="project",
+                project_title="Synthetic",
+                capability="device:read",
+                action_digest="a" * 64,
+                connection_epoch=epoch,
+                deadline_at=deadline,
+                risk=ApprovalRisk.READ,
+                summary="Synthetic timeout; no real approval",
+            )
+        )
+        pytest.fail("Unanswered approval cannot complete")
+
+    client = budget_client(tmp_path, operation)
+    incoming = budget_envelope(client, seconds=0.8)
+    started = asyncio.get_running_loop().time()
+    await client._receive(incoming.model_dump_json())
+    await asyncio.gather(*client._pending)
+    assert asyncio.get_running_loop().time() - started < 2.0
+    assert entered == [True]
+    assert queue.pending_count == 0
+    result = client.database.get_operation(incoming.message_id)
+    assert result["result"]["error"]["code"] == "deadline_exceeded"
+
+
+@pytest.mark.asyncio
+async def test_ack_queue_delay_consumes_original_budget_without_dispatch(tmp_path):
+    async def operation(*_args):
+        pytest.fail("Expired queued operation must not invoke the handler")
+
+    class SlowAck(FakeSocket):
+        async def send(self, value):
+            if json.loads(value)["kind"] == "operation_received":
+                await asyncio.sleep(0.5)
+            await super().send(value)
+
+    client = budget_client(tmp_path, operation)
+    client._socket = SlowAck()
+    envelope = budget_envelope(client, seconds=0.4)
+    await client._receive(envelope.model_dump_json())
+    await asyncio.gather(*client._pending)
+    assert (
+        client.database.get_operation(envelope.message_id)["result"]["error"]["code"]
+        == "deadline_exceeded"
+    )
+
+
+@pytest.mark.asyncio
+async def test_reconnect_duplicate_does_not_reset_first_monotonic_budget(tmp_path):
+    entered = asyncio.Event()
+    calls = 0
+
+    async def operation(*_args):
+        nonlocal calls
+        calls += 1
+        entered.set()
+        await asyncio.Event().wait()
+
+    client = budget_client(tmp_path, operation)
+    envelope = budget_envelope(client, seconds=0.8)
+    await client._receive(envelope.model_dump_json())
+    await asyncio.wait_for(entered.wait(), timeout=2)
+    first = client._operation_budgets[envelope.message_id]
+    await asyncio.sleep(0.02)
+    client._epoch = 2
+    resent = envelope.model_copy(update={"connection_epoch": 2, "sequence": 2})
+    await client._receive(resent.model_dump_json())
+    assert client._operation_budgets[envelope.message_id] == first
+    await asyncio.gather(*client._pending)
+    assert calls == 1
+    assert (
+        client.database.get_operation(envelope.message_id)["result"]["error"]["code"]
+        == "deadline_exceeded"
+    )
+
+
+@pytest.mark.parametrize("original_receipt", ["not-a-date", "2026-09-08T12:00:00"])
+def test_invalid_original_clock_evidence_fails_closed(tmp_path, original_receipt):
+    client = budget_client(tmp_path, None)
+    envelope = budget_envelope(client)
+    now = datetime.now(UTC)
+    budget = _ExecutionBudget.from_envelope(
+        envelope,
+        now,
+        100.0,
+        original_received_at=original_receipt,
+    )
+    assert budget.local_deadline == now and budget.monotonic_deadline == 100.0
+
+
+def test_crash_recovery_anchors_to_original_local_receipt_not_retry_time(tmp_path):
+    client = budget_client(tmp_path, None)
+    envelope = budget_envelope(client)
+    received_at = envelope.sent_at - timedelta(seconds=58)
+    budget = _ExecutionBudget.from_envelope(
+        envelope,
+        received_at + timedelta(seconds=40),
+        200.0,
+        original_received_at=received_at.isoformat(),
+    )
+    assert budget.local_deadline == received_at + timedelta(seconds=45)
+    assert budget.monotonic_deadline == 205.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool", ["device_desktop", "project_shell"])
+@pytest.mark.parametrize("blocking", [False, True])
+async def test_native_dispatch_timeout_is_uncertain_and_not_replayed(tmp_path, tool, blocking):
+    started = []
+
+    async def operation(*_args):
+        started.append(True)
+        if blocking:
+            # Synchronous native initiation may return only after the response deadline.
+            time.sleep(0.6)  # noqa: ASYNC251 - deliberate non-cooperative native-call simulation.
+            return ToolResponse({}, "OS may already have accepted the action")
+        await asyncio.Event().wait()
+
+    client = budget_client(tmp_path, operation)
+    envelope = budget_envelope(client, seconds=0.5)
+    payload = {"url": "https://example.com/", "purpose": "Synthetic timeout"}
+    bindings = envelope.bindings
+    if tool == "project_shell":
+        root = tmp_path / "root"
+        root.mkdir()
+        project = client.database.register_project("Synthetic", root)
+        bindings = bindings.model_copy(update={"project_id": project.project_id})
+        payload = {
+            "action": "start",
+            "project_id": project.project_id,
+            "working_directory": "",
+            "purpose": "Synthetic timeout",
+            "timeout_seconds": 30,
+            "output_limit_bytes": 1024,
+            "idempotency_key": "synthetic_timeout_shell",
+            "command": {"kind": "exec", "executable": "cmd.exe", "arguments": ["/c", "echo"]},
+        }
+    action = {"tool_name": tool, "input": payload}
+    envelope = envelope.model_copy(
+        update={
+            "payload": action,
+            "action_digest": compute_action_digest(action),
+            "bindings": bindings,
+        }
+    )
+    await client._receive(envelope.model_dump_json())
+    await asyncio.gather(*client._pending)
+    assert started == [True]
+    stored = client.database.get_operation(envelope.message_id)
+    assert stored["state"] == OperationState.OUTCOME_UNKNOWN.value
+    assert stored["result"]["error"]["code"] == "outcome_unknown"
+    assert stored["result"]["error"]["retryable"] is False
+    client._epoch = 2
+    resent = envelope.model_copy(update={"connection_epoch": 2, "sequence": 2})
+    await client._receive(resent.model_dump_json())
+    assert started == [True]
+
+
+@pytest.mark.asyncio
+async def test_native_timeout_before_handler_is_not_marked_uncertain(tmp_path):
+    async def operation(*_args):
+        pytest.fail("Native handler must not start after blocked dispatch notification")
+
+    class SlowStart(FakeSocket):
+        async def send(self, value):
+            if json.loads(value)["kind"] == "operation_started":
+                await asyncio.sleep(1)
+            await super().send(value)
+
+    client = budget_client(tmp_path, operation)
+    client._socket = SlowStart()
+    envelope = budget_envelope(client, seconds=0.5)
+    action = {
+        "tool_name": "device_desktop",
+        "input": {
+            "url": "https://example.com/",
+            "purpose": "Synthetic timeout",
+        },
+    }
+    envelope = envelope.model_copy(
+        update={"payload": action, "action_digest": compute_action_digest(action)}
+    )
+    await client._receive(envelope.model_dump_json())
+    await asyncio.gather(*client._pending)
+    stored = client.database.get_operation(envelope.message_id)
+    assert stored["state"] == OperationState.FAILED.value
+    assert stored["result"]["error"]["code"] == "deadline_exceeded"

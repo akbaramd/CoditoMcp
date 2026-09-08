@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-09-08
+- Token lifetimes updated by [ADR 0016](0016-oauth-refresh-continuity.md); other
+  authorization and identity boundaries remain in force.
 
 ## Context
 

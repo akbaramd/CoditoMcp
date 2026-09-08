@@ -24,6 +24,17 @@ def env_list(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
 
 
+def env_seconds(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    """Reject accidental zero/infinite or unreasonable OAuth lifetimes at startup."""
+    try:
+        value = int(os.getenv(name, str(default)))
+    except ValueError as exc:
+        raise ImproperlyConfigured(f"{name} must be an integer number of seconds") from exc
+    if not minimum <= value <= maximum:
+        raise ImproperlyConfigured(f"{name} must be between {minimum} and {maximum} seconds")
+    return value
+
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "unsafe-development-key-change-me")
 DEBUG = env_bool("DJANGO_DEBUG", False)
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://codito.akbaramd.ir").rstrip("/")
@@ -200,10 +211,18 @@ MCP_TOOL_SCOPES = (
 OAUTH2_PROVIDER = {
     "OAUTH2_VALIDATOR_CLASS": "codito_relay.core.oauth.CoditoOAuth2Validator",
     "PKCE_REQUIRED": True,
-    "ACCESS_TOKEN_EXPIRE_SECONDS": 15 * 60,
-    "REFRESH_TOKEN_EXPIRE_SECONDS": 30 * 24 * 60 * 60,
+    "ACCESS_TOKEN_EXPIRE_SECONDS": env_seconds(
+        "OAUTH_ACCESS_TOKEN_EXPIRE_SECONDS", 60 * 60, minimum=5 * 60, maximum=24 * 60 * 60
+    ),
+    "REFRESH_TOKEN_EXPIRE_SECONDS": env_seconds(
+        "OAUTH_REFRESH_TOKEN_EXPIRE_SECONDS",
+        90 * 24 * 60 * 60,
+        minimum=24 * 60 * 60,
+        maximum=180 * 24 * 60 * 60,
+    ),
     "ROTATE_REFRESH_TOKEN": True,
     "REFRESH_TOKEN_REUSE_PROTECTION": True,
+    # DOT cannot safely reissue a consumed pair when only its hashes are stored.
     "REFRESH_TOKEN_GRACE_PERIOD_SECONDS": 0,
     "SCOPES": {
         "openid": "Authenticate the signed-in account",

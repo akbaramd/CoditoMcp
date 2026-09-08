@@ -41,6 +41,60 @@ async def test_cancelled_first_request_does_not_hide_next():
 
 
 @pytest.mark.asyncio
+async def test_background_exclusion_is_fair_and_never_consumes_manual_review():
+    from codito_agent.daemon import CoditoDaemon
+
+    queue = QueuedApprovalPrompt()
+    first = asyncio.create_task(queue(replace(request(), request_id="first_diagnostic")))
+    second = asyncio.create_task(queue(replace(request(), request_id="second_screenshot")))
+    await asyncio.sleep(0)
+    daemon = CoditoDaemon.__new__(CoditoDaemon)
+    daemon.approval_queue = queue
+    try:
+        response = daemon._handle_ipc({"action": "approval.next", "exclude_ids": []})
+        assert response["approval"]["request_id"] == "first_diagnostic"
+        assert response["pending_ids"] == ["first_diagnostic", "second_screenshot"]
+        response = daemon._handle_ipc(
+            {"action": "approval.next", "exclude_ids": ["first_diagnostic"]}
+        )
+        assert response["approval"]["request_id"] == "second_screenshot"
+        response = daemon._handle_ipc(
+            {
+                "action": "approval.next",
+                "exclude_ids": ["first_diagnostic", "second_screenshot"],
+            }
+        )
+        assert response["approval"] is None
+        assert response["pending_ids"] == ["first_diagnostic", "second_screenshot"]
+        assert queue.next_request()["request_id"] == "first_diagnostic"
+        assert (
+            queue.next_request("first_diagnostic", exclude_ids=frozenset({"first_diagnostic"}))[
+                "request_id"
+            ]
+            == "first_diagnostic"
+        )
+        assert not first.done() and not second.done()
+        first.cancel()
+        await asyncio.gather(first, return_exceptions=True)
+        assert queue.pending_request_ids() == ["second_screenshot"]
+    finally:
+        queue.deny_all()
+        await asyncio.gather(first, second, return_exceptions=True)
+
+
+@pytest.mark.parametrize("excluded", ["a", ["a"] * 33, [None], ["a" * 129], ["bad/path"]])
+def test_background_exclusion_ipc_is_typed_and_bounded(excluded):
+    from codito_agent.daemon import CoditoDaemon
+
+    daemon = CoditoDaemon.__new__(CoditoDaemon)
+    daemon.approval_queue = QueuedApprovalPrompt()
+    assert daemon._handle_ipc({"action": "approval.next", "exclude_ids": excluded}) == {
+        "ok": False,
+        "error": "invalid_approval_selection",
+    }
+
+
+@pytest.mark.asyncio
 async def test_shell_always_is_separate_scoped_persistent_and_revocable(tmp_path):
     database = AgentDatabase(tmp_path / "permissions.sqlite3")
     calls = []

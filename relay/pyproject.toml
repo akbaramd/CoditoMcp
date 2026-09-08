@@ -52,6 +52,7 @@ DJANGO_SETTINGS_MODULE = "codito_relay.test_settings"
 pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = ["integration: requires PostgreSQL, Redis, or a live ASGI stack"]
 
 [tool.coverage.run]
 branch = true

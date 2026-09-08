@@ -139,6 +139,12 @@ After the owner configures DNS/TLS/proxy:
 - Alert on readiness failure, device/offline churn, stale epochs, queue saturation,
   auth failure rate, refresh replay, operation latency/errors, backup age, disk
   capacity, and certificate/key expiry.
-- Rotate OAuth signing keys with overlapping JWKS publication and verify old
-  15-minute access tokens through their expiry before retiring a key.
+- Keep OAuth client identity stable across image updates. Configure token
+  lifetimes through `OAUTH_ACCESS_TOKEN_EXPIRE_SECONDS` (default 3600) and
+  `OAUTH_REFRESH_TOKEN_EXPIRE_SECONDS` (default 7776000); see the
+  [refresh policy](../protocol/oauth.md#long-lived-connections-without-permanent-bearer-tokens).
+  Do not rewrite existing token/grant rows to extend login or recover revocation.
+- Rotate OIDC signing keys with overlapping JWKS publication and retain the old
+  verification keys through the last issued ID token's advertised expiry.
+  OAuth access tokens are opaque database-backed credentials, not signed JWTs.
 - Review admin/audit activity and dependency/image advisories at least weekly.

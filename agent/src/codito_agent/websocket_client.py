@@ -39,6 +39,44 @@ class WebSocketTicket:
     expires_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class _ExecutionBudget:
+    local_deadline: datetime
+    monotonic_deadline: float
+
+    @classmethod
+    def from_envelope(
+        cls,
+        envelope: TunnelEnvelope,
+        received_at: datetime,
+        received_monotonic: float,
+        *,
+        original_received_at: str | None = None,
+    ) -> _ExecutionBudget:
+        """Translate a wire duration, never the host clock, into an execution budget.
+
+        A slow host clock must not turn the relay's 45 seconds into 103 seconds.
+        Original journal receipt anchors crash retries; a resend's shorter wire
+        duration can reduce that budget but a new local receipt cannot reset it.
+        Unknown network transit latency cannot be inferred from two skewed clocks.
+        """
+        assert envelope.deadline_at is not None
+        duration = envelope.deadline_at - envelope.sent_at
+        local_deadline = min(envelope.deadline_at, received_at + duration)
+        if original_received_at is not None:
+            try:
+                original = datetime.fromisoformat(original_received_at)
+                if original.tzinfo is None:
+                    raise ValueError("Missing journal timezone")
+                local_deadline = min(local_deadline, original + duration)
+            except (TypeError, ValueError):
+                local_deadline = received_at  # Invalid clock evidence cannot extend permission.
+        return cls(
+            local_deadline,
+            received_monotonic + (local_deadline - received_at).total_seconds(),
+        )
+
+
 TicketProvider = Callable[[], Awaitable[WebSocketTicket]]
 OperationHandler = Callable[
     [str, dict[str, Any], str, str, int, datetime, bool], Awaitable[ToolResponse]
@@ -80,6 +118,7 @@ class DeviceWebSocketClient:
         self._ticket: WebSocketTicket | None = None
         self._pending: set[asyncio.Task[None]] = set()
         self._operation_tasks: dict[str, asyncio.Task[None]] = {}
+        self._operation_budgets: dict[str, _ExecutionBudget] = {}
         self._terminal_pending: dict[str, TunnelEnvelope] = {}
         self._envelope_adapter = TypeAdapter(TunnelEnvelope)
         self._long_disconnect_task: asyncio.Task[None] | None = None
@@ -214,6 +253,8 @@ class DeviceWebSocketClient:
             )
 
     async def _receive(self, raw: str | bytes) -> None:
+        received_at = datetime.now(UTC)
+        received_monotonic = asyncio.get_running_loop().time()
         try:
             value = json.loads(raw)
             envelope = self._envelope_adapter.validate_python(value)
@@ -263,7 +304,18 @@ class DeviceWebSocketClient:
             return
         if envelope.kind is not MessageKind.OPERATION:
             raise AgentError("protocol_error", "Unexpected relay message kind")
-        if len(self._pending) >= self.max_pending:
+        self._operation_budgets = {
+            identifier: budget
+            for identifier, budget in self._operation_budgets.items()
+            if budget.monotonic_deadline > received_monotonic
+            or (
+                identifier in self._operation_tasks and not self._operation_tasks[identifier].done()
+            )
+        }
+        if len(self._pending) >= self.max_pending or (
+            len(self._operation_budgets) >= self.max_pending
+            and envelope.message_id not in self._operation_budgets
+        ):
             await self._send_failure(
                 envelope, AgentError("queue_full", "Device queue is full", retryable=True)
             )
@@ -328,6 +380,7 @@ class DeviceWebSocketClient:
             bindings=bindings,
             action_digest=envelope.action_digest,
         )
+        budget = _ExecutionBudget.from_envelope(envelope, received_at, received_monotonic)
         if not inserted:
             prior = self.database.get_operation(envelope.message_id)
             if prior and prior.get("result"):
@@ -350,12 +403,25 @@ class DeviceWebSocketClient:
             ):
                 await self._terminalize_uncertain_action(envelope)
                 return
+            budget = _ExecutionBudget.from_envelope(
+                envelope,
+                received_at,
+                received_monotonic,
+                original_received_at=str(prior.get("received_at", "")) if prior else "",
+            )
+            original_budget = self._operation_budgets.get(envelope.message_id)
+            if original_budget is not None:
+                budget = _ExecutionBudget(
+                    min(budget.local_deadline, original_budget.local_deadline),
+                    min(budget.monotonic_deadline, original_budget.monotonic_deadline),
+                )
             self._start_dispatch(
                 envelope,
                 tool_name,
                 tool_input,
                 bindings.grant_id,
                 bindings.link_id,
+                budget=budget,
                 reconcile_duplicate=True,
             )
             return
@@ -365,6 +431,7 @@ class DeviceWebSocketClient:
             tool_input,
             bindings.grant_id,
             bindings.link_id,
+            budget=budget,
             reconcile_duplicate=False,
         )
 
@@ -376,8 +443,10 @@ class DeviceWebSocketClient:
         grant_id: str,
         link_id: str,
         *,
+        budget: _ExecutionBudget,
         reconcile_duplicate: bool,
     ) -> None:
+        self._operation_budgets[envelope.message_id] = budget
         task = asyncio.create_task(
             self._dispatch(
                 envelope,
@@ -385,6 +454,7 @@ class DeviceWebSocketClient:
                 tool_input,
                 grant_id,
                 link_id,
+                budget=budget,
                 reconcile_duplicate=reconcile_duplicate,
             ),
             name=f"codito-operation-{envelope.message_id}",
@@ -424,32 +494,73 @@ class DeviceWebSocketClient:
         grant_id: str,
         link_id: str,
         *,
+        budget: _ExecutionBudget,
         reconcile_duplicate: bool,
     ) -> None:
         self.database.transition_operation(envelope.message_id, OperationState.RUNNING)
-        await self._send_new(
-            MessageKind.OPERATION_STARTED,
-            correlation_id=envelope.correlation_id,
-            payload={},
-            bindings=envelope.bindings,
-            action_digest=envelope.action_digest,
+        handler_started = False
+        native_action = tool_name == "device_desktop" or (
+            tool_name == "project_shell" and tool_input.get("action") == "start"
         )
+
+        def deadline_error() -> AgentError:
+            if native_action and handler_started:
+                return AgentError(
+                    "outcome_unknown",
+                    "The native action exceeded its response budget and may have executed; "
+                    "Codito never automatically replays uncertain actions",
+                    retryable=False,
+                )
+            return AgentError("deadline_exceeded", "Operation execution budget elapsed")
+
         try:
-            assert envelope.deadline_at is not None
-            response = await self.operation_handler(
-                tool_name,
-                tool_input,
-                grant_id,
-                link_id,
-                self._epoch,
-                envelope.deadline_at,
-                reconcile_duplicate,
-            )
-            if envelope.deadline_at <= datetime.now(UTC):
-                raise AgentError("deadline_exceeded", "Operation deadline elapsed during execution")
+            async with asyncio.timeout_at(budget.monotonic_deadline):
+                if (
+                    budget.monotonic_deadline <= asyncio.get_running_loop().time()
+                    or budget.local_deadline <= datetime.now(UTC)
+                ):
+                    raise AgentError(
+                        "deadline_exceeded", "Operation budget elapsed before execution"
+                    )
+                await self._send_new(
+                    MessageKind.OPERATION_STARTED,
+                    correlation_id=envelope.correlation_id,
+                    payload={},
+                    bindings=envelope.bindings,
+                    action_digest=envelope.action_digest,
+                )
+                handler_started = True
+                response = await self.operation_handler(
+                    tool_name,
+                    tool_input,
+                    grant_id,
+                    link_id,
+                    self._epoch,
+                    budget.local_deadline,
+                    reconcile_duplicate,
+                )
+                if (
+                    budget.monotonic_deadline <= asyncio.get_running_loop().time()
+                    or budget.local_deadline <= datetime.now(UTC)
+                ):
+                    raise AgentError(
+                        "deadline_exceeded", "Operation budget elapsed during execution"
+                    )
             payload = {"ok": True, "result": response.structured, "text": response.text}
             state = OperationState.SUCCEEDED
+        except TimeoutError:
+            error = deadline_error()
+            payload = to_tool_failure(error, envelope.correlation_id).model_dump(
+                mode="json", exclude_none=True
+            )
+            state = (
+                OperationState.OUTCOME_UNKNOWN
+                if error.code == "outcome_unknown"
+                else OperationState.FAILED
+            )
         except AgentError as exc:
+            if exc.code == "deadline_exceeded":
+                exc = deadline_error()
             payload = to_tool_failure(exc, envelope.correlation_id).model_dump(
                 mode="json", exclude_none=True
             )
@@ -469,6 +580,7 @@ class DeviceWebSocketClient:
         from codito_protocol.screenshot import durable_tool_result
 
         self.database.transition_operation(envelope.message_id, state, durable_tool_result(payload))
+        self._operation_budgets.pop(envelope.message_id, None)
         await self._send_new(
             MessageKind.OPERATION_RESULT,
             correlation_id=envelope.correlation_id,

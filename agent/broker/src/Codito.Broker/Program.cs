@@ -35,8 +35,8 @@ try
     }
     if (args[0] == "--json" && request.Operation == "notify" && request.Toast is not null)
     {
-        ApprovalToast.Show(request.Toast);
-        await JsonSerializer.SerializeAsync(Console.OpenStandardOutput(), new { ok = true });
+        var submission = await ApprovalToast.ShowAsync(request.Toast);
+        await JsonSerializer.SerializeAsync(Console.OpenStandardOutput(), submission);
         return 0;
     }
     if (args[0] == "--json" && request.Operation == "notify-probe")
@@ -49,6 +49,19 @@ try
     if (args[0] == "--json" && request.Operation == "notify-cleanup")
     {
         ApprovalToast.ClearStale();
+        await JsonSerializer.SerializeAsync(Console.OpenStandardOutput(), new { ok = true });
+        return 0;
+    }
+    if (args[0] == "--json" && request.Operation == "notify-history")
+    {
+        await JsonSerializer.SerializeAsync(
+            Console.OpenStandardOutput(), ApprovalToast.GetHistoryDiagnostics());
+        return 0;
+    }
+    if (args[0] == "--json" && request.Operation == "notify-remove"
+        && request.NotificationTag is not null)
+    {
+        ApprovalToast.Remove(request.NotificationTag);
         await JsonSerializer.SerializeAsync(Console.OpenStandardOutput(), new { ok = true });
         return 0;
     }

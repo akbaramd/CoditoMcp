@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,49 @@ CAPABILITIES = r"Software\Codito\Capabilities"
 TOAST_ACTIVATOR_CLSID = "{0D673CF7-8613-4C9C-8D35-8A3F66BCE1A9}"
 _listener: subprocess.Popen[bytes] | None = None
 _listener_lock = threading.Lock()
+
+
+@dataclass(frozen=True, slots=True)
+class ToastDelivery:
+    """Submission diagnostics, never evidence that the user saw a banner."""
+
+    setting: str
+    user_state: str
+    submitted: bool = True
+    banner_visible: None = None
+
+    @property
+    def banner_expected(self) -> bool:
+        return self.setting == "Enabled" and self.user_state == "AcceptsNotifications"
+
+
+def _toast_delivery(payload: object) -> ToastDelivery:
+    if not isinstance(payload, dict) or payload.get("ok") is not True:
+        raise ValueError("Windows rejected notification")
+    if payload.get("delivery") != "submitted":
+        raise ValueError("Notification broker omitted submission status")
+    setting = payload.get("setting")
+    state = payload.get("user_state")
+    known_settings = {
+        "Enabled",
+        "DisabledForApplication",
+        "DisabledForUser",
+        "DisabledByGroupPolicy",
+        "DisabledByManifest",
+    }
+    known_states = {
+        "NotPresent",
+        "Busy",
+        "RunningDirect3DFullScreen",
+        "PresentationMode",
+        "AcceptsNotifications",
+        "QuietTime",
+        "RunningWindowsStoreApp",
+    }
+    return ToastDelivery(
+        setting=setting if isinstance(setting, str) and setting in known_settings else "Unknown",
+        user_state=state if isinstance(state, str) and state in known_states else "Unknown",
+    )
 
 
 def stop_activation_listener() -> None:
@@ -293,7 +337,30 @@ def toast_specification(approval: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def show_native_toast(broker: Path | None, approval: dict[str, Any]) -> None:
+def dismiss_native_toast(broker: Path | None, request_id: str) -> bool:
+    """Withdraw only this Codito notification; this never submits a decision."""
+    if broker is None:
+        return False
+    payload = {
+        "version": 1,
+        "operation": "notify-remove",
+        "notification_tag": hashlib.sha256(request_id.encode()).hexdigest()[:16],
+    }
+    try:
+        result = subprocess.run(  # noqa: S603 - fixed installed broker, fixed operation.
+            [str(broker), "--json"],
+            input=json.dumps(payload).encode(),
+            capture_output=True,
+            timeout=3,
+            creationflags=0x08000000,
+            check=False,
+        )
+        return bool(result.returncode == 0 and json.loads(result.stdout).get("ok") is True)
+    except (OSError, ValueError, AttributeError, subprocess.TimeoutExpired):
+        return False
+
+
+def show_native_toast(broker: Path | None, approval: dict[str, Any]) -> ToastDelivery:
     if broker is None:
         raise ValueError("Notification broker missing")
     ensure_activation_listener(broker)
@@ -306,7 +373,7 @@ def show_native_toast(broker: Path | None, approval: dict[str, Any]) -> None:
         creationflags=0x08000000,
         check=False,
     )
-    if result.returncode != 0 or json.loads(result.stdout).get("ok") is not True:
+    if result.returncode != 0:
         # Broker messages outside this allowlist may contain user data; never log them.
         reason = result.stderr.decode(errors="replace").strip()
         event(
@@ -316,3 +383,14 @@ def show_native_toast(broker: Path | None, approval: dict[str, Any]) -> None:
             else "broker_rejected",
         )
         raise ValueError("Windows rejected notification")
+    try:
+        delivery = _toast_delivery(json.loads(result.stdout))
+    except (ValueError, TypeError) as exc:
+        event("toast_delivery_failed", detail="invalid_broker_response")
+        raise ValueError("Notification submission could not be verified") from exc
+    event(
+        "toast_submission_status",
+        str(approval.get("request_id", "")),
+        f"{delivery.setting}:{delivery.user_state}",
+    )
+    return delivery

@@ -233,11 +233,32 @@ class CoditoDaemon:
             }
         if action == "approval.next":
             selected_id = request.get("request_id")
+            excluded = request.get("exclude_ids", [])
+            if (
+                set(request) - {"action", "request_id", "exclude_ids"}
+                or not isinstance(excluded, list)
+                or len(excluded) > 32
+                or any(
+                    not isinstance(value, str)
+                    or not 1 <= len(value) <= 128
+                    or not all(
+                        character.isascii() and (character.isalnum() or character in "_-")
+                        for character in value
+                    )
+                    for value in excluded
+                )
+                or (
+                    selected_id is not None
+                    and (not isinstance(selected_id, str) or not 1 <= len(selected_id) <= 128)
+                )
+            ):
+                return {"ok": False, "error": "invalid_approval_selection"}
             return {
                 "ok": True,
                 "approval": self.approval_queue.next_request(
-                    str(selected_id) if selected_id is not None else None
+                    selected_id, exclude_ids=frozenset(excluded)
                 ),
+                "pending_ids": self.approval_queue.pending_request_ids(),
             }
         if action == "screen.next":
             return {"ok": True, "capture": self.adapter.screen_queue.next_request()}

@@ -4,12 +4,13 @@ import asyncio
 import json
 import subprocess
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from PySide6.QtCore import QSize, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QCloseEvent, QColor, QDesktopServices, QFont, QIcon
+from PySide6.QtGui import QAction, QCloseEvent, QColor, QDesktopServices, QFont, QIcon, QScreen
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QStackedWidget,
@@ -44,7 +46,12 @@ from .config import AgentConfig
 from .diagnostics import event
 from .errors import AgentError
 from .ipc import NamedPipeClient
-from .notifications import register_activation, show_native_toast
+from .notifications import (
+    ToastDelivery,
+    dismiss_native_toast,
+    register_activation,
+    show_native_toast,
+)
 from .updates import GitHubUpdateService, ReleaseUpdate
 
 APP_STYLE = """
@@ -276,9 +283,127 @@ class UpdateWorker(QThread):  # type: ignore[misc, unused-ignore]  # PySide whee
             self.failed.emit("The update operation failed unexpectedly")
 
 
+class ApprovalCornerPanel(QFrame):  # type: ignore[misc, unused-ignore]
+    """Clearly Codito-owned, nonmodal fallback; never activates the main window."""
+
+    decision_chosen = Signal(str)
+    review_requested = Signal()
+
+    def __init__(self, approval: dict[str, Any]) -> None:
+        super().__init__(None)
+        self.setWindowTitle("Codito — Local approval")
+        self.setWindowFlags(
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setWindowModality(Qt.WindowModality.NonModal)
+        self.setObjectName("CoditoApprovalPanel")
+        self.setStyleSheet(
+            "QFrame#CoditoApprovalPanel {background:#f6f7f9;border:1px solid #64748b;}"
+            "QLabel {color:#172033;background:transparent;font-family:'Segoe UI';}"
+            "QPushButton {padding:7px 9px;background:#ffffff;color:#172033;"
+            "border:1px solid #94a3b8;border-radius:3px;}"
+            "QPushButton:hover {background:#e2e8f0;}"
+        )
+        self.setFixedWidth(430)
+        self._chosen = False
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 12, 14, 12)
+        heading = QLabel("Codito · Local approval")
+        heading.setTextFormat(Qt.TextFormat.PlainText)
+        heading.setStyleSheet("font-size:15px;font-weight:600;")
+        layout.addWidget(heading)
+        summary = QLabel(str(approval.get("summary", "Remote operation"))[:200])
+        summary.setTextFormat(Qt.TextFormat.PlainText)
+        summary.setWordWrap(True)
+        layout.addWidget(summary)
+        detail = QPlainTextEdit()
+        detail.setReadOnly(True)
+        detail.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        detail.setFixedHeight(88)
+        detail.setPlainText(
+            json.dumps(
+                {
+                    key: approval.get(key)
+                    for key in (
+                        "account_id",
+                        "grant_id",
+                        "link_id",
+                        "device_id",
+                        "project_title",
+                        "capability",
+                        "risk",
+                        "deadline_at",
+                        "action_digest",
+                        "working_directory",
+                        "requested_external_paths",
+                        "command",
+                        "patch",
+                        "requested_network",
+                        "environment_differences",
+                    )
+                    if approval.get(key) is not None
+                },
+                indent=2,
+                ensure_ascii=False,
+                default=str,
+            )
+        )
+        layout.addWidget(detail)
+        actions = [("Deny", "deny"), ("Allow", "allow_once")]
+        warning = "Allow applies only to this request. Details opens the complete approval."
+        if approval.get("persistent_screen_eligible"):
+            actions.append(("Always allow", "allow_always_screen"))
+            warning = (
+                "Always allow: this monitor/account only, including private visible windows. "
+                "Revoke in Settings."
+            )
+        elif approval.get("persistent_read_eligible"):
+            actions.append(("Always allow", "allow_always_read"))
+            warning = (
+                "Always allow: read this folder and descendants, including private files. "
+                "No edits or shell access."
+            )
+        elif approval.get("persistent_shell_eligible"):
+            actions.append(("Always allow", "allow_always_shell"))
+            warning = (
+                "Always allow: native shell for this scope/account, with full Windows user "
+                "authority. Revoke in Settings."
+            )
+        scope = QLabel(warning)
+        scope.setTextFormat(Qt.TextFormat.PlainText)
+        scope.setWordWrap(True)
+        layout.addWidget(scope)
+        buttons = QHBoxLayout()
+        tokens = approval.get("toast_tokens", {})
+        for label, decision in actions:
+            button = QPushButton(label)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setAutoDefault(False)
+            button.setEnabled(isinstance(tokens.get(decision), str))
+            button.clicked.connect(lambda _=False, chosen=decision: self._choose(chosen))
+            buttons.addWidget(button)
+        details = QPushButton("Details")
+        details.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        details.setAutoDefault(False)
+        details.clicked.connect(self.review_requested.emit)
+        buttons.addWidget(details)
+        layout.addLayout(buttons)
+
+    def _choose(self, decision: str) -> None:
+        if self._chosen:
+            return
+        self._chosen = True
+        self.hide()
+        self.decision_chosen.emit(decision)
+
+
 class ApprovalToastWorker(QThread):  # type: ignore[misc, unused-ignore]
     failed = Signal()
-    shown = Signal()
+    delivered = Signal(object)
 
     def __init__(self, broker: Path | None, approval: dict[str, Any]) -> None:
         super().__init__()
@@ -287,12 +412,24 @@ class ApprovalToastWorker(QThread):  # type: ignore[misc, unused-ignore]
 
     def run(self) -> None:
         try:
-            show_native_toast(self.broker, self.approval)
-            event("toast_shown", str(self.approval.get("request_id", "")))
-            self.shown.emit()
+            delivery = show_native_toast(self.broker, self.approval)
+            event("toast_submitted", str(self.approval.get("request_id", "")))
+            self.delivered.emit(delivery)
         except Exception as exc:
             event("toast_failed", str(self.approval.get("request_id", "")), type(exc).__name__)
             self.failed.emit()
+
+
+class ApprovalDismissWorker(QThread):  # type: ignore[misc, unused-ignore]
+    """Withdraw the parallel native notification without blocking the Qt loop."""
+
+    def __init__(self, broker: Path | None, request_id: str) -> None:
+        super().__init__()
+        self.broker = broker
+        self.request_id = request_id
+
+    def run(self) -> None:
+        dismiss_native_toast(self.broker, self.request_id)
 
 
 class AccountWorker(QThread):  # type: ignore[misc, unused-ignore]
@@ -337,9 +474,15 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         self._pending_update: ReleaseUpdate | None = None
         self._update_check_silent = False
         self._quitting = False
+        self._quit_requested_to_app = False
         self._approval_dialog_active = False
-        self._toast_workers: list[ApprovalToastWorker] = []
+        self._toast_workers: list[ApprovalToastWorker | ApprovalDismissWorker] = []
         self._notified_approvals: set[str] = set()
+        self._corner_pending: dict[str, tuple[dict[str, Any], float]] = {}
+        self._corner_panels: dict[str, ApprovalCornerPanel] = {}
+        self._corner_suspended_until = 0.0
+        self._corner_deciding: set[str] = set()
+        self._capture_in_progress = False
         try:
             self._actionable_toasts = register_activation()
         except Exception as exc:
@@ -831,6 +974,8 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         return response if isinstance(response, dict) else None
 
     def refresh(self) -> None:
+        if self._quitting:
+            return
         response = self._request({"action": "status"})
         if not response or not response.get("ok"):
             self._set_offline("Daemon unavailable")
@@ -899,6 +1044,8 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         self._populate_projects()
 
     def begin_account_action(self, action: str) -> None:
+        if self._quitting:
+            return
         if self._account_worker is not None and self._account_worker.isRunning():
             return
         if action == "reenroll":
@@ -933,14 +1080,18 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         QTimer.singleShot(900, lambda selected=action: self._start_account_worker(selected))
 
     def _start_account_worker(self, action: str) -> None:
+        if self._quitting:
+            return
         worker = AccountWorker(self.config, action)
         worker.completed.connect(self._account_completed)
         worker.failed.connect(self._account_failed)
-        worker.finished.connect(lambda: self._set_account_buttons(True))
+        worker.finished.connect(self._account_finished)
         self._account_worker = worker
         worker.start()
 
     def _account_completed(self, action: str, result: object) -> None:
+        if self._quitting:
+            return
         if action == "logout":
             self.account_state.setText("Signed out · device revoked")
             self._set_offline("Sign in to connect this device")
@@ -962,8 +1113,19 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         QTimer.singleShot(1800, self.refresh)
 
     def _account_failed(self, message: str) -> None:
+        if self._quitting:
+            return
         self.account_state.setText("Account action failed")
         QMessageBox.critical(self, "Codito account error", message)
+
+    def _account_finished(self) -> None:
+        worker, self._account_worker = self._account_worker, None
+        if worker is not None:
+            worker.deleteLater()
+        if self._quitting:
+            self._finish_quit_when_idle()
+        else:
+            self._set_account_buttons(True)
 
     def _set_account_buttons(self, enabled: bool) -> None:
         self.login_button.setEnabled(enabled)
@@ -1236,6 +1398,8 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             self.check_for_updates(silent=True)
 
     def check_for_updates(self, *, silent: bool) -> None:
+        if self._quitting:
+            return
         if self._update_worker is not None and self._update_worker.isRunning():
             return
         self._update_check_silent = silent
@@ -1249,6 +1413,8 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         worker.start()
 
     def _update_checked(self, value: object) -> None:
+        if self._quitting:
+            return
         if not isinstance(value, ReleaseUpdate):
             self._update_failed("GitHub returned an invalid update response")
             return
@@ -1274,6 +1440,8 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             self._pending_update = value
 
     def _start_update_install(self, update: ReleaseUpdate) -> None:
+        if self._quitting:
+            return
         self._update_check_silent = False
         self.update_button.setEnabled(False)
         self.update_status.setText(f"Downloading {update.latest_version}…")
@@ -1287,8 +1455,11 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
     def _update_install_started(self, version: str) -> None:
         self.update_status.setText(f"Installing {version}…")
         self.statusBar().showMessage("Verified update launched; Codito will restart", 5000)
+        self.quit_ui()
 
     def _update_failed(self, message: str) -> None:
+        if self._quitting:
+            return
         self.update_status.setText(f"Version {__version__} · Check failed")
         if not self._update_check_silent:
             QMessageBox.warning(self, "Codito updates", message)
@@ -1301,6 +1472,9 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         self.update_button.setEnabled(True)
         if worker is not None:
             worker.deleteLater()
+        if self._quitting:
+            self._finish_quit_when_idle()
+            return
         if pending is not None:
             QTimer.singleShot(0, lambda: self._start_update_install(pending))
 
@@ -1333,16 +1507,27 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         QDesktopServices.openUrl(QUrl(self.config.relay_http_url))
 
     def poll_approval(self) -> None:
+        if self._quitting:
+            return
+        self._refresh_corner_panels()
         if self._approval_dialog_active:
             return
         review = self._request({"action": "approval.review.next"})
         if review and isinstance(review.get("request_id"), str):
             self.review_pending_approvals(request_id=review["request_id"])
             return
-        response = self._request({"action": "approval.next"})
+        response = self._request(
+            {"action": "approval.next", "exclude_ids": sorted(self._notified_approvals)[:32]}
+        )
+        if not response or not response.get("ok"):
+            return
+        pending_ids = response.get("pending_ids")
+        if isinstance(pending_ids, list) and all(isinstance(value, str) for value in pending_ids):
+            self._notified_approvals.intersection_update(pending_ids)
         approval = response.get("approval") if response else None
         if not isinstance(approval, dict):
-            self._notified_approvals.clear()
+            # None may mean every live request was already notified, not an empty
+            # queue. Clearing here would repeatedly toast the same pending request.
             return
         identifier = str(approval["request_id"])
         if identifier in self._notified_approvals:
@@ -1352,7 +1537,7 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
 
     def review_pending_approvals(self, *, request_id: str | None = None) -> None:
         """Open details only on an explicit local review action, never on arrival."""
-        if self._approval_dialog_active:
+        if self._quitting or self._approval_dialog_active:
             return
         response = self._request({"action": "approval.next", "request_id": request_id})
         approval = response.get("approval") if response else None
@@ -1373,36 +1558,208 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             self._approval_dialog_active = False
 
     def _notify_approval(self, approval: dict[str, Any]) -> None:
-        """Background toast delivery must not replace the user's foreground window."""
+        """Submission is not display proof; retain a nonactivating local fallback."""
+        if self._quitting:
+            return
+        self._schedule_corner_approval(approval, delay=3.0)
 
-        def fallback_toast() -> None:
-            self.tray.showMessage(
-                "Codito approval required — open Codito to decide",
-                str(approval.get("project_title", "")),
-                QSystemTrayIcon.MessageIcon.Warning,
-                10_000,
-            )
+        def fallback_panel() -> None:
+            if self._quitting:
+                return
+            self._schedule_corner_approval(approval, delay=0.0)
+            self._refresh_corner_panels()
+
+        def delivered(delivery: ToastDelivery) -> None:
+            if not delivery.banner_expected:
+                fallback_panel()
 
         if self._actionable_toasts and approval.get("toast_tokens"):
             worker = ApprovalToastWorker(self.config.broker_path, approval)
             self._toast_workers.append(worker)
-            worker.failed.connect(fallback_toast)
-            worker.shown.connect(
-                lambda: self._request(
-                    {"action": "approval.displayed", "request_id": approval["request_id"]}
-                )
-            )
+            worker.failed.connect(fallback_panel)
+            worker.delivered.connect(delivered)
 
             def completed() -> None:
                 self._toast_workers.remove(worker)
                 worker.deleteLater()
+                self._finish_quit_when_idle()
 
             worker.finished.connect(completed)
             worker.start()
         else:
-            fallback_toast()
+            fallback_panel()
+
+    def _schedule_corner_approval(self, approval: dict[str, Any], *, delay: float) -> None:
+        if self._quitting:
+            return
+        identifier = str(approval["request_id"])
+        ready_at = time.monotonic() + delay
+        previous = self._corner_pending.get(identifier)
+        if previous is not None:
+            ready_at = min(ready_at, previous[1])
+        if previous is not None or len(self._corner_pending) < 32:
+            self._corner_pending[identifier] = (approval, ready_at)
+
+    def _remove_corner_panel(self, identifier: str, *, forget: bool = True) -> None:
+        panel = self._corner_panels.pop(identifier, None)
+        if panel is not None:
+            panel.hide()
+            panel.close()
+            panel.deleteLater()
+        if forget:
+            self._corner_pending.pop(identifier, None)
+
+    def _hide_corner_panels(self) -> None:
+        for panel in self._corner_panels.values():
+            panel.hide()
+
+    def _refresh_corner_panels(self) -> None:
+        from .desktop_capture import desktop_is_unlocked
+
+        if not self._corner_pending:
+            return
+        for identifier, (approval, _) in list(self._corner_pending.items()):
+            try:
+                expired = datetime.fromisoformat(str(approval["deadline_at"])) <= datetime.now(UTC)
+            except (KeyError, TypeError, ValueError):
+                expired = True
+            if expired:
+                self._remove_corner_panel(identifier)
+        if not self._corner_pending:
+            return
+        # One read-only queue snapshot covers all panels, including requests that
+        # were answered through a native toast while Codito was in the background.
+        snapshot = self._request(
+            {"action": "approval.next", "exclude_ids": sorted(self._corner_pending)[:32]}
+        )
+        pending_ids = snapshot.get("pending_ids") if snapshot and snapshot.get("ok") else None
+        if not isinstance(pending_ids, list) or not all(isinstance(v, str) for v in pending_ids):
+            self._hide_corner_panels()
+            return
+        active_ids = set(pending_ids)
+        for identifier in list(self._corner_pending):
+            if identifier not in active_ids:
+                self._remove_corner_panel(identifier)
+        if (
+            self._quitting
+            or self._approval_dialog_active
+            or self._corner_deciding
+            or self._capture_in_progress
+            or time.monotonic() < self._corner_suspended_until
+            or not desktop_is_unlocked()
+        ):
+            self._hide_corner_panels()
+            return
+        screen = cast("QScreen | None", QApplication.primaryScreen())
+        if screen is None:
+            return
+        area = screen.availableGeometry()
+        bottom = area.bottom() - 12
+        visible_count = 0
+        visible_ids: set[str] = set()
+        for identifier, (approval, ready_at) in self._corner_pending.items():
+            if identifier in self._corner_deciding or ready_at > time.monotonic():
+                continue
+            if visible_count >= 3:
+                break
+            panel = self._corner_panels.get(identifier)
+            if panel is None:
+                panel = ApprovalCornerPanel(approval)
+                panel.decision_chosen.connect(
+                    lambda decision, request_id=identifier: self._corner_decision(
+                        request_id, decision
+                    )
+                )
+                panel.review_requested.connect(
+                    lambda request_id=identifier: self._corner_review(request_id)
+                )
+                self._corner_panels[identifier] = panel
+            panel.adjustSize()
+            if bottom - panel.height() < area.top() and visible_count:
+                panel.hide()
+                break
+            panel.move(max(area.left(), area.right() - panel.width() - 12), bottom - panel.height())
+            was_visible = panel.isVisible()
+            panel.show()  # WA_ShowWithoutActivating; never raise/activate the main window.
+            if not was_visible and panel.isVisible():
+                self._request({"action": "approval.displayed", "request_id": identifier})
+                event("approval_corner_displayed", identifier)
+            bottom -= panel.height() + 12
+            visible_count += 1
+            visible_ids.add(identifier)
+        for identifier, panel in self._corner_panels.items():
+            if identifier not in visible_ids:
+                panel.hide()
+
+    def _corner_decision(self, identifier: str, decision: str) -> None:
+        if self._quitting:
+            return
+        cached = self._corner_pending.get(identifier)
+        if cached is None or identifier in self._corner_deciding:
+            return
+        approval = cached[0]
+        tokens = approval.get("toast_tokens", {})
+        token = tokens.get(decision) if isinstance(tokens, dict) else None
+        if not isinstance(token, str):
+            return
+        self._corner_deciding.add(identifier)
+        self._hide_corner_panels()
+        self._corner_suspended_until = time.monotonic() + 3.0
+        self._remove_corner_panel(identifier, forget=False)
+
+        def send_decision() -> None:
+            from .desktop_capture import desktop_is_unlocked
+
+            self._corner_deciding.discard(identifier)
+            if self._quitting or not desktop_is_unlocked():
+                return
+            try:
+                expired = datetime.fromisoformat(str(approval["deadline_at"])) <= datetime.now(UTC)
+            except (KeyError, TypeError, ValueError):
+                expired = True
+            if expired:
+                self._remove_corner_panel(identifier)
+                return
+            self._corner_suspended_until = time.monotonic() + 1.0
+            response = self._request(
+                {
+                    "action": "approval.toast",
+                    "request_id": identifier,
+                    "decision": decision,
+                    "token": token,
+                }
+            )
+            self._remove_corner_panel(identifier)
+            if not response or not response.get("ok"):
+                # Fetch current pending state/tokens on the next poll; never
+                # retry the same one-use authorization token automatically.
+                self._notified_approvals.discard(identifier)
+                event("approval_corner_decision_rejected", identifier)
+
+        worker = ApprovalDismissWorker(self.config.broker_path, identifier)
+        self._toast_workers.append(worker)
+
+        def dismissed() -> None:
+            self._toast_workers.remove(worker)
+            worker.deleteLater()
+            if self._quitting:
+                self._corner_deciding.discard(identifier)
+                self._finish_quit_when_idle()
+                return
+            # Let the desktop compositor present the hidden panels before the
+            # daemon can enqueue a screenshot. No GUI-thread blocking sleep.
+            QTimer.singleShot(200, send_decision)
+
+        worker.finished.connect(dismissed)
+        worker.start()
+
+    def _corner_review(self, identifier: str) -> None:
+        self._hide_corner_panels()
+        self.review_pending_approvals(request_id=identifier)
 
     def _show_approval(self, approval: dict[str, Any]) -> None:
+        if self._quitting:
+            return
         self.showNormal()
         self.raise_()
         self.activateWindow()
@@ -1525,7 +1882,7 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         delivery_timer.stop()
         expiry.stop()
         clicked = dialog.clickedButton()
-        if resolved_elsewhere:
+        if self._quitting or resolved_elsewhere:
             self.refresh()
             dialog.deleteLater()
             return
@@ -1560,15 +1917,30 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         dialog.deleteLater()
 
     def poll_capture(self) -> None:
-        if self._approval_dialog_active:
+        if self._quitting or self._approval_dialog_active or self._capture_in_progress:
             return
         response = self._request({"action": "screen.next"})
         request = response.get("capture") if response else None
         if not isinstance(request, dict):
             return
+        self._capture_in_progress = True
+        if request.get("action") != "list_displays" and any(
+            panel.isVisible() for panel in self._corner_panels.values()
+        ):
+            self._hide_corner_panels()
+            self._corner_suspended_until = time.monotonic() + 3.0
+            # screen.next claims once. Retain this exact authorized request while
+            # allowing the compositor to remove Codito's panels before capture.
+            QTimer.singleShot(200, lambda: self._complete_capture(request))
+            return
+        self._complete_capture(request)
+
+    def _complete_capture(self, request: dict[str, Any]) -> None:
         try:
             from .desktop_capture import capture_screen, list_displays
 
+            if self._quitting or self._approval_dialog_active:
+                raise ValueError("Desktop no longer available for capture")
             if datetime.fromisoformat(request["deadline_at"]) <= datetime.now(UTC):
                 raise ValueError("Capture expired")
             if request.get("action") == "list_displays":
@@ -1583,12 +1955,16 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         except Exception as exc:
             event("screen_capture_failed", str(request.get("capture_id", "")), type(exc).__name__)
             result = {"ok": False}
-        self._request(
-            {"action": "screen.respond", "capture_id": request["capture_id"], "result": result}
-        )
+        try:
+            self._request(
+                {"action": "screen.respond", "capture_id": request["capture_id"], "result": result}
+            )
+        finally:
+            self._capture_in_progress = False
+            self._finish_quit_when_idle()
 
     def poll_desktop_action(self) -> None:
-        if self._approval_dialog_active:
+        if self._quitting or self._approval_dialog_active:
             return
         response = self._request({"action": "desktop.next"})
         request = response.get("desktop_action") if response else None
@@ -1687,7 +2063,7 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             self._request({"action": "shell_permissions.revoke_all"})
 
     def poll_project_request(self) -> None:
-        if self._approval_dialog_active:
+        if self._quitting or self._approval_dialog_active:
             return
         response = self._request({"action": "project.request.next"})
         request = response.get("request") if response else None
@@ -1751,6 +2127,8 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             self.show_window()
 
     def show_window(self) -> None:
+        if self._quitting:
+            return
         self.showNormal()
         self.raise_()
         self.activateWindow()
@@ -1758,12 +2136,43 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
 
     def quit_ui(self) -> None:
         self._quitting = True
+        self._pending_update = None
+        for timer in (
+            self.refresh_timer,
+            self.approval_timer,
+            self.capture_timer,
+            self.project_request_timer,
+            self.update_timer,
+        ):
+            timer.stop()
+        for identifier in list(self._corner_pending):
+            self._remove_corner_panel(identifier)
         self.tray.hide()
+        self.hide()
+        self._finish_quit_when_idle()
+
+    def _finish_quit_when_idle(self) -> None:
+        # Keep the event loop/owners alive until bounded broker subprocesses
+        # return and their QThreads emit finished. Never terminate a QThread.
+        if (
+            not self._quitting
+            or self._quit_requested_to_app
+            or self._toast_workers
+            or self._account_worker is not None
+            or self._update_worker is not None
+            or self._capture_in_progress
+        ):
+            return
+        self._quit_requested_to_app = True
         QApplication.quit()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._quitting:
-            event.accept()
+            self.quit_ui()
+            if self._quit_requested_to_app:
+                event.accept()
+            else:
+                event.ignore()
             return
         event.ignore()
         self.hide()

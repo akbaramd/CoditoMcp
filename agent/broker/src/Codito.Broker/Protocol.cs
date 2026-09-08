@@ -7,7 +7,8 @@ internal sealed record BrokerRequest(
     [property: JsonPropertyName("operation")] string Operation,
     [property: JsonPropertyName("mode")] string? Mode,
     [property: JsonPropertyName("specification")] RunSpecification? Specification,
-    [property: JsonPropertyName("toast")] ToastSpecification? Toast = null);
+    [property: JsonPropertyName("toast")] ToastSpecification? Toast = null,
+    [property: JsonPropertyName("notification_tag")] string? NotificationTag = null);
 
 internal sealed record ToastSpecification(
     [property: JsonPropertyName("xml")] string Xml,

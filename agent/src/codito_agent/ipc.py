@@ -160,7 +160,9 @@ class QueuedApprovalPrompt:
             with self._lock:
                 self._pending.pop(request.request_id, None)
 
-    def next_request(self, request_id: str | None = None) -> dict[str, Any] | None:
+    def next_request(
+        self, request_id: str | None = None, *, exclude_ids: frozenset[str] = frozenset()
+    ) -> dict[str, Any] | None:
         with self._lock:
             # Peek, never consume. A tray crash/IPC error must not lose a prompt.
             pending = next(
@@ -169,6 +171,9 @@ class QueuedApprovalPrompt:
                     for p in self._pending.values()
                     if not p.future.done()
                     and (request_id is None or p.request.request_id == request_id)
+                    # Only background notification polling excludes seen requests.
+                    # An explicit local review must still retrieve that exact request.
+                    and (request_id is not None or p.request.request_id not in exclude_ids)
                 ),
                 None,
             )
@@ -178,6 +183,15 @@ class QueuedApprovalPrompt:
         value["risk"] = pending.request.risk.value
         value["toast_tokens"] = dict(pending.toast_tokens)
         return value
+
+    def pending_request_ids(self) -> list[str]:
+        """Identifiers only, for pruning tray delivery state without consuming prompts."""
+        with self._lock:
+            return [
+                request_id
+                for request_id, pending in self._pending.items()
+                if not pending.future.done()
+            ]
 
     def respond_toast(self, request_id: str, decision: str, token: str) -> bool:
         with self._lock:

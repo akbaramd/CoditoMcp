@@ -16,12 +16,24 @@ from django.http.request import validate_host
 from jwcrypto import jwk, jws  # type: ignore[import-untyped]
 from jwcrypto.common import JWException  # type: ignore[import-untyped]
 from oauth2_provider.cimd import CIMDError, SafeMetadataFetcher
-from oauth2_provider.models import Application
+from oauth2_provider.models import Application, RefreshToken
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauthlib.oauth2.rfc6749 import errors  # type: ignore[import-untyped]
 from redis.exceptions import RedisError
 
 from .diagnostics import emit, scope_summary
+
+
+class RefreshChangedError(errors.InvalidGrantError):  # type: ignore[misc]
+    """The backend catches save-time errors outside oauthlib's JSON wrapper."""
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+        }
 
 
 def exact_resource_match(request_uri: str, audiences: list[str]) -> bool:
@@ -87,6 +99,25 @@ class CoditoCIMDMetadataFetcher(SafeMetadataFetcher):  # type: ignore[misc]
 
 class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
     """Share OIDC identity scopes, never desktop and MCP capability scopes."""
+
+    def _save_bearer_token(
+        self, token: dict[str, Any], request: Any, *args: Any, **kwargs: Any
+    ) -> None:
+        # DOT's save_bearer_token owns the transaction. Validation precedes that
+        # transaction, so two requests can both observe an unconsumed refresh
+        # token. Recheck under the same row lock used by DOT's rotation before
+        # it reaches the prior-pair branch, which reads blank plaintext columns
+        # with hashed-at-rest storage and would otherwise return empty tokens.
+        previous = getattr(request, "refresh_token_instance", None)
+        if isinstance(previous, RefreshToken):
+            locked = RefreshToken.objects.select_for_update().filter(pk=previous.pk).first()
+            if locked is None or locked.revoked is not None or locked.access_token_id is None:
+                emit("oauth.refresh_rejected", reason="changed_after_validation")
+                # Preserve the winning concurrent request. A subsequent replay
+                # still runs DOT's normal validation and revokes the family.
+                raise RefreshChangedError(description="Refresh token is no longer usable.")
+            request.refresh_token_instance = locked
+        super()._save_bearer_token(token, request, *args, **kwargs)
 
     def get_default_scopes(
         self, client_id: str, request: Any, *args: Any, **kwargs: Any

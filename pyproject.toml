@@ -1,6 +1,6 @@
 [project]
 name = "codito-workspace"
-version = "0.1.4"
+version = "0.1.5"
 description = "Secure, self-hosted bridge between ChatGPT and registered Windows projects"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

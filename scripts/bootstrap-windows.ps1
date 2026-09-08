@@ -8,7 +8,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-if (-not $IsWindows -or -not [Environment]::Is64BitOperatingSystem) {
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or
+    -not [Environment]::Is64BitOperatingSystem) {
     throw 'Codito requires 64-bit Windows 11.'
 }
 if ($Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {

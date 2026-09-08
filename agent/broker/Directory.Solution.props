@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <!-- The solution VSTest target otherwise invokes the application and test
+         projects concurrently, while the test project also builds the broker
+         through its ProjectReference. Serialize this tiny graph so CI cannot
+         race the shared broker outputs. -->
+    <BuildInParallel>false</BuildInParallel>
+  </PropertyGroup>
+</Project>

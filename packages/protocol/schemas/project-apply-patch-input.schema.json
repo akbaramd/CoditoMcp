@@ -1,0 +1,54 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/project-apply-patch-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "base_hashes": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "description": "Exact precondition for every touched source/destination: SHA-256 means the file must match; null means the path must not exist.",
+      "maxProperties": 256,
+      "minProperties": 1,
+      "title": "Base Hashes",
+      "type": "object"
+    },
+    "dry_run": {
+      "default": false,
+      "description": "Preflight every check and report results without committing writes.",
+      "title": "Dry Run",
+      "type": "boolean"
+    },
+    "idempotency_key": {
+      "description": "Caller-generated stable key for this exact patch attempt.",
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "patch": {
+      "description": "Exact UTF-8 document using the Codito anchored Begin Patch v1 grammar.",
+      "minLength": 35,
+      "title": "Patch",
+      "type": "string"
+    },
+    "project_id": {
+      "description": "Opaque ID from list_projects; never a local path.",
+      "title": "Project Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "patch",
+    "base_hashes",
+    "idempotency_key"
+  ],
+  "title": "ProjectApplyPatchInput",
+  "type": "object"
+}

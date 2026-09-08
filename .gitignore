@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.venv/
+.uv-cache/
+.pip-audit-cache/
+.mypy_cache/
+.pytest_cache/
+pytest-cache-files-*/
+.tmp-tests/
+test-work/
+.test-work/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+secrets/
+
+# Agent state and packages
+*.sqlite3
+*.db-wal
+*.db-shm
+agent-data/
+installer-output/
+
+# .NET
+**/bin/
+**/obj/
+*.user
+*.suo
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Generated security reports
+artifacts/
+sbom*.json
+trivy*.json

@@ -1,0 +1,73 @@
+[project]
+name = "codito-relay"
+version = "0.1.0"
+description = "Codito OAuth, MCP, and Windows device relay"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "argon2-cffi>=25.1,<26",
+  "cryptography>=50,<51",
+  "django>=5.2,<5.3",
+  "django-oauth-toolkit>=3.4,<3.5",
+  "django-stubs-ext>=5.2,<7",
+  "mcp>=2.0.0,<3",
+  "prometheus-client>=0.22,<1",
+  "psycopg[binary]>=3.2,<4",
+  "pydantic>=2.11,<3",
+  "redis[hiredis]>=6.4,<8",
+  "starlette>=1.3.1,<2",
+  "uvicorn[standard]>=0.35,<1",
+  "whitenoise>=6.9,<7",
+  "codito-protocol>=0.1.0",
+]
+
+[dependency-groups]
+dev = [
+  "coverage[toml]>=7.10,<8",
+  "django-stubs[compatible-mypy]>=5.2,<6",
+  "httpx>=0.28,<1",
+  "hypothesis>=6.138,<7",
+  "mypy>=1.17,<2",
+  "pytest>=9.0.3,<10",
+  "pytest-asyncio>=1.1,<2",
+  "pytest-django>=4.11,<5",
+  "ruff>=0.12,<1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+codito-protocol = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["codito_relay"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"codito_relay/py.typed" = "codito_relay/py.typed"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "codito_relay.test_settings"
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+branch = true
+source = ["codito_relay"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "DJ"]
+ignore = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["mypy_django_plugin.main"]
+
+[tool.django-stubs]
+django_settings_module = "codito_relay.settings"

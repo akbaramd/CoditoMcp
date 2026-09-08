@@ -1,0 +1,11 @@
+# The packaged agent uses these production defaults when this file is omitted.
+relay_http_url = "https://codito.akbaramd.ir"
+relay_websocket_url = "wss://codito.akbaramd.ir/ws/device"
+desktop_client_id = "codito-windows-agent"
+data_directory = "%LOCALAPPDATA%/Codito"
+
+# Leave broker_path unset in the packaged build. codito-agent-daemon resolves
+# the sibling broker/Codito.Broker.exe from its signed installation layout.
+log_level = "INFO"
+max_pending_operations = 32
+read_concurrency = 4

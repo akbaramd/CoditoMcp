@@ -1,0 +1,176 @@
+{
+  "$defs": {
+    "PatchConflict": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "base_hash_missing",
+            "base_hash_mismatch",
+            "context_not_found",
+            "context_ambiguous",
+            "path_exists",
+            "path_missing",
+            "destination_exists",
+            "invalid_section",
+            "policy_denied"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "hunk_index": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hunk Index"
+        },
+        "message": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "section_index": {
+          "minimum": 0,
+          "title": "Section Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "section_index",
+        "code",
+        "message"
+      ],
+      "title": "PatchConflict",
+      "type": "object"
+    },
+    "PatchedFile": {
+      "additionalProperties": false,
+      "properties": {
+        "destination": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Destination"
+        },
+        "new_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "New Sha256"
+        },
+        "old_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Old Sha256"
+        },
+        "operation": {
+          "enum": [
+            "add",
+            "update",
+            "delete",
+            "move"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "path"
+      ],
+      "title": "PatchedFile",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/project-apply-patch-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "applied": {
+      "title": "Applied",
+      "type": "boolean"
+    },
+    "conflicts": {
+      "items": {
+        "$ref": "#/$defs/PatchConflict"
+      },
+      "title": "Conflicts",
+      "type": "array"
+    },
+    "dry_run": {
+      "title": "Dry Run",
+      "type": "boolean"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/PatchedFile"
+      },
+      "title": "Files",
+      "type": "array"
+    },
+    "idempotency_key": {
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "journal_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Journal Id"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "idempotency_key",
+    "dry_run",
+    "applied"
+  ],
+  "title": "ProjectApplyPatchResult",
+  "type": "object"
+}

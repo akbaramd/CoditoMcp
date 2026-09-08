@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" RequiredVersion="6.0">
+  <Package
+    Id="Codito.WindowsAgent"
+    Name="Codito Windows Agent"
+    Manufacturer="Codito"
+    Version="$(PackageVersion)"
+    Scope="perUser"
+    InstallerVersion="500"
+    Compressed="yes"
+    UpgradeStrategy="majorUpgrade">
+    <SummaryInformation Description="Codito per-user Windows coding agent" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="LocalProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Codito" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="CoditoProgramMenuFolder" Name="Codito" />
+    </StandardDirectory>
+
+    <Files Include="$(PayloadDir)\**" Directory="INSTALLFOLDER" />
+
+    <Component Id="StartupRegistration" Directory="INSTALLFOLDER">
+      <RegistryValue
+        Root="HKCU"
+        Key="Software\Microsoft\Windows\CurrentVersion\Run"
+        Name="Codito Agent Daemon"
+        Type="string"
+        Value="&quot;[INSTALLFOLDER]daemon\codito-agent-daemon.exe&quot;"
+        KeyPath="yes" />
+      <RegistryValue
+        Root="HKCU"
+        Key="Software\Microsoft\Windows\CurrentVersion\Run"
+        Name="Codito Agent Tray"
+        Type="string"
+        Value="&quot;[INSTALLFOLDER]tray\codito-agent-tray.exe&quot;" />
+    </Component>
+
+    <Component Id="StartMenuShortcut" Directory="CoditoProgramMenuFolder">
+      <Shortcut
+        Id="CoditoTrayShortcut"
+        Name="Codito"
+        Description="Open the Codito tray companion"
+        Target="[INSTALLFOLDER]tray\codito-agent-tray.exe"
+        WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="RemoveCoditoProgramMenuFolder" Directory="CoditoProgramMenuFolder" On="uninstall" />
+      <RegistryValue
+        Root="HKCU"
+        Key="Software\Codito"
+        Name="StartMenuInstalled"
+        Type="integer"
+        Value="1"
+        KeyPath="yes" />
+    </Component>
+  </Package>
+</Wix>

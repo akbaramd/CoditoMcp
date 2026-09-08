@@ -1,0 +1,284 @@
+{
+  "$defs": {
+    "ListDirectoryInput": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opaque continuation from the same query.",
+          "title": "Cursor"
+        },
+        "glob": {
+          "default": "*",
+          "description": "Project-relative filename glob applied below path.",
+          "title": "Glob",
+          "type": "string"
+        },
+        "limit": {
+          "default": 200,
+          "description": "Maximum entries to return.",
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "list_directory",
+          "description": "List bounded metadata below a project-relative directory.",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "default": "",
+          "description": "Forward-slash project-relative directory; empty means root.",
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "description": "Opaque ID from list_projects; never a local path.",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "recursive": {
+          "default": false,
+          "description": "Whether to traverse subdirectories.",
+          "title": "Recursive",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "operation",
+        "project_id"
+      ],
+      "title": "ListDirectoryInput",
+      "type": "object"
+    },
+    "ListProjectsInput": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opaque continuation returned by this operation.",
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 50,
+          "description": "Maximum projects to return.",
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "list_projects",
+          "description": "List projects authorized for the current OAuth device link.",
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "title": "ListProjectsInput",
+      "type": "object"
+    },
+    "ReadFileInput": {
+      "additionalProperties": false,
+      "properties": {
+        "continuation": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opaque cursor returned by the same file read; do not alter it.",
+          "title": "Continuation"
+        },
+        "end_line": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive one-based last line, or null for byte-bounded read.",
+          "title": "End Line"
+        },
+        "max_bytes": {
+          "default": 262144,
+          "description": "Hard maximum content bytes to inspect/return for this page.",
+          "maximum": 2097152,
+          "minimum": 1,
+          "title": "Max Bytes",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "read_file",
+          "description": "Read a bounded, numbered file range.",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "description": "Forward-slash path relative to the project root.",
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "description": "Opaque ID from list_projects; never a local path.",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "start_line": {
+          "default": 1,
+          "description": "One-based first line to return.",
+          "minimum": 1,
+          "title": "Start Line",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "operation",
+        "project_id",
+        "path"
+      ],
+      "title": "ReadFileInput",
+      "type": "object"
+    },
+    "SearchTextInput": {
+      "additionalProperties": false,
+      "properties": {
+        "case_sensitive": {
+          "default": false,
+          "description": "Use case-sensitive matching.",
+          "title": "Case Sensitive",
+          "type": "boolean"
+        },
+        "continuation": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opaque continuation from the identical query.",
+          "title": "Continuation"
+        },
+        "glob": {
+          "default": "**/*",
+          "description": "Project-relative file glob within the selected subtree.",
+          "title": "Glob",
+          "type": "string"
+        },
+        "max_bytes_per_match": {
+          "default": 2048,
+          "description": "Maximum UTF-8 preview bytes per matching location.",
+          "maximum": 16384,
+          "minimum": 128,
+          "title": "Max Bytes Per Match",
+          "type": "integer"
+        },
+        "max_results": {
+          "default": 100,
+          "description": "Maximum matching locations to return.",
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Max Results",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "search_text",
+          "description": "Search bounded text inside a project.",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "default": "",
+          "description": "Project-relative subtree to search; empty means root.",
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "description": "Opaque ID from list_projects; never a local path.",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "query": {
+          "description": "Literal text or regex to find.",
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        },
+        "regex": {
+          "default": false,
+          "description": "Interpret query as a bounded regular expression.",
+          "title": "Regex",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "operation",
+        "project_id",
+        "query"
+      ],
+      "title": "SearchTextInput",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/project-read-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "list_directory": "#/$defs/ListDirectoryInput",
+      "list_projects": "#/$defs/ListProjectsInput",
+      "read_file": "#/$defs/ReadFileInput",
+      "search_text": "#/$defs/SearchTextInput"
+    },
+    "propertyName": "operation"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ListProjectsInput"
+    },
+    {
+      "$ref": "#/$defs/ListDirectoryInput"
+    },
+    {
+      "$ref": "#/$defs/ReadFileInput"
+    },
+    {
+      "$ref": "#/$defs/SearchTextInput"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Authorize · Codito{% endblock %}
+
+{% block content %}
+  {% if error %}
+    <h1>Authorization failed</h1>
+    <p>{{ error.description }}</p>
+  {% else %}
+    <h1>Authorize {{ application.name }}?</h1>
+    <p>This application is requesting the following Codito permissions:</p>
+    <ul>
+      {% for scope in scopes_descriptions %}<li>{{ scope }}</li>{% endfor %}
+    </ul>
+    <form method="post">
+      {% csrf_token %}
+      {% for field in form %}{% if field.is_hidden %}{{ field }}{% endif %}{% endfor %}
+      {{ form.non_field_errors }}
+      <button type="submit">Cancel</button>
+      <button type="submit" name="allow" value="Authorize">Authorize</button>
+    </form>
+  {% endif %}
+{% endblock %}

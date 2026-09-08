@@ -1,0 +1,259 @@
+{
+  "$defs": {
+    "ScriptCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "script",
+          "default": "script",
+          "description": "Explicitly opt into command-shell parsing.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "script": {
+          "description": "Non-interactive script displayed exactly in local approval UI.",
+          "minLength": 1,
+          "title": "Script",
+          "type": "string"
+        },
+        "shell": {
+          "description": "Exact shell grammar for the script.",
+          "enum": [
+            "powershell",
+            "cmd"
+          ],
+          "title": "Shell",
+          "type": "string"
+        }
+      },
+      "required": [
+        "shell",
+        "script"
+      ],
+      "title": "ScriptCommand",
+      "type": "object"
+    },
+    "ShellCancelInput": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "cancel",
+          "default": "cancel",
+          "description": "Request process-tree cancellation.",
+          "title": "Action",
+          "type": "string"
+        },
+        "job_id": {
+          "description": "Stable identifier returned by start.",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "project_id": {
+          "description": "Original job project binding.",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reason": {
+          "default": "cancelled by caller",
+          "description": "Safe concise reason recorded with the cancellation event.",
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "job_id"
+      ],
+      "title": "ShellCancelInput",
+      "type": "object"
+    },
+    "ShellCommand": {
+      "discriminator": {
+        "mapping": {
+          "exec": "#/$defs/StructuredCommand",
+          "script": "#/$defs/ScriptCommand"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/StructuredCommand"
+        },
+        {
+          "$ref": "#/$defs/ScriptCommand"
+        }
+      ]
+    },
+    "ShellPollInput": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "poll",
+          "default": "poll",
+          "description": "Read job state/output after a cursor.",
+          "title": "Action",
+          "type": "string"
+        },
+        "job_id": {
+          "description": "Stable identifier returned by start.",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "project_id": {
+          "description": "Original job project binding.",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "sequence_cursor": {
+          "default": 0,
+          "description": "Return chunks with sequence strictly greater than this value.",
+          "minimum": 0,
+          "title": "Sequence Cursor",
+          "type": "integer"
+        },
+        "wait_milliseconds": {
+          "default": 0,
+          "description": "Maximum bounded long-poll wait; zero returns immediately.",
+          "maximum": 30000,
+          "minimum": 0,
+          "title": "Wait Milliseconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_id",
+        "job_id"
+      ],
+      "title": "ShellPollInput",
+      "type": "object"
+    },
+    "ShellStartInput": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "start",
+          "default": "start",
+          "description": "Start a new bounded shell job.",
+          "title": "Action",
+          "type": "string"
+        },
+        "command": {
+          "$ref": "#/$defs/ShellCommand",
+          "description": "Structured argv or an explicit PowerShell/cmd script."
+        },
+        "idempotency_key": {
+          "description": "Detect duplicate submission; never authorizes automatic uncertain replay.",
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "output_limit_bytes": {
+          "default": 2097152,
+          "description": "Combined stdout/stderr cap before truncation/termination policy.",
+          "maximum": 10485760,
+          "minimum": 1024,
+          "title": "Output Limit Bytes",
+          "type": "integer"
+        },
+        "project_id": {
+          "description": "Opaque ID from list_projects; never a local path.",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "description": "Short human-readable reason shown in history/UI.",
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 300,
+          "description": "Wall-clock deadline enforced on the process tree.",
+          "maximum": 1800,
+          "minimum": 1,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        },
+        "working_directory": {
+          "default": "",
+          "description": "Project-relative working directory; empty means root.",
+          "title": "Working Directory",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose",
+        "idempotency_key",
+        "command"
+      ],
+      "title": "ShellStartInput",
+      "type": "object"
+    },
+    "StructuredCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "arguments": {
+          "description": "Ordered argv values passed without joining.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Arguments",
+          "type": "array"
+        },
+        "environment": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Bounded requested overrides; local policy sanitizes and may reject them.",
+          "maxProperties": 64,
+          "title": "Environment",
+          "type": "object"
+        },
+        "executable": {
+          "description": "Command name or project-relative executable path; never an absolute local path.",
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Executable",
+          "type": "string"
+        },
+        "kind": {
+          "const": "exec",
+          "default": "exec",
+          "description": "Execute without command-shell interpolation.",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "executable"
+      ],
+      "title": "StructuredCommand",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/project-shell-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "cancel": "#/$defs/ShellCancelInput",
+      "poll": "#/$defs/ShellPollInput",
+      "start": "#/$defs/ShellStartInput"
+    },
+    "propertyName": "action"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ShellStartInput"
+    },
+    {
+      "$ref": "#/$defs/ShellPollInput"
+    },
+    {
+      "$ref": "#/$defs/ShellCancelInput"
+    }
+  ]
+}

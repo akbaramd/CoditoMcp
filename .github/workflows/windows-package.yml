@@ -1,0 +1,61 @@
+name: Windows package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Three-part package version
+        required: true
+        default: 0.1.0
+        type: string
+      build_msi:
+        description: Build the unsigned WiX MSI after OSMF review
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  unsigned-developer-package:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: uv python install 3.12
+      - run: uv sync --frozen --package codito-agent --extra ui --extra package
+      - shell: pwsh
+        run: ./agent/packaging/scripts/Test-PackagingConfig.ps1
+      - shell: pwsh
+        run: >-
+          ./agent/packaging/scripts/Build-WindowsDevPackage.ps1
+          -Version '${{ inputs.version }}'
+      - name: Build WiX MSI only after repository owner records OSMF review
+        if: inputs.build_msi && vars.WIX_OSMF_REVIEWED == 'true'
+        shell: pwsh
+        env:
+          CODITO_WIX_OSMF_REVIEWED: "1"
+        run: >-
+          ./agent/packaging/scripts/Build-WindowsInstaller.ps1
+          -Version '${{ inputs.version }}'
+      - name: Refuse an MSI request without recorded OSMF review
+        if: inputs.build_msi && vars.WIX_OSMF_REVIEWED != 'true'
+        shell: pwsh
+        run: throw 'Set repository variable WIX_OSMF_REVIEWED=true only after an authorized OSMF review.'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codito-${{ inputs.version }}-windows-unsigned
+          path: |
+            installer-output/*.zip
+            installer-output/*.sha256
+            installer-output/*.msi
+          if-no-files-found: error
+          retention-days: 14

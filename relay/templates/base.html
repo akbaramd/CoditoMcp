@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>{% block title %}Codito{% endblock %}</title>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #dce7f5; background: #09111f; }
+    body { margin: 0; } main { max-width: 1040px; margin: 0 auto; padding: 2rem; }
+    a { color: #67d4ff; } nav { display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem; }
+    .card { background:#111d30; border:1px solid #263853; border-radius:14px; padding:1rem 1.25rem; margin:.8rem 0; }
+    .muted { color:#91a5bf; } code { overflow-wrap:anywhere; } button { cursor:pointer; border:0; border-radius:8px; padding:.55rem .85rem; }
+    .danger { background:#a82d41; color:white; } .primary { background:#1b77c9; color:white; }
+    input { display:block; width:min(100%,32rem); padding:.7rem; margin:.35rem 0 1rem; border-radius:7px; border:1px solid #52637a; }
+    .messages { list-style:none; padding:0; } .messages li { padding:.7rem; background:#163b31; border-radius:8px; }
+  </style>
+</head>
+<body><main>
+  <nav><strong>Codito</strong>{% if user.is_authenticated %}<form method="post" action="{% url 'logout' %}">{% csrf_token %}<button>Sign out</button></form>{% endif %}</nav>
+  {% if messages %}<ul class="messages">{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>{% endif %}
+  {% block content %}{% endblock %}
+</main></body>
+</html>

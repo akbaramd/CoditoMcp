@@ -1,0 +1,20 @@
+[project]
+name = "codito-protocol"
+version = "0.1.0"
+description = "Versioned data contracts shared by the Codito relay and device agent"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+dependencies = [
+  "pydantic>=2.12.0,<3",
+]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/codito_protocol"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

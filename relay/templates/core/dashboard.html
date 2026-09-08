@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Your devices</h1>
+<p class="muted">MCP links identify a route; OAuth authorization is still required for every request.</p>
+{% for device in devices %}
+<section class="card">
+  <h2>{{ device.name }}</h2>
+  <p>Status: <strong>{{ device.get_status_display }}</strong>{% if device.last_seen_at %} · last seen {{ device.last_seen_at }}{% endif %}</p>
+  {% for link in device.links.all %}{% if not link.revoked_at %}<p>MCP URL: <code>{{ link.resource }}</code></p>{% endif %}{% endfor %}
+  <h3>Projects</h3>
+  <ul>{% for project in device.projects.all %}<li>{{ project.title }} · {{ project.get_mode_display }} · {{ project.get_status_display }}</li>{% empty %}<li>No projects synchronized.</li>{% endfor %}</ul>
+  {% if not device.revoked_at %}
+  <form method="post" action="{% url 'rotate-device-link' device.id %}" style="display:inline">{% csrf_token %}<button>Rotate MCP link</button></form>
+  <form method="post" action="{% url 'revoke-device' device.id %}" style="display:inline">{% csrf_token %}<button class="danger">Revoke device</button></form>
+  {% endif %}
+</section>
+{% empty %}<section class="card"><p>No device is enrolled. Sign in from the Windows agent to add this computer.</p></section>{% endfor %}
+<h2>Recent audit history</h2>
+<section class="card"><ul>{% for event in audit_events %}<li>{{ event.occurred_at }} · {{ event.event_type }}</li>{% empty %}<li>No events yet.</li>{% endfor %}</ul></section>
+{% endblock %}

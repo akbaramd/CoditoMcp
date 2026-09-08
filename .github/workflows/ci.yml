@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - name: Strict type checks
+        env:
+          MYPYPATH: packages/protocol/src:relay:agent/src
+        run: uv run mypy -p codito_protocol -p codito_relay -p codito_agent
+      - name: Shared security/protocol coverage
+        run: >-
+          uv run --package codito-protocol pytest packages/protocol/tests
+          --cov=codito_protocol --cov-report=term-missing --cov-report=xml
+          --cov-fail-under=90
+      - name: Schema snapshots are current
+        run: |
+          uv run --package codito-protocol python packages/protocol/scripts/export_schemas.py
+          git diff --exit-code -- packages/protocol/schemas
+          test -z "$(git status --porcelain -- packages/protocol/schemas)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: python-coverage
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  relay-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17.6-alpine3.22
+        env:
+          POSTGRES_DB: codito_test
+          POSTGRES_USER: codito
+          POSTGRES_PASSWORD: codito_test_password
+        options: >-
+          --health-cmd "pg_isready -U codito -d codito_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:8.2.1-alpine3.22
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+        ports:
+          - 6379:6379
+    env:
+      DJANGO_SECRET_KEY: ci-only-not-a-production-secret
+      PUBLIC_BASE_URL: https://codito.example.test
+      DJANGO_ALLOWED_HOSTS: codito.example.test,localhost,testserver
+      CSRF_TRUSTED_ORIGINS: https://codito.example.test
+      DATABASE_URL: postgresql://codito:codito_test_password@127.0.0.1:5432/codito_test
+      REDIS_URL: redis://127.0.0.1:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: uv run --package codito-relay python relay/manage.py migrate --noinput
+      - run: uv run --package codito-relay pytest relay/tests -m "not e2e"
+
+  windows-agent-and-broker:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: uv python install 3.12
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: dotnet test agent/broker/Codito.Broker.sln --configuration Release --maxcpucount:1
+      - run: uv run --package codito-agent pytest agent/tests -m "not e2e"
+
+  dependency-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.5"
+      - run: uv python install 3.12
+      - run: uv export --frozen --all-packages --all-groups --format requirements-txt --output-file /tmp/requirements.txt
+      - run: uvx --from pip-audit==2.9.0 pip-audit --requirement /tmp/requirements.txt
+      - run: dotnet list agent/broker/Codito.Broker.sln package --vulnerable --include-transitive
+
+  secret-and-filesystem-scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

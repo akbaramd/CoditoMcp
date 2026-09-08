@@ -1,0 +1,391 @@
+{
+  "$defs": {
+    "Continuation": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "title": "Cursor",
+          "type": "string"
+        },
+        "remaining_estimate": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remaining Estimate"
+        }
+      },
+      "required": [
+        "cursor"
+      ],
+      "title": "Continuation",
+      "type": "object"
+    },
+    "DirectoryEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "file",
+            "directory"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size"
+        }
+      },
+      "required": [
+        "path",
+        "kind"
+      ],
+      "title": "DirectoryEntry",
+      "type": "object"
+    },
+    "ListDirectoryResult": {
+      "additionalProperties": false,
+      "properties": {
+        "continuation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Continuation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/DirectoryEntry"
+          },
+          "title": "Entries",
+          "type": "array"
+        },
+        "operation": {
+          "const": "list_directory",
+          "default": "list_directory",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "path",
+        "entries"
+      ],
+      "title": "ListDirectoryResult",
+      "type": "object"
+    },
+    "ListProjectsResult": {
+      "additionalProperties": false,
+      "properties": {
+        "continuation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Continuation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "operation": {
+          "const": "list_projects",
+          "default": "list_projects",
+          "title": "Operation",
+          "type": "string"
+        },
+        "projects": {
+          "items": {
+            "$ref": "#/$defs/ProjectSummary"
+          },
+          "title": "Projects",
+          "type": "array"
+        }
+      },
+      "required": [
+        "projects"
+      ],
+      "title": "ListProjectsResult",
+      "type": "object"
+    },
+    "ProjectSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "isolated",
+            "native_approval",
+            "native_trusted"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "online": {
+          "title": "Online",
+          "type": "boolean"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "title",
+        "device_id",
+        "mode",
+        "online"
+      ],
+      "title": "ProjectSummary",
+      "type": "object"
+    },
+    "ReadFileResult": {
+      "additionalProperties": false,
+      "properties": {
+        "continuation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Continuation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "encoding": {
+          "enum": [
+            "utf-8",
+            "utf-8-sig",
+            "utf-16-le",
+            "utf-16-be",
+            "binary"
+          ],
+          "title": "Encoding",
+          "type": "string"
+        },
+        "first_line": {
+          "minimum": 1,
+          "title": "First Line",
+          "type": "integer"
+        },
+        "last_line": {
+          "minimum": 0,
+          "title": "Last Line",
+          "type": "integer"
+        },
+        "newline": {
+          "enum": [
+            "lf",
+            "crlf",
+            "cr",
+            "mixed",
+            "none"
+          ],
+          "title": "Newline",
+          "type": "string"
+        },
+        "numbered_text": {
+          "title": "Numbered Text",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_file",
+          "default": "read_file",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size": {
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "project_id",
+        "path",
+        "numbered_text",
+        "encoding",
+        "newline",
+        "size",
+        "sha256",
+        "first_line",
+        "last_line",
+        "truncated"
+      ],
+      "title": "ReadFileResult",
+      "type": "object"
+    },
+    "SearchMatch": {
+      "additionalProperties": false,
+      "properties": {
+        "column": {
+          "minimum": 1,
+          "title": "Column",
+          "type": "integer"
+        },
+        "line": {
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "preview": {
+          "title": "Preview",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "line",
+        "column",
+        "preview"
+      ],
+      "title": "SearchMatch",
+      "type": "object"
+    },
+    "SearchTextResult": {
+      "additionalProperties": false,
+      "properties": {
+        "continuation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Continuation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "matches": {
+          "items": {
+            "$ref": "#/$defs/SearchMatch"
+          },
+          "title": "Matches",
+          "type": "array"
+        },
+        "operation": {
+          "const": "search_text",
+          "default": "search_text",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "project_id",
+        "matches",
+        "truncated"
+      ],
+      "title": "SearchTextResult",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/project-read-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "list_directory": "#/$defs/ListDirectoryResult",
+      "list_projects": "#/$defs/ListProjectsResult",
+      "read_file": "#/$defs/ReadFileResult",
+      "search_text": "#/$defs/SearchTextResult"
+    },
+    "propertyName": "operation"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ListProjectsResult"
+    },
+    {
+      "$ref": "#/$defs/ListDirectoryResult"
+    },
+    {
+      "$ref": "#/$defs/ReadFileResult"
+    },
+    {
+      "$ref": "#/$defs/SearchTextResult"
+    }
+  ]
+}

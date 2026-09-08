@@ -1,0 +1,8 @@
+relay_http_url = "https://codito.akbaramd.ir"
+relay_websocket_url = "wss://codito.akbaramd.ir/ws/device"
+desktop_client_id = "codito-windows-agent"
+data_directory = "%LOCALAPPDATA%/Codito"
+broker_path = "broker/publish/Codito.Broker.exe"
+log_level = "INFO"
+max_pending_operations = 32
+read_concurrency = 4

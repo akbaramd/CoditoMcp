@@ -1,0 +1,164 @@
+{
+  "$defs": {
+    "MessageKind": {
+      "enum": [
+        "hello",
+        "welcome",
+        "heartbeat",
+        "heartbeat_ack",
+        "operation",
+        "operation_received",
+        "operation_started",
+        "operation_progress",
+        "operation_result",
+        "operation_cancel",
+        "terminal_ack",
+        "error",
+        "goodbye"
+      ],
+      "title": "MessageKind",
+      "type": "string"
+    },
+    "TunnelBindings": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "title": "Account Id",
+          "type": "string"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "grant_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Grant Id"
+        },
+        "link_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link Id"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        }
+      },
+      "required": [
+        "account_id",
+        "device_id"
+      ],
+      "title": "TunnelBindings",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/tunnel-envelope.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Action Digest"
+    },
+    "bindings": {
+      "$ref": "#/$defs/TunnelBindings"
+    },
+    "connection_epoch": {
+      "minimum": 1,
+      "title": "Connection Epoch",
+      "type": "integer"
+    },
+    "correlation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Correlation Id"
+    },
+    "deadline_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Deadline At"
+    },
+    "kind": {
+      "$ref": "#/$defs/MessageKind"
+    },
+    "message_id": {
+      "title": "Message Id",
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    },
+    "protocol_version": {
+      "default": "1.0",
+      "title": "Protocol Version",
+      "type": "string"
+    },
+    "sent_at": {
+      "format": "date-time",
+      "title": "Sent At",
+      "type": "string"
+    },
+    "sequence": {
+      "minimum": 0,
+      "title": "Sequence",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "kind",
+    "message_id",
+    "sequence",
+    "connection_epoch",
+    "bindings"
+  ],
+  "title": "TunnelEnvelope",
+  "type": "object"
+}

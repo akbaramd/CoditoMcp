@@ -1,0 +1,541 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+import threading
+import uuid
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from .errors import AgentError
+from .models import TERMINAL_OPERATION_STATES, OperationState, Project, ProjectMode
+from .paths import validate_project_root
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+class AgentDatabase:
+    """Local source of truth for roots, receipts, idempotency, and connection epochs."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._migration_lock = threading.Lock()
+        self._migrate()
+
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        connection = sqlite3.connect(self.path, timeout=10, isolation_level=None)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA busy_timeout=10000")
+        try:
+            yield connection
+        finally:
+            connection.close()
+
+    def _migrate(self) -> None:
+        with self._migration_lock, self._connect() as connection:
+            connection.executescript(
+                """
+                PRAGMA journal_mode=WAL;
+                PRAGMA synchronous=FULL;
+                CREATE TABLE IF NOT EXISTS projects (
+                    project_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    root TEXT NOT NULL UNIQUE,
+                    root_fingerprint TEXT NOT NULL,
+                    mode TEXT NOT NULL CHECK(
+                        mode IN ('isolated','native_approval','native_trusted')
+                    ),
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS operations (
+                    operation_id TEXT PRIMARY KEY,
+                    correlation_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    grant_id TEXT NOT NULL,
+                    link_id TEXT NOT NULL,
+                    device_id TEXT NOT NULL,
+                    project_id TEXT,
+                    capability TEXT NOT NULL,
+                    action_digest TEXT NOT NULL,
+                    idempotency_key TEXT,
+                    request_digest TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    result_json TEXT,
+                    terminal_acked INTEGER NOT NULL DEFAULT 0,
+                    connection_epoch INTEGER NOT NULL,
+                    deadline_at TEXT NOT NULL,
+                    received_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(project_id) REFERENCES projects(project_id)
+                );
+                CREATE INDEX IF NOT EXISTS operations_state_idx ON operations(state, updated_at);
+                CREATE TABLE IF NOT EXISTS idempotency (
+                    project_id TEXT NOT NULL,
+                    capability TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    grant_id TEXT NOT NULL,
+                    link_id TEXT NOT NULL,
+                    device_id TEXT NOT NULL,
+                    request_digest TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    result_json TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(project_id, capability, idempotency_key),
+                    FOREIGN KEY(project_id) REFERENCES projects(project_id)
+                );
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                """
+            )
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(operations)").fetchall()
+            }
+            if "link_id" not in columns:
+                connection.execute(
+                    "ALTER TABLE operations ADD COLUMN link_id TEXT NOT NULL DEFAULT ''"
+                )
+            if "terminal_acked" not in columns:
+                connection.execute(
+                    "ALTER TABLE operations ADD COLUMN terminal_acked INTEGER NOT NULL DEFAULT 0"
+                )
+            idempotency_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(idempotency)").fetchall()
+            }
+            for name in ("account_id", "grant_id", "link_id", "device_id"):
+                if name not in idempotency_columns:
+                    connection.execute(
+                        f"ALTER TABLE idempotency ADD COLUMN {name} TEXT NOT NULL DEFAULT ''"
+                    )
+
+    def register_project(
+        self,
+        title: str,
+        root: Path,
+        mode: ProjectMode = ProjectMode.ISOLATED,
+        *,
+        project_id: str | None = None,
+    ) -> Project:
+        title = title.strip()
+        if not title or len(title) > 120:
+            raise AgentError("invalid_project", "Project title must contain 1 to 120 characters")
+        validated_root, fingerprint = validate_project_root(root)
+        project = Project(project_id or str(uuid.uuid4()), title, validated_root, fingerprint, mode)
+        now = _now()
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    """INSERT INTO projects
+                       (project_id,title,root,root_fingerprint,mode,enabled,created_at,updated_at)
+                       VALUES (?,?,?,?,?,1,?,?)""",
+                    (
+                        project.project_id,
+                        project.title,
+                        str(project.root),
+                        project.root_fingerprint,
+                        project.mode.value,
+                        now,
+                        now,
+                    ),
+                )
+                connection.commit()
+        except sqlite3.IntegrityError as exc:
+            raise AgentError("project_exists", "That project root is already registered") from exc
+        return project
+
+    def get_project(self, project_id: str) -> Project:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM projects WHERE project_id=?", (project_id,)
+            ).fetchone()
+        if row is None:
+            raise AgentError("project_not_found", "The requested project is not registered")
+        return self._project_from_row(row)
+
+    def list_projects(self, *, enabled_only: bool = True) -> list[Project]:
+        query = "SELECT * FROM projects"
+        params: tuple[object, ...] = ()
+        if enabled_only:
+            query += " WHERE enabled=1"
+        query += " ORDER BY title COLLATE NOCASE, project_id"
+        with self._connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+        return [self._project_from_row(row) for row in rows]
+
+    def set_project_mode(self, project_id: str, mode: ProjectMode) -> None:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE projects SET mode=?,updated_at=? WHERE project_id=?",
+                (mode.value, _now(), project_id),
+            )
+        if cursor.rowcount != 1:
+            raise AgentError("project_not_found", "The requested project is not registered")
+
+    def disable_project(self, project_id: str) -> None:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE projects SET enabled=0,updated_at=? WHERE project_id=?",
+                (_now(), project_id),
+            )
+        if cursor.rowcount != 1:
+            raise AgentError("project_not_found", "The requested project is not registered")
+
+    @staticmethod
+    def _project_from_row(row: sqlite3.Row) -> Project:
+        return Project(
+            project_id=str(row["project_id"]),
+            title=str(row["title"]),
+            root=Path(str(row["root"])),
+            root_fingerprint=str(row["root_fingerprint"]),
+            mode=ProjectMode(str(row["mode"])),
+            enabled=bool(row["enabled"]),
+        )
+
+    def record_received(
+        self,
+        *,
+        operation_id: str,
+        correlation_id: str,
+        account_id: str,
+        grant_id: str,
+        link_id: str,
+        device_id: str,
+        project_id: str | None,
+        capability: str,
+        action_digest: str,
+        idempotency_key: str | None,
+        request_digest: str,
+        connection_epoch: int,
+        deadline_at: str,
+    ) -> bool:
+        """Persist a request before receipt acknowledgement.
+
+        Returns ``False`` for an already persisted operation, allowing redelivery
+        to be acknowledged without executing it twice.
+        """
+
+        now = _now()
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    """INSERT INTO operations
+                       (operation_id,correlation_id,account_id,grant_id,link_id,device_id,project_id,
+                        capability,action_digest,idempotency_key,request_digest,state,result_json,
+                        connection_epoch,deadline_at,received_at,updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?)""",
+                    (
+                        operation_id,
+                        correlation_id,
+                        account_id,
+                        grant_id,
+                        link_id,
+                        device_id,
+                        project_id,
+                        capability,
+                        action_digest,
+                        idempotency_key,
+                        request_digest,
+                        OperationState.RECEIVED.value,
+                        connection_epoch,
+                        deadline_at,
+                        now,
+                        now,
+                    ),
+                )
+                connection.commit()
+            return True
+        except sqlite3.IntegrityError:
+            with self._connect() as connection:
+                row = connection.execute(
+                    """SELECT correlation_id,account_id,grant_id,link_id,device_id,project_id,
+                              capability,action_digest,idempotency_key,request_digest,
+                              connection_epoch,deadline_at
+                       FROM operations WHERE operation_id=?""",
+                    (operation_id,),
+                ).fetchone()
+            expected = (
+                correlation_id,
+                account_id,
+                grant_id,
+                link_id,
+                device_id,
+                project_id,
+                capability,
+                action_digest,
+                idempotency_key,
+                request_digest,
+                deadline_at,
+            )
+            if row is None:
+                raise AgentError(
+                    "operation_conflict", "Operation identifier was reused with different bindings"
+                ) from None
+            actual = tuple(
+                row[name]
+                for name in (
+                    "correlation_id",
+                    "account_id",
+                    "grant_id",
+                    "link_id",
+                    "device_id",
+                    "project_id",
+                    "capability",
+                    "action_digest",
+                    "idempotency_key",
+                    "request_digest",
+                    "deadline_at",
+                )
+            )
+            if actual != expected or connection_epoch < int(row["connection_epoch"]):
+                raise AgentError(
+                    "operation_conflict", "Operation identifier was reused with different bindings"
+                ) from None
+            if connection_epoch > int(row["connection_epoch"]):
+                with self._connect() as connection:
+                    connection.execute(
+                        """UPDATE operations SET connection_epoch=?,updated_at=?
+                           WHERE operation_id=?""",
+                        (connection_epoch, _now(), operation_id),
+                    )
+            return False
+
+    def transition_operation(
+        self,
+        operation_id: str,
+        state: OperationState,
+        result: Mapping[str, Any] | None = None,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT state FROM operations WHERE operation_id=?", (operation_id,)
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                raise AgentError("operation_not_found", "Operation receipt is missing")
+            old = OperationState(str(row["state"]))
+            if old in TERMINAL_OPERATION_STATES and old != state:
+                connection.rollback()
+                raise AgentError("invalid_state", "A terminal operation cannot transition")
+            connection.execute(
+                """UPDATE operations
+                   SET state=?,result_json=?,
+                       terminal_acked=CASE WHEN ? THEN 0 ELSE terminal_acked END,
+                       updated_at=?
+                   WHERE operation_id=?""",
+                (
+                    state.value,
+                    json.dumps(result, separators=(",", ":"), sort_keys=True)
+                    if result is not None
+                    else None,
+                    int(state in TERMINAL_OPERATION_STATES),
+                    _now(),
+                    operation_id,
+                ),
+            )
+            connection.commit()
+
+    def get_operation(self, operation_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM operations WHERE operation_id=?", (operation_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        value = dict(row)
+        value["result"] = json.loads(value.pop("result_json")) if value["result_json"] else None
+        return value
+
+    def list_unacknowledged_terminals(self) -> list[dict[str, Any]]:
+        """Return durable terminal results that the relay has not acknowledged."""
+
+        states = tuple(state.value for state in TERMINAL_OPERATION_STATES)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT * FROM operations
+                     WHERE terminal_acked=0 AND result_json IS NOT NULL
+                       AND state IN (?,?,?,?,?)
+                     ORDER BY updated_at, operation_id""",
+                states,
+            ).fetchall()
+        values: list[dict[str, Any]] = []
+        for row in rows:
+            value = dict(row)
+            value["result"] = json.loads(value.pop("result_json"))
+            values.append(value)
+        return values
+
+    def acknowledge_terminal(
+        self,
+        *,
+        correlation_id: str,
+        action_digest: str,
+        account_id: str,
+        grant_id: str,
+        link_id: str,
+        device_id: str,
+        project_id: str | None,
+    ) -> bool:
+        """Mark only an exactly bound terminal result as durably acknowledged."""
+
+        states = tuple(state.value for state in TERMINAL_OPERATION_STATES)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """UPDATE operations SET terminal_acked=1,updated_at=?
+                     WHERE correlation_id=? AND action_digest=? AND account_id=? AND grant_id=?
+                       AND link_id=? AND device_id=? AND project_id IS ?
+                       AND state IN (?,?,?,?,?)""",
+                (
+                    _now(),
+                    correlation_id,
+                    action_digest,
+                    account_id,
+                    grant_id,
+                    link_id,
+                    device_id,
+                    project_id,
+                    *states,
+                ),
+            )
+        return cursor.rowcount > 0
+
+    def get_idempotency(
+        self,
+        project_id: str,
+        capability: str,
+        key: str,
+        *,
+        account_id: str,
+        grant_id: str,
+        link_id: str,
+        device_id: str,
+    ) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT account_id,grant_id,link_id,device_id,
+                          request_digest,state,result_json FROM idempotency
+                   WHERE project_id=? AND capability=? AND idempotency_key=?""",
+                (project_id, capability, key),
+            ).fetchone()
+        if row is None:
+            return None
+        if tuple(row[name] for name in ("account_id", "grant_id", "link_id", "device_id")) != (
+            account_id,
+            grant_id,
+            link_id,
+            device_id,
+        ):
+            raise AgentError(
+                "idempotency_conflict",
+                "Idempotency key belongs to a different authorization binding",
+            )
+        return {
+            "request_digest": str(row["request_digest"]),
+            "state": str(row["state"]),
+            "result": json.loads(row["result_json"]) if row["result_json"] else None,
+        }
+
+    def put_idempotency(
+        self,
+        project_id: str,
+        capability: str,
+        key: str,
+        request_digest: str,
+        state: OperationState,
+        result: Mapping[str, Any] | None = None,
+        *,
+        account_id: str,
+        grant_id: str,
+        link_id: str,
+        device_id: str,
+    ) -> None:
+        now = _now()
+        encoded = json.dumps(result, separators=(",", ":"), sort_keys=True) if result else None
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """SELECT request_digest,account_id,grant_id,link_id,device_id FROM idempotency
+                   WHERE project_id=? AND capability=? AND idempotency_key=?""",
+                (project_id, capability, key),
+            ).fetchone()
+            if row is not None and (
+                str(row["request_digest"]) != request_digest
+                or tuple(row[name] for name in ("account_id", "grant_id", "link_id", "device_id"))
+                != (account_id, grant_id, link_id, device_id)
+            ):
+                connection.rollback()
+                raise AgentError(
+                    "idempotency_conflict", "Idempotency key was reused for a different request"
+                )
+            connection.execute(
+                """INSERT INTO idempotency
+                   (project_id,capability,idempotency_key,account_id,grant_id,link_id,device_id,
+                    request_digest,state,result_json,created_at,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(project_id,capability,idempotency_key) DO UPDATE SET
+                     state=excluded.state,result_json=excluded.result_json,updated_at=excluded.updated_at""",
+                (
+                    project_id,
+                    capability,
+                    key,
+                    account_id,
+                    grant_id,
+                    link_id,
+                    device_id,
+                    request_digest,
+                    state.value,
+                    encoded,
+                    now,
+                    now,
+                ),
+            )
+            connection.commit()
+
+    def delete_idempotency(self, project_id: str, capability: str, key: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "DELETE FROM idempotency WHERE project_id=? AND capability=? AND idempotency_key=?",
+                (project_id, capability, key),
+            )
+
+    def next_connection_epoch(self) -> int:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT value FROM settings WHERE key='connection_epoch'"
+            ).fetchone()
+            value = int(row["value"]) + 1 if row else 1
+            connection.execute(
+                """INSERT INTO settings(key,value) VALUES('connection_epoch',?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+                (str(value),),
+            )
+            connection.commit()
+        return value
+
+    def set_connection_epoch(self, value: int) -> None:
+        if value < 1:
+            raise AgentError("protocol_error", "Connection epoch must be positive")
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO settings(key,value) VALUES('connection_epoch',?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+                (str(value),),
+            )

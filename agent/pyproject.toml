@@ -1,0 +1,70 @@
+[project]
+name = "codito-agent"
+version = "0.1.0"
+description = "Per-user Windows agent for Codito"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "codito-protocol",
+  "cryptography>=50,<51",
+  "httpx>=0.28.1",
+  "platformdirs>=4.3.6",
+  "pydantic>=2.10.5",
+  "regex>=2024.11.6",
+  "structlog>=25.1.0",
+  "websockets>=14.2",
+]
+
+[tool.uv.sources]
+codito-protocol = { workspace = true }
+
+[project.optional-dependencies]
+ui = ["PySide6>=6.8.1"]
+package = ["pyinstaller==6.22.2"]
+dev = [
+  "hypothesis>=6.124.2",
+  "pytest>=9.0.3,<10",
+  "pytest-asyncio>=0.25.2",
+  "pytest-cov>=6.0.0",
+]
+
+[project.scripts]
+codito-agent = "codito_agent.__main__:main"
+codito-agent-ui = "codito_agent.ui:main"
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/codito_agent"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+branch = true
+source = ["codito_agent"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "RUF"]
+ignore = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["codito_agent"]
+
+[[tool.mypy.overrides]]
+module = ["codito_agent.ui", "PySide6", "PySide6.*"]
+ignore_missing_imports = true

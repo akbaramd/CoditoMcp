@@ -1,0 +1,208 @@
+{
+  "$defs": {
+    "ShellCancelResult": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "cancel",
+          "default": "cancel",
+          "title": "Action",
+          "type": "string"
+        },
+        "job_id": {
+          "title": "Job Id",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "cancelled",
+            "already_terminal",
+            "not_found"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "job_id",
+        "state"
+      ],
+      "title": "ShellCancelResult",
+      "type": "object"
+    },
+    "ShellOutputChunk": {
+      "additionalProperties": false,
+      "properties": {
+        "sequence": {
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "stream": {
+          "enum": [
+            "stdout",
+            "stderr",
+            "system"
+          ],
+          "title": "Stream",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sequence",
+        "stream",
+        "text"
+      ],
+      "title": "ShellOutputChunk",
+      "type": "object"
+    },
+    "ShellPollResult": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "poll",
+          "default": "poll",
+          "title": "Action",
+          "type": "string"
+        },
+        "chunks": {
+          "items": {
+            "$ref": "#/$defs/ShellOutputChunk"
+          },
+          "title": "Chunks",
+          "type": "array"
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exit Code"
+        },
+        "job_id": {
+          "title": "Job Id",
+          "type": "string"
+        },
+        "next_sequence_cursor": {
+          "minimum": 0,
+          "title": "Next Sequence Cursor",
+          "type": "integer"
+        },
+        "output_truncated": {
+          "default": false,
+          "title": "Output Truncated",
+          "type": "boolean"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "pending_approval",
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "cancelled",
+            "outcome_unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "job_id",
+        "state",
+        "chunks",
+        "next_sequence_cursor"
+      ],
+      "title": "ShellPollResult",
+      "type": "object"
+    },
+    "ShellStartResult": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "start",
+          "default": "start",
+          "title": "Action",
+          "type": "string"
+        },
+        "connection_epoch": {
+          "minimum": 1,
+          "title": "Connection Epoch",
+          "type": "integer"
+        },
+        "job_id": {
+          "title": "Job Id",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "pending_approval",
+            "queued",
+            "running",
+            "completed",
+            "denied"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "job_id",
+        "state",
+        "connection_epoch"
+      ],
+      "title": "ShellStartResult",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/project-shell-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "cancel": "#/$defs/ShellCancelResult",
+      "poll": "#/$defs/ShellPollResult",
+      "start": "#/$defs/ShellStartResult"
+    },
+    "propertyName": "action"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ShellStartResult"
+    },
+    {
+      "$ref": "#/$defs/ShellPollResult"
+    },
+    {
+      "$ref": "#/$defs/ShellCancelResult"
+    }
+  ]
+}

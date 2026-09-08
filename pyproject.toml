@@ -1,0 +1,118 @@
+[project]
+name = "codito-workspace"
+version = "0.1.0"
+description = "Secure, self-hosted bridge between ChatGPT and registered Windows projects"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "coverage[toml]>=7.10,<8",
+  "hypothesis>=6.138,<7",
+  "mypy>=1.17,<2",
+  "pip-audit>=2.9,<3",
+  "pytest>=9.0.3,<10",
+  "pytest-asyncio>=1.1,<2",
+  "pytest-cov>=6.2,<7",
+  "pytest-django>=4.11,<5",
+  "ruff>=0.12,<1",
+  "types-redis>=4.6,<5",
+]
+
+[tool.uv]
+package = false
+default-groups = ["dev"]
+
+[tool.uv.workspace]
+members = ["packages/protocol", "relay", "agent"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [
+  "**/migrations/*.py",
+  "**/bin/**",
+  "**/obj/**",
+  "**/pytest-cache-files-*",
+]
+
+[tool.ruff.lint]
+select = [
+  "A",
+  "ASYNC",
+  "B",
+  "BLE",
+  "C4",
+  "DTZ",
+  "E",
+  "F",
+  "FBT",
+  "I",
+  "N",
+  "PERF",
+  "PIE",
+  "PL",
+  "PTH",
+  "RUF",
+  "S",
+  "SIM",
+  "T20",
+  "UP",
+  "W",
+]
+ignore = ["PLR0913"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**/*.py" = ["S101", "S604", "PLR2004"]
+"**/migrations/*.py" = ["E501", "RUF012"]
+
+[tool.ruff.format]
+quote-style = "double"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+show_error_codes = true
+pretty = true
+namespace_packages = true
+explicit_package_bases = true
+plugins = ["pydantic.mypy", "mypy_django_plugin.main"]
+exclude = ["(^|/)migrations/", "(^|/)broker/(bin|obj)/"]
+
+[tool.django-stubs]
+django_settings_module = "codito_relay.settings"
+
+[[tool.mypy.overrides]]
+module = ["django.*", "oauth2_provider.*", "mcp.*", "PySide6.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["packages/protocol/tests", "relay/tests", "agent/tests"]
+addopts = "-ra --strict-config --strict-markers"
+asyncio_mode = "auto"
+markers = [
+  "integration: requires PostgreSQL, Redis, or a live ASGI stack",
+  "windows: requires Windows security APIs",
+  "e2e: requires a packaged agent and deployed relay",
+]
+
+[tool.coverage.run]
+branch = true
+parallel = true
+source = ["codito_protocol", "codito_relay", "codito_agent"]
+omit = ["**/migrations/*", "**/tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+precision = 2
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:",
+  "raise NotImplementedError",
+]

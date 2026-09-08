@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Accept invitation · Codito{% endblock %}
+{% block content %}
+<h1>Create your Codito account</h1>
+<p class="muted">This invitation is single-use. Possession of this link is the MVP activation proof.</p>
+<form method="post" class="card">{% csrf_token %}{{ form.as_p }}<button class="primary" type="submit">Create account</button></form>
+{% endblock %}

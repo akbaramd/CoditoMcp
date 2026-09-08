@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Reset password · Codito{% endblock %}
+{% block content %}
+<h1>Choose a new password</h1>
+<form method="post" class="card">{% csrf_token %}{{ form.as_p }}<button class="primary" type="submit">Change password</button></form>
+{% endblock %}

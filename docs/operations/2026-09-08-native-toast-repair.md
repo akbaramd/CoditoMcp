@@ -56,3 +56,29 @@ COM listener startup/cleanup. Final release evidence is recorded after deploymen
 
 Do not run the COM diagnostic with a real approval URI. Do not export raw tokens,
 URLs with user data, or private screenshot pixels to logs or the repository.
+
+## Published and installed evidence
+
+- GitHub v0.1.10 was published successfully by release run `34233228721`;
+  CI run `34233228736` passed all five jobs (including dependency/secret scans).
+- Release commit: `4afbeca062ec06b829d3d354c22b511de67b5db4`.
+- ZIP: 140,369,834 bytes; SHA-256
+  `20ec557349196d4a6b6bee29d3d18ae93dcd05eb63d96b0d7921c16150e1ae52`.
+- Installed daemon/tray paths both point to the per-user `app/0.1.10` package.
+- Relay image: `docker.wa-nezam.org/codito/relay:0.1.10-4afbeca062ec`, digest
+  `sha256:ca2dce0700ed47561164118c57e5bf2d9fde35d592cb9efeccfe46d8ac07ce00`.
+  Migration `core.0011_desktop_actions` applied; existing PostgreSQL/Redis reused.
+- Pre-migration backup: `/data/backups/codito/daily/codito-20260908T133945Z.dump`.
+  Previous image configuration preserved in `.env.pre-0.1.10` on the server.
+- Public readiness returned version 0.1.10 with database/Redis/OIDC signing checks OK.
+  Installed daemon reported online at connection epoch 134.
+- Installed COM listener logged ready; real cross-process foreign-app probe passed.
+  Test notification logged `toast_shown` and `approval_displayed`, but the user did
+  not observe the first banner. A new display-only diagnostic was submitted on request.
+  **No successful real button click or ChatGPT screen rendering is claimed.**
+- The conversation's existing Codito plugin still exposes only its four older tools,
+  even after a fresh mention. `device_screenshot` and `device_desktop` are absent from
+  this session's callable tool catalog. Runtime tool refresh/user consent is needed
+  to test those features here; shell is not used to bypass `screen:read`.
+- A real MCP read through the deployed relay/WSS/device returned version 0.1.10
+  from project `pyproject.toml`; operation `003bc011-a173-4895-ad4b-e1f58b56ef70`.

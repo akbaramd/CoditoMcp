@@ -1,11 +1,18 @@
 [CmdletBinding()]
 param(
-    [string]$PackageRoot = (Split-Path -Parent $PSCommandPath),
+    [string]$PackageRoot,
     [switch]$NoStart
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+if (-not $PackageRoot) {
+    $PackageRoot = $PSScriptRoot
+}
+if (-not $PackageRoot) {
+    throw 'PackageRoot could not be resolved from the installer location.'
+}
 
 if (-not $IsWindows -or -not [Environment]::Is64BitOperatingSystem) {
     throw 'Codito requires 64-bit Windows 11.'

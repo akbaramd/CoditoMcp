@@ -1,10 +1,30 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+
 import pytest
 from mcp_types.version import LATEST_HANDSHAKE_VERSION
 from starlette.testclient import TestClient
 
 from codito_relay.asgi import application
+
+
+def test_asgi_imports_in_a_fresh_python_process() -> None:
+    environment = {
+        **os.environ,
+        "DJANGO_SETTINGS_MODULE": "codito_relay.test_settings",
+    }
+    completed = subprocess.run(
+        [sys.executable, "-c", "import codito_relay.asgi"],
+        check=False,
+        capture_output=True,
+        env=environment,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 @pytest.mark.django_db(transaction=True)

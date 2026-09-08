@@ -1,6 +1,6 @@
 [project]
 name = "codito-agent"
-version = "0.1.13"
+version = "0.1.14"
 description = "Per-user Windows agent for Codito"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

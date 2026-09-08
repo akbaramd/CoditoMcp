@@ -45,4 +45,28 @@ Local diagnostics: `%LOCALAPPDATA%\Codito\Codito\logs\desktop.jsonl` and `daemon
 1 MiB each with three rotations. Review creation, display, decision and toast events;
 do not export tokens, command bodies or unrelated private desktop content.
 
-Release/deployment evidence is appended after actual verification, not assumed here.
+## Release/deployment evidence
+
+- v0.1.8 CI and Windows release jobs passed; 280 Python tests, strict mypy
+  (77 modules), .NET tests, secret/dependency scans and protocol coverage 98.63%.
+- Release archive: 140,321,420 bytes, SHA-256
+  `5428970207696857a7b6bc38923db7b7e029afe16ddd42349e77123b17f01312`.
+- Installed daemon/tray 0.1.8 verified by executable path and visible version;
+  daemon reconnected after relay restart (epoch 130, online).
+- Relay image `docker.wa-nezam.org/codito/relay:0.1.8-bf4c48211ed0`;
+  migrations 0009/0010 applied; internal and public readiness both returned 0.1.8.
+  Existing PostgreSQL/Redis reused without replacement/pulls.
+- Backup before migration:
+  `/data/backups/codito/daily/codito-20260908T124818Z.dump`.
+- Broker-native smoke commands `uv --version`, `dotnet --version`,
+  `git --version`, `ssh -V`, and `docker --version` all exited 0 in a disposable
+  native-project folder. This is not a Docker-daemon or interactive-SSH test.
+- Installed notification test found a packaging defect not covered by Qt unit
+  tests: only the daemon resolved the sibling broker; the tray loaded `None`.
+  The persistent approval dialog worked, but the toast fell back to text-only.
+  Broker's direct display-only diagnostic succeeded. Resolution now lives in
+  shared AgentConfig for both frozen entrypoints; regression tests cover both,
+  source execution, and explicit custom configuration.
+- ChatGPT re-authorization for `screen:read`, actual screen rendering and real
+  local approval decisions remain user-assisted acceptance steps. Existing local
+  project trust settings were not silently changed.

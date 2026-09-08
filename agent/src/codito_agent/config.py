@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,6 +41,13 @@ class AgentConfig:
             if broker_raw is not None
             else None
         )
+        if broker_path is None and getattr(sys, "frozen", False):
+            # Both tray/ and daemon/ are siblings of broker/ in every release.
+            # Resolve from the installed executable, never CWD or PyInstaller's
+            # extraction directory, so notifications and shell use the same broker.
+            broker_path = (
+                Path(sys.executable).resolve().parent.parent / "broker" / "Codito.Broker.exe"
+            )
         config = cls(
             relay_http_url=str(values.get("relay_http_url", DEFAULT_RELAY_HTTP_URL)),
             relay_websocket_url=str(values.get("relay_websocket_url", DEFAULT_RELAY_WEBSOCKET_URL)),

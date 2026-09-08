@@ -13,6 +13,11 @@ from .ipc import IpcSecretStore, NamedPipeClient, default_pipe_name
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="codito-agent-ui")
     parser.add_argument("--config", type=Path)
+    parser.add_argument(
+        "--show-status",
+        action="store_true",
+        help="Open the local connection and project status dialog after launch",
+    )
     arguments = parser.parse_args(argv)
     try:
         from PySide6.QtCore import QTimer
@@ -146,6 +151,8 @@ def main(argv: list[str] | None = None) -> None:
     timer.timeout.connect(poll_approval)
     timer.start(750)
     tray.show()
+    if arguments.show_status:
+        QTimer.singleShot(0, show_status)
     raise SystemExit(app.exec())
 
 

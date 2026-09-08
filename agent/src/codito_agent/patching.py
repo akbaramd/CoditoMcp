@@ -361,9 +361,7 @@ class PatchService:
                     and prior["state"] == OperationState.SUCCEEDED.value
                     and prior["result"] is not None
                 ):
-                    return ToolResponse(
-                        prior["result"], "Recovered the committed patch result."
-                    )
+                    return ToolResponse(prior["result"], "Recovered the committed patch result.")
             if prior is not None:
                 raise AgentError(
                     "outcome_unknown",
@@ -471,7 +469,7 @@ class PatchService:
                 except (OSError, json.JSONDecodeError) as exc:
                     raise AgentError(
                         "recovery_failed",
-                        "A patch recovery manifest could not be authenticated",
+                        "A patch recovery manifest could not be read safely",
                         {"journal_id": transaction.name},
                     ) from exc
                 if (
@@ -502,9 +500,7 @@ class PatchService:
                     )
                 # `_commit` creates and fsyncs the manifest before its first
                 # mutation. A RUNNING marker with no manifest is pre-mutation.
-                self.database.delete_idempotency(
-                    project_id, "project_apply_patch", idempotency_key
-                )
+                self.database.delete_idempotency(project_id, "project_apply_patch", idempotency_key)
 
     def _preflight(
         self,
@@ -796,6 +792,11 @@ class PatchService:
             shutil.rmtree(transaction, ignore_errors=True)
             return
         if manifest.get("state") == "rolled_back":
+            self.database.delete_idempotency(
+                str(manifest["project_id"]),
+                "project_apply_patch",
+                str(manifest["idempotency_key"]),
+            )
             shutil.rmtree(transaction, ignore_errors=True)
             return
         project = self.database.get_project(str(manifest["project_id"]))

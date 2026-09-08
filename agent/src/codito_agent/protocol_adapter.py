@@ -80,9 +80,7 @@ class AgentProtocolAdapter:
                         device_id=self.device_id,
                     )
                     if cached is not None:
-                        validated_cached = ProjectApplyPatchResult.model_validate(
-                            cached.structured
-                        )
+                        validated_cached = ProjectApplyPatchResult.model_validate(cached.structured)
                         return ToolResponse(
                             validated_cached.model_dump(mode="json", exclude_none=True),
                             cached.text,

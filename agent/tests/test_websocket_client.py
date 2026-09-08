@@ -241,3 +241,191 @@ async def test_terminal_result_is_reconstructed_from_sqlite_after_process_restar
     )
     await client._receive(ack.model_dump_json())
     assert database.list_unacknowledged_terminals() == []
+
+
+@pytest.mark.asyncio
+async def test_reconnected_duplicate_read_is_rerun_and_terminalized(tmp_path: Path) -> None:
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    ticket = WebSocketTicket(
+        "ticket_abcdefghijkl",
+        "account_abcdefghijkl",
+        "device_abcdefghijkl",
+        "link_abcdefghijklmnop",
+        "challenge_abcdefgh",
+        datetime.now(UTC) + timedelta(minutes=1),
+    )
+    action = {"tool_name": "project_read", "input": {"operation": "list_projects"}}
+    digest = compute_action_digest(action)
+    deadline = datetime.now(UTC) + timedelta(minutes=1)
+    incoming = TunnelEnvelope(
+        kind=MessageKind.OPERATION,
+        message_id="message_replayed_read",
+        correlation_id="correlation_replayed_read",
+        sequence=1,
+        connection_epoch=2,
+        deadline_at=deadline,
+        bindings=TunnelBindings(
+            account_id=ticket.account_id,
+            device_id=ticket.device_id,
+            link_id=ticket.link_id,
+            grant_id="grant_abcdefghijklmn",
+        ),
+        action_digest=digest,
+        payload=action,
+    )
+    database.record_received(
+        operation_id=incoming.message_id,
+        correlation_id=incoming.correlation_id or "",
+        account_id=ticket.account_id,
+        grant_id="grant_abcdefghijklmn",
+        link_id=ticket.link_id,
+        device_id=ticket.device_id,
+        project_id=None,
+        capability="project_read",
+        action_digest=digest,
+        idempotency_key=None,
+        request_digest=digest,
+        connection_epoch=1,
+        deadline_at=incoming.deadline_at.isoformat() if incoming.deadline_at else "",
+    )
+    calls = 0
+
+    async def operation(
+        tool: str,
+        payload: dict[str, Any],
+        grant: str,
+        link: str,
+        epoch: int,
+        operation_deadline: datetime,
+        reconcile_duplicate: bool,
+    ) -> ToolResponse:
+        nonlocal calls
+        calls += 1
+        assert reconcile_duplicate
+        return ToolResponse({"operation": "list_projects", "projects": []}, "No projects.")
+
+    async def tickets() -> WebSocketTicket:
+        return ticket
+
+    client = DeviceWebSocketClient(
+        url="wss://example.test/ws/device",
+        database=database,
+        credentials=object(),  # type: ignore[arg-type]
+        ticket_provider=tickets,
+        operation_handler=operation,
+        project_metadata=lambda: [],
+    )
+    socket = FakeSocket()
+    client._socket = socket
+    client._ticket = ticket
+    client._epoch = 2
+    await client._receive(incoming.model_dump_json())
+    await client._operation_tasks[incoming.message_id]
+
+    assert calls == 1
+    stored = database.get_operation(incoming.message_id)
+    assert stored is not None and stored["state"] == OperationState.SUCCEEDED.value
+    outgoing = [TunnelEnvelope.model_validate_json(value) for value in socket.sent]
+    assert [item.kind for item in outgoing] == [
+        MessageKind.OPERATION_RECEIVED,
+        MessageKind.OPERATION_STARTED,
+        MessageKind.OPERATION_RESULT,
+    ]
+    assert outgoing[0].payload == {"duplicate": True}
+
+
+@pytest.mark.asyncio
+async def test_reconnected_duplicate_shell_start_is_never_replayed(
+    tmp_path: Path, project_root: Path
+) -> None:
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    project = database.register_project("Example", project_root)
+    ticket = WebSocketTicket(
+        "ticket_abcdefghijkl",
+        "account_abcdefghijkl",
+        "device_abcdefghijkl",
+        "link_abcdefghijklmnop",
+        "challenge_abcdefgh",
+        datetime.now(UTC) + timedelta(minutes=1),
+    )
+    shell_input = {
+        "action": "start",
+        "project_id": project.project_id,
+        "working_directory": "",
+        "purpose": "Must not replay",
+        "timeout_seconds": 30,
+        "output_limit_bytes": 1024,
+        "idempotency_key": "shell_reconnect_key",
+        "command": {"kind": "exec", "executable": "cmd.exe", "arguments": ["/c", "echo"]},
+    }
+    action = {"tool_name": "project_shell", "input": shell_input}
+    digest = compute_action_digest(action)
+    incoming = TunnelEnvelope(
+        kind=MessageKind.OPERATION,
+        message_id="message_replayed_shell",
+        correlation_id="correlation_replayed_shell",
+        sequence=1,
+        connection_epoch=2,
+        deadline_at=datetime.now(UTC) + timedelta(minutes=1),
+        bindings=TunnelBindings(
+            account_id=ticket.account_id,
+            device_id=ticket.device_id,
+            link_id=ticket.link_id,
+            grant_id="grant_abcdefghijklmn",
+            project_id=project.project_id,
+        ),
+        action_digest=digest,
+        payload=action,
+    )
+    database.record_received(
+        operation_id=incoming.message_id,
+        correlation_id=incoming.correlation_id or "",
+        account_id=ticket.account_id,
+        grant_id="grant_abcdefghijklmn",
+        link_id=ticket.link_id,
+        device_id=ticket.device_id,
+        project_id=project.project_id,
+        capability="project_shell",
+        action_digest=digest,
+        idempotency_key="shell_reconnect_key",
+        request_digest=digest,
+        connection_epoch=1,
+        deadline_at=incoming.deadline_at.isoformat() if incoming.deadline_at else "",
+    )
+
+    async def operation(
+        tool: str,
+        payload: dict[str, Any],
+        grant: str,
+        link: str,
+        epoch: int,
+        operation_deadline: datetime,
+        reconcile_duplicate: bool,
+    ) -> ToolResponse:
+        raise AssertionError("uncertain shell start must never be dispatched")
+
+    async def tickets() -> WebSocketTicket:
+        return ticket
+
+    client = DeviceWebSocketClient(
+        url="wss://example.test/ws/device",
+        database=database,
+        credentials=object(),  # type: ignore[arg-type]
+        ticket_provider=tickets,
+        operation_handler=operation,
+        project_metadata=lambda: [],
+    )
+    socket = FakeSocket()
+    client._socket = socket
+    client._ticket = ticket
+    client._epoch = 2
+    await client._receive(incoming.model_dump_json())
+
+    stored = database.get_operation(incoming.message_id)
+    assert stored is not None and stored["state"] == OperationState.OUTCOME_UNKNOWN.value
+    assert stored["result"]["error"]["code"] == "outcome_unknown"
+    outgoing = [TunnelEnvelope.model_validate_json(value) for value in socket.sent]
+    assert [item.kind for item in outgoing] == [
+        MessageKind.OPERATION_RECEIVED,
+        MessageKind.OPERATION_RESULT,
+    ]

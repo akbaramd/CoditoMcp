@@ -7,7 +7,8 @@ import pytest
 
 from codito_agent.db import AgentDatabase
 from codito_agent.errors import AgentError
-from codito_agent.patching import AnchoredPatchParser, PatchService
+from codito_agent.models import OperationState
+from codito_agent.patching import AnchoredPatchParser, PatchService, _request_digest
 
 
 def sha(value: bytes) -> str:
@@ -174,7 +175,15 @@ def test_recovery_finalizes_commit_before_database_terminal_boundary(
     assert any((tmp_path / "journals").iterdir())
 
     monkeypatch.setattr(database, "put_idempotency", original_put)
-    assert service.recover()
+    reconciled = service.reconcile_duplicate(
+        project_id=project.project_id,
+        patch="*** Begin Patch\n*** Update File: file.txt\n@@\n-before\n+after\n*** End Patch",
+        base_hashes={"file.txt": sha(value)},
+        idempotency_key="crash_patch_abcdefgh",
+        dry_run=False,
+        **BINDING,
+    )
+    assert reconciled is not None and reconciled.structured["applied"] is True
     record = database.get_idempotency(
         project.project_id,
         "project_apply_patch",
@@ -183,6 +192,48 @@ def test_recovery_finalizes_commit_before_database_terminal_boundary(
     )
     assert record is not None and record["state"] == "succeeded"
     assert not any((tmp_path / "journals").iterdir())
+
+
+def test_duplicate_patch_retries_only_pre_manifest_running_marker(
+    tmp_path: Path, project_root: Path
+) -> None:
+    value = b"before\n"
+    target = project_root / "file.txt"
+    target.write_bytes(value)
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    project = database.register_project("Example", project_root)
+    service = PatchService(database, tmp_path / "journals")
+    patch = "*** Begin Patch\n*** Update File: file.txt\n@@\n-before\n+after\n*** End Patch"
+    request_digest = _request_digest(patch, {"file.txt": sha(value)}, False)
+    database.put_idempotency(
+        project.project_id,
+        "project_apply_patch",
+        "pre_manifest_crash_key",
+        request_digest,
+        OperationState.RUNNING,
+        **BINDING,
+    )
+
+    assert (
+        service.reconcile_duplicate(
+            project_id=project.project_id,
+            patch=patch,
+            base_hashes={"file.txt": sha(value)},
+            idempotency_key="pre_manifest_crash_key",
+            dry_run=False,
+            **BINDING,
+        )
+        is None
+    )
+    result = service.apply(
+        project_id=project.project_id,
+        patch=patch,
+        base_hashes={"file.txt": sha(value)},
+        idempotency_key="pre_manifest_crash_key",
+        **BINDING,
+    )
+    assert result.structured["applied"] is True
+    assert target.read_bytes() == b"after\n"
 
 
 def test_commit_rejects_in_place_edit_after_preflight(

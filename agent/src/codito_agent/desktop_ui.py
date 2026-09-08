@@ -232,7 +232,7 @@ def _card_layout(frame: QFrame, margins: int = 18) -> QVBoxLayout:
     return layout
 
 
-class MetricCard(QFrame):
+class MetricCard(QFrame):  # type: ignore[misc, unused-ignore]  # PySide wheel varies by runner.
     def __init__(self, label: str, value: str, detail: str) -> None:
         super().__init__()
         self.setObjectName("MetricCard")
@@ -245,7 +245,7 @@ class MetricCard(QFrame):
         layout.addWidget(self.detail)
 
 
-class UpdateWorker(QThread):
+class UpdateWorker(QThread):  # type: ignore[misc, unused-ignore]  # PySide wheel varies by runner.
     checked = Signal(object)
     install_started = Signal(str)
     failed = Signal(str)
@@ -268,7 +268,7 @@ class UpdateWorker(QThread):
             self.failed.emit("The update operation failed unexpectedly")
 
 
-class CoditoMainWindow(QMainWindow):
+class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PySide wheel varies.
     def __init__(
         self,
         config: AgentConfig,

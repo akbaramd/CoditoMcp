@@ -1,18 +1,25 @@
-name: Windows preview release
+name: Release Windows agent
 
 on:
   push:
-    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+    branches: [main]
 
 permissions:
   contents: write
 
+concurrency:
+  group: codito-release-main
+  cancel-in-progress: false
+
 jobs:
-  build-test-and-publish:
+  version-build-release:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
     runs-on: windows-2025
-    timeout-minutes: 55
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v7
         with:
           version: "0.12.5"
@@ -21,14 +28,32 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - run: uv python install 3.12
-      - run: uv sync --frozen --all-packages --all-groups
-      - shell: pwsh
+      - name: Select the next patch version
+        id: version
+        shell: pwsh
         run: |
-          $version = '${{ github.ref_name }}'.TrimStart('v')
-          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Release tag must be vX.Y.Z.' }
-          if ((uv run python -c "import codito_agent; print(codito_agent.__version__)") -ne $version) {
-            throw 'Git tag and codito_agent.__version__ do not match.'
+          git fetch --force --tags origin
+          $latestTag = git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname |
+            Select-Object -First 1
+          if (-not $latestTag) {
+            $version = '0.1.0'
           }
+          else {
+            $parts = $latestTag.TrimStart('v').Split('.')
+            $invalidParts = @($parts | Where-Object { $_ -notmatch '^\d+$' })
+            if ($parts.Count -ne 3 -or $invalidParts.Count -gt 0) {
+              throw "Latest release tag is not SemVer: $latestTag"
+            }
+            $version = '{0}.{1}.{2}' -f $parts[0], $parts[1], ([int]$parts[2] + 1)
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+      - name: Synchronize repository version
+        shell: pwsh
+        run: |
+          uv run --no-project python scripts/set_version.py '${{ steps.version.outputs.version }}'
+          uv lock
+          uv sync --frozen --all-packages --all-groups
       - run: uv run ruff format --check .
       - run: uv run ruff check .
       - name: Strict type checks
@@ -38,20 +63,41 @@ jobs:
           uv run mypy -p codito_protocol -p codito_relay -p codito_agent
       - run: uv run --package codito-agent pytest agent/tests -m "not e2e"
       - run: dotnet test agent/broker/Codito.Broker.sln --configuration Release --maxcpucount:1
-      - shell: pwsh
+      - name: Build stable Windows package
+        shell: pwsh
+        run: >-
+          ./agent/packaging/scripts/Build-WindowsDevPackage.ps1
+          -Version '${{ steps.version.outputs.version }}'
+          -Release
+      - name: Commit and tag the synchronized version
+        shell: pwsh
         run: |
-          $version = '${{ github.ref_name }}'.TrimStart('v')
-          ./agent/packaging/scripts/Build-WindowsDevPackage.ps1 -Version $version
-      - name: Publish unsigned preview release
+          $version = '${{ steps.version.outputs.version }}'
+          $tag = '${{ steps.version.outputs.tag }}'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pyproject.toml agent/pyproject.toml relay/pyproject.toml `
+            packages/protocol/pyproject.toml agent/src/codito_agent/__init__.py `
+            relay/codito_relay/__init__.py uv.lock
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "chore(release): v$version [skip ci]"
+          }
+          if (git ls-remote --exit-code --tags origin "refs/tags/$tag") {
+            throw "Release tag already exists: $tag"
+          }
+          git tag -a $tag -m "Codito $version"
+          git push origin HEAD:main
+          git push origin $tag
+      - name: Publish stable GitHub release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = '${{ github.ref_name }}'.TrimStart('v')
-          gh release create '${{ github.ref_name }}' `
-            "installer-output/Codito-$version-win-x64-dev.zip" `
-            "installer-output/Codito-$version-win-x64-dev.zip.sha256" `
+          $version = '${{ steps.version.outputs.version }}'
+          $tag = '${{ steps.version.outputs.tag }}'
+          gh release create $tag `
+            "installer-output/Codito-$version-win-x64.zip" `
+            "installer-output/Codito-$version-win-x64.zip.sha256" `
             --verify-tag `
-            --prerelease `
             --generate-notes `
-            --title "Codito $version preview"
+            --title "Codito $version"

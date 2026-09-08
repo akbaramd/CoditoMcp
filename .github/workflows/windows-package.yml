@@ -6,7 +6,7 @@ on:
       version:
         description: Three-part package version
         required: true
-        default: 0.1.0
+        default: 0.1.1
         type: string
       build_msi:
         description: Build the unsigned WiX MSI after OSMF review

@@ -11,6 +11,7 @@ DEBUG = True
 SECURE_SSL_REDIRECT = False
 HEALTH_READY_CHECK_REDIS = False
 RATE_LIMIT_ENABLED = False
+CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 MIDDLEWARE = [
     item
     for item in MIDDLEWARE  # noqa: F405

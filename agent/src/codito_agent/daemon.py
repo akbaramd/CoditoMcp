@@ -197,7 +197,7 @@ class CoditoDaemon:
                 "connection_epoch": self.websocket.connection_epoch,
                 "last_disconnect_reason": self.websocket.last_disconnect_reason,
                 "pending_approvals": self.approval_queue.pending_count,
-                "auto_update": self.database.get_setting("auto_update", "false") == "true",
+                "auto_update": self.database.get_setting("auto_update", "true") == "true",
                 "projects": [
                     {**project.public_dict(), "root": str(project.root)}
                     for project in self.database.list_projects(enabled_only=False)

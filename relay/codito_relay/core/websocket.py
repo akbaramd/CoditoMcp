@@ -110,7 +110,7 @@ def _validate_operation_binding(
     if not envelope.correlation_id:
         raise ValueError("correlation_id is required")
     operation = (
-        Operation.objects.select_for_update()
+        Operation.objects.select_for_update(of=("self",))
         .select_related("project", "device_link")
         .get(
             correlation_id=envelope.correlation_id,
@@ -295,7 +295,7 @@ def _prepare_operation_dispatch(
 ) -> PreparedDispatch | None:
     account_id = int(connection.account_wire_id.removeprefix("account_"), 16)
     operation = (
-        Operation.objects.select_for_update()
+        Operation.objects.select_for_update(of=("self",))
         .select_related("device", "device_link", "project")
         .filter(
             correlation_id=correlation_id,

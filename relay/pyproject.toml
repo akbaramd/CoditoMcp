@@ -1,6 +1,6 @@
 [project]
 name = "codito-relay"
-version = "0.1.0"
+version = "0.1.1"
 description = "Codito OAuth, MCP, and Windows device relay"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -9,6 +9,7 @@ dependencies = [
   "django>=5.2,<5.3",
   "django-oauth-toolkit>=3.4,<3.5",
   "django-stubs-ext>=5.2,<7",
+  "jwcrypto>=1.5,<2",
   "mcp>=2.0.0,<3",
   "prometheus-client>=0.22,<1",
   "psycopg[binary]>=3.2,<4",

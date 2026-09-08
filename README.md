@@ -24,8 +24,8 @@ the [tool contract](docs/protocol/tools.md).
 
 ## Install on Windows 11 x64
 
-After the first signed stable GitHub release is published, inspect and run the
-per-user bootstrap from PowerShell:
+After a stable GitHub release is published, inspect and run the per-user
+bootstrap from PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/akbaramd/CoditoMcp/main/scripts/bootstrap-windows.ps1 | iex
@@ -36,14 +36,9 @@ an archive without the expected GitHub-published SHA-256 digest. It installs und
 `%LOCALAPPDATA%\Codito\app\<version>`, registers the daemon and desktop dashboard
 for the current user's sign-in, and keeps credentials/project paths in the separate
 local data directory. No administrator rights or system Python installation is
-required.
-
-Preview builds are intentionally excluded from the default bootstrap. Test a named
-unsigned preview only when you accept the Windows trust warning:
-
-```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/akbaramd/CoditoMcp/main/scripts/bootstrap-windows.ps1))) -VersionTag v0.1.0 -AllowPrerelease
-```
+required. Until production code signing is configured, Windows can display an
+unknown-publisher warning even though both outer and inner SHA-256 manifests are
+verified.
 
 ## Developer setup
 

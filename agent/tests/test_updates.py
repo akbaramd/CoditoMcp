@@ -6,6 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from codito_agent import __version__
 from codito_agent.errors import AgentError
 from codito_agent.updates import GitHubUpdateService, ReleaseUpdate
 
@@ -37,7 +38,7 @@ def test_update_check_uses_stable_semver_and_github_digest() -> None:
     )
     with httpx.Client(transport=transport) as client:
         update = GitHubUpdateService(client).check()
-    assert update.current_version == "0.1.0"
+    assert update.current_version == __version__
     assert update.latest_version == "0.2.0"
     assert update.available
     assert update.asset_sha256 == "a" * 64

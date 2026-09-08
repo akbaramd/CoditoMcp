@@ -31,7 +31,7 @@ jobs:
           build-args: |
             VERSION=0.0.0-ci
             VCS_REF=${{ github.sha }}
-      - uses: aquasecurity/trivy-action@0.33.1
+      - uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: codito-relay:ci-${{ github.sha }}
           format: table

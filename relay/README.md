@@ -43,14 +43,12 @@ paths; structured application audit events never include them.
 - OAuth tokens are stored only by SHA-256 lookup checksum via DOT's RFC 9700 mode.
 - Open dynamic registration is not mounted. ChatGPT CIMD is enabled only for the
   configured host allowlist; the desktop client is explicitly pre-provisioned.
-- CIMD clients currently use authorization code + PKCE with
-  `token_endpoint_auth_method=none`. When an approved ChatGPT metadata document
-  prefers `private_key_jwt` but explicitly lists `none` in
-  `token_endpoint_auth_methods_supported`, Codito persists the declared public
-  fallback. It never downgrades metadata that does not explicitly support `none`.
-  Django OAuth Toolkit 3.4.1 does not verify `private_key_jwt`; Codito therefore
-  advertises only `none` until assertion verification with persisted JWKS and JTI
-  replay protection is implemented.
+- ChatGPT CIMD uses authorization code + PKCE and `private_key_jwt`. Codito
+  verifies RS256 assertions against the live SSRF-hardened CIMD/JWKS documents,
+  requires exact issuer/subject/audience and bounded timestamps, and uses Redis
+  for shared JTI replay protection. DOT's public CIMD representation is retained
+  only for authorization-code storage; a submitted assertion never falls back to
+  unauthenticated public-client handling.
 - Device sockets use a single-use 60-second ticket plus a signature from the
   enrolled device key. Each reconnect increments a fenced connection epoch.
 - A device cannot move a caller-supplied project ID across accounts or devices.

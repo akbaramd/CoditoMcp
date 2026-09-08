@@ -26,6 +26,59 @@ class FakeSocket:
 
 
 @pytest.mark.asyncio
+async def test_relay_heartbeat_is_acknowledged_without_reconnect(tmp_path: Path) -> None:
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    ticket = WebSocketTicket(
+        "ticket_abcdefghijkl",
+        "account_abcdefghijkl",
+        "device_abcdefghijkl",
+        "link_abcdefghijklmnop",
+        "challenge_abcdefgh",
+        datetime.now(UTC) + timedelta(minutes=1),
+    )
+
+    async def tickets() -> WebSocketTicket:
+        return ticket
+
+    async def operation(*_: Any) -> ToolResponse:
+        raise AssertionError("heartbeat must not dispatch an operation")
+
+    client = DeviceWebSocketClient(
+        url="wss://example.test/ws/device",
+        database=database,
+        credentials=object(),  # type: ignore[arg-type]
+        ticket_provider=tickets,
+        operation_handler=operation,  # type: ignore[arg-type]
+        project_metadata=lambda: [],
+    )
+    socket = FakeSocket()
+    client._socket = socket
+    client._ticket = ticket
+    client._epoch = 9
+    incoming = TunnelEnvelope(
+        kind=MessageKind.HEARTBEAT,
+        message_id="heartbeat_abcdefghijkl",
+        sequence=4,
+        connection_epoch=9,
+        bindings=TunnelBindings(
+            account_id=ticket.account_id,
+            device_id=ticket.device_id,
+            link_id=ticket.link_id,
+        ),
+        payload={},
+    )
+
+    await client._receive(incoming.model_dump_json())
+
+    assert not client._reconnect.is_set()
+    assert not hasattr(socket, "closed")
+    response = TunnelEnvelope.model_validate_json(socket.sent[-1])
+    assert response.kind is MessageKind.HEARTBEAT_ACK
+    assert response.correlation_id == incoming.message_id
+    assert response.connection_epoch == 9
+
+
+@pytest.mark.asyncio
 async def test_project_metadata_can_be_resynchronized_without_reconnect(tmp_path: Path) -> None:
     database = AgentDatabase(tmp_path / "agent.sqlite3")
     ticket = WebSocketTicket(

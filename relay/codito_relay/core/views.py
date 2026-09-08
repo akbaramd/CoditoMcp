@@ -313,7 +313,8 @@ def oauth_authorization_server_metadata(request: HttpRequest) -> JsonResponse:
             "response_types_supported": ["code"],
             "grant_types_supported": ["authorization_code", "refresh_token"],
             "code_challenge_methods_supported": ["S256"],
-            "token_endpoint_auth_methods_supported": ["none"],
+            "token_endpoint_auth_methods_supported": ["private_key_jwt", "none"],
+            "token_endpoint_auth_signing_alg_values_supported": ["RS256"],
             "scopes_supported": list(cast(dict[str, str], settings.OAUTH2_PROVIDER["SCOPES"])),
             "client_id_metadata_document_supported": True,
         }

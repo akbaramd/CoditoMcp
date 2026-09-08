@@ -3,13 +3,17 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import time
 from io import StringIO
 from urllib.parse import parse_qs, urlencode, urlparse
+from uuid import uuid4
 
 import pytest
 from django.conf import settings
 from django.core.management import call_command
 from django.test import Client
+from jwcrypto import jwk, jwt
+from oauth2_provider.cimd import SafeMetadataFetcher
 from oauth2_provider.models import AccessToken, Application
 
 from codito_relay.core.models import OAuthGrantBinding, OAuthGrantFamily
@@ -200,6 +204,97 @@ def test_mcp_pkce_exchange_creates_exact_resource_binding(user, link) -> None:  
     assert refreshed.resource == [link.resource]
     assert refreshed_binding.oauth_grant_id == original_grant_id
     assert OAuthGrantFamily.objects.get().oauth_grant_id == original_grant_id
+
+
+@pytest.mark.django_db(transaction=True)
+def test_chatgpt_private_key_jwt_exchange_and_replay_protection(  # type: ignore[no-untyped-def]
+    user, link, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client_id = "https://chatgpt.com/oauth/codito-test/client.json"
+    redirect_uri = "https://chatgpt.com/connector/oauth/codito-test"
+    jwks_uri = "https://chatgpt.com/oauth/jwks.json"
+    application = Application.objects.create(
+        client_id=client_id,
+        name="ChatGPT signed MCP test client",
+        user=None,
+        client_type=Application.CLIENT_PUBLIC,
+        authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
+        redirect_uris=redirect_uri,
+        client_secret="",
+        hash_client_secret=False,
+        registration_source=Application.RegistrationSource.CIMD,
+    )
+    signing_key = jwk.JWK.generate(kty="RSA", size=2048)
+    signing_key.update(kid="chatgpt-test-key")
+    public_key = json.loads(signing_key.export_public())
+    metadata = {
+        "client_id": client_id,
+        "token_endpoint_auth_method": "private_key_jwt",
+        "token_endpoint_auth_methods_supported": ["none", "private_key_jwt"],
+        "token_endpoint_auth_signing_alg": "RS256",
+        "jwks_uri": jwks_uri,
+    }
+
+    def fake_fetch(_self: SafeMetadataFetcher, url: str):  # type: ignore[no-untyped-def]
+        if url == client_id:
+            return metadata, 300
+        if url == jwks_uri:
+            return {"keys": [public_key]}, 300
+        raise AssertionError(f"unexpected metadata URL: {url}")
+
+    monkeypatch.setattr(SafeMetadataFetcher, "fetch", fake_fetch)
+    verifier = "signed-pkce-verifier-0123456789abcdefghijklmnopqrstuvwxyz-ABCDE"
+    authorize = {
+        "client_id": application.client_id,
+        "response_type": "code",
+        "redirect_uri": redirect_uri,
+        "scope": "projects:read files:read",
+        "resource": link.resource,
+        "code_challenge": pkce_challenge(verifier),
+        "code_challenge_method": "S256",
+        "state": "signed-state-0123456789",
+    }
+    client = Client()
+    client.force_login(user)
+
+    def authorize_code() -> str:
+        consent = client.get(f"/o/authorize/?{urlencode(authorize)}", secure=True)
+        assert consent.status_code == 200, consent.content.decode()
+        approved = client.post("/o/authorize/", {**authorize, "allow": "Authorize"}, secure=True)
+        assert approved.status_code == 302, approved.content.decode()
+        return parse_qs(urlparse(approved["Location"]).query)["code"][0]
+
+    now = int(time.time())
+    claims = {
+        "iss": client_id,
+        "sub": client_id,
+        "aud": f"{settings.PUBLIC_BASE_URL}/o/token/",
+        "iat": now,
+        "nbf": now,
+        "exp": now + 180,
+        "jti": str(uuid4()),
+    }
+    assertion = jwt.JWT(header={"alg": "RS256", "kid": "chatgpt-test-key"}, claims=claims)
+    assertion.make_signed_token(signing_key)
+    form = {
+        "grant_type": "authorization_code",
+        "client_id": client_id,
+        "code_verifier": verifier,
+        "redirect_uri": redirect_uri,
+        "resource": link.resource,
+        "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        "client_assertion": assertion.serialize(),
+    }
+    accepted = client.post("/o/token/", {**form, "code": authorize_code()}, secure=True)
+    assert accepted.status_code == 200, accepted.content.decode()
+    token = AccessToken.objects.get(
+        token_checksum=hashlib.sha256(accepted.json()["access_token"].encode()).hexdigest()
+    )
+    assert OAuthGrantBinding.objects.get(access_token=token).resource == link.resource
+
+    replayed = client.post("/o/token/", {**form, "code": authorize_code()}, secure=True)
+    assert replayed.status_code == 401
+    assert replayed.json()["error"] == "invalid_client"
 
 
 @pytest.mark.django_db(transaction=True)

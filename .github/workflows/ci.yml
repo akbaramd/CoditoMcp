@@ -28,8 +28,8 @@ jobs:
       - run: uv run ruff check .
       - name: Strict type checks
         env:
-          MYPYPATH: packages/protocol/src:relay:agent/src
-        run: uv run mypy -p codito_protocol -p codito_relay -p codito_agent
+          MYPYPATH: packages/protocol/src:relay
+        run: uv run mypy -p codito_protocol -p codito_relay
       - name: Shared security/protocol coverage
         run: >-
           uv run --package codito-protocol pytest packages/protocol/tests
@@ -102,6 +102,11 @@ jobs:
       - run: uv python install 3.12
       - run: uv sync --frozen --all-packages --all-groups
       - run: dotnet test agent/broker/Codito.Broker.sln --configuration Release --maxcpucount:1
+      - name: Strict Windows agent type checks
+        shell: pwsh
+        run: |
+          $env:MYPYPATH = 'packages/protocol/src;relay;agent/src'
+          uv run mypy -p codito_agent
       - run: uv run --package codito-agent pytest agent/tests -m "not e2e"
 
   dependency-audit:
@@ -113,7 +118,7 @@ jobs:
         with:
           version: "0.12.5"
       - run: uv python install 3.12
-      - run: uv export --frozen --all-packages --all-groups --format requirements-txt --output-file /tmp/requirements.txt
+      - run: uv export --frozen --all-packages --all-groups --no-emit-workspace --format requirements-txt --output-file /tmp/requirements.txt
       - run: uvx --from pip-audit==2.9.0 pip-audit --requirement /tmp/requirements.txt
       - run: dotnet list agent/broker/Codito.Broker.sln package --vulnerable --include-transitive
 
@@ -127,7 +132,7 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: aquasecurity/trivy-action@0.33.1
+      - uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .

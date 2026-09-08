@@ -241,6 +241,14 @@ OAUTH2_PROVIDER = {
 OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "oauth2_provider.AccessToken"  # noqa: S105
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_URL,
+        "KEY_PREFIX": "codito",
+        "TIMEOUT": 5 * 60,
+    }
+}
 RATE_LIMIT_ENABLED = env_bool("RATE_LIMIT_ENABLED", not DEBUG)
 RATE_LIMIT_REDIS_URL = os.getenv("RATE_LIMIT_REDIS_URL", REDIS_URL)
 RATE_LIMIT_REDIS_TIMEOUT_SECONDS = float(os.getenv("RATE_LIMIT_REDIS_TIMEOUT_SECONDS", "1.0"))

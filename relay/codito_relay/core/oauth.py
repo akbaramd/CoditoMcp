@@ -1,17 +1,25 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import secrets
+import time
+from base64 import urlsafe_b64decode
+from hashlib import sha256
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.conf import settings
+from django.core.cache import cache
 from django.http.request import validate_host
+from jwcrypto import jwk, jws  # type: ignore[import-untyped]
+from jwcrypto.common import JWException  # type: ignore[import-untyped]
 from oauth2_provider.cimd import CIMDError, SafeMetadataFetcher
 from oauth2_provider.models import Application
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauthlib.oauth2.rfc6749 import errors  # type: ignore[import-untyped]
+from redis.exceptions import RedisError
 
 
 def exact_resource_match(request_uri: str, audiences: list[str]) -> bool:
@@ -76,6 +84,168 @@ class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
     @staticmethod
     def _is_desktop(client: Application | None) -> bool:
         return bool(client and client.client_id == settings.DESKTOP_OAUTH_CLIENT_ID)
+
+    @staticmethod
+    def _has_private_key_assertion(request: Any) -> bool:
+        return bool(
+            getattr(request, "client_assertion", None)
+            or getattr(request, "client_assertion_type", None)
+        )
+
+    def client_authentication_required(self, request: Any, *args: Any, **kwargs: Any) -> bool:
+        if self._has_private_key_assertion(request):
+            return True
+        return bool(super().client_authentication_required(request, *args, **kwargs))
+
+    def authenticate_client(self, request: Any, *args: Any, **kwargs: Any) -> bool:
+        if self._has_private_key_assertion(request):
+            return self._authenticate_private_key_jwt(request)
+        return bool(super().authenticate_client(request, *args, **kwargs))
+
+    @staticmethod
+    def _decode_jwt_part(value: str) -> dict[str, Any]:
+        if len(value) > 8192:
+            raise ValueError("JWT section is too large")
+        padded = value + "=" * (-len(value) % 4)
+        decoded = urlsafe_b64decode(padded.encode("ascii"))
+        parsed = json.loads(decoded)
+        if not isinstance(parsed, dict):
+            raise ValueError("JWT section is not an object")
+        return parsed
+
+    @staticmethod
+    def _approved_https_url(value: object) -> str:
+        if not isinstance(value, str) or len(value) > 2048:
+            raise ValueError("URL is invalid")
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or not validate_host(parsed.hostname, settings.CHATGPT_CLIENT_METADATA_HOSTS)
+        ):
+            raise ValueError("URL host is not approved")
+        return value
+
+    def _authenticate_private_key_jwt(self, request: Any) -> bool:
+        """Authenticate ChatGPT CIMD clients using RFC 7523 assertions.
+
+        DOT 3.4 represents CIMD clients as public applications but does not yet
+        validate ``private_key_jwt``. Codito therefore verifies the assertion
+        against the client's live, SSRF-hardened metadata and JWKS documents.
+        """
+
+        try:
+            assertion = getattr(request, "client_assertion", None)
+            assertion_type = getattr(request, "client_assertion_type", None)
+            client_id = getattr(request, "client_id", None)
+            if (
+                assertion_type != "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+                or not isinstance(assertion, str)
+                or len(assertion) > 16_384
+                or getattr(request, "client_secret", None)
+                or self._extract_basic_auth(request)
+            ):
+                return False
+
+            parts = assertion.split(".")
+            if len(parts) != 3:
+                return False
+            header = self._decode_jwt_part(parts[0])
+            unverified_claims = self._decode_jwt_part(parts[1])
+            if header.get("alg") != "RS256" or not isinstance(header.get("kid"), str):
+                return False
+            issuer = self._approved_https_url(unverified_claims.get("iss"))
+            if unverified_claims.get("sub") != issuer or (client_id and client_id != issuer):
+                return False
+
+            client = self._load_application(issuer, request)
+            if not is_allowed_mcp_application(client):
+                return False
+
+            metadata, _ = SafeMetadataFetcher().fetch(issuer)
+            supported = metadata.get("token_endpoint_auth_methods_supported", [])
+            if (
+                metadata.get("client_id") != issuer
+                or metadata.get("token_endpoint_auth_method") != "private_key_jwt"
+                or not isinstance(supported, list)
+                or "private_key_jwt" not in supported
+                or metadata.get("token_endpoint_auth_signing_alg") != "RS256"
+            ):
+                return False
+            jwks_uri = self._approved_https_url(metadata.get("jwks_uri"))
+            jwks_document, _ = SafeMetadataFetcher().fetch(jwks_uri)
+            keys = jwks_document.get("keys")
+            if not isinstance(keys, list):
+                return False
+            public_keys = [
+                value
+                for value in keys
+                if isinstance(value, dict)
+                and value.get("kid") == header["kid"]
+                and value.get("kty") == "RSA"
+                and "d" not in value
+            ]
+            if len(public_keys) != 1:
+                return False
+
+            verifier = jws.JWS()
+            verifier.deserialize(assertion)
+            verifier.verify(jwk.JWK(**public_keys[0]), alg="RS256")
+            claims = json.loads(verifier.payload)
+            if not isinstance(claims, dict) or claims != unverified_claims:
+                return False
+
+            now = int(time.time())
+            exp = claims.get("exp")
+            issued_at = claims.get("iat")
+            not_before = claims.get("nbf", issued_at)
+            jti = claims.get("jti")
+            audiences = claims.get("aud")
+            audience_values = [audiences] if isinstance(audiences, str) else audiences
+            valid_audiences = {
+                settings.PUBLIC_BASE_URL,
+                f"{settings.PUBLIC_BASE_URL}/o/token/",
+            }
+            if (
+                not isinstance(exp, int)
+                or not isinstance(issued_at, int)
+                or not isinstance(not_before, int)
+                or exp <= now - 60
+                or exp > now + 300
+                or issued_at > now + 60
+                or not_before > now + 60
+                or exp <= issued_at
+                or not isinstance(jti, str)
+                or not (8 <= len(jti) <= 200)
+                or not isinstance(audience_values, list)
+                or not audience_values
+                or any(not isinstance(value, str) for value in audience_values)
+                or not any(
+                    secrets.compare_digest(value, allowed)
+                    for value in audience_values
+                    for allowed in valid_audiences
+                )
+            ):
+                return False
+
+            replay_key = f"codito:oauth:private-key-jwt:{sha256(jti.encode()).hexdigest()}"
+            if not cache.add(replay_key, True, timeout=max(1, exp - now + 60)):
+                return False
+            request.client = client
+            request.client_id = issuer
+            return True
+        except (
+            CIMDError,
+            JWException,
+            KeyError,
+            RedisError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ):
+            return False
 
     def validate_scopes(
         self,

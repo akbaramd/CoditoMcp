@@ -302,6 +302,9 @@ class CoditoMainWindow(QMainWindow):
         self.project_request_timer = QTimer(self)
         self.project_request_timer.timeout.connect(self.poll_project_request)
         self.project_request_timer.start(1200)
+        self.update_timer = QTimer(self)
+        self.update_timer.timeout.connect(self._check_automatic_update)
+        self.update_timer.start(6 * 60 * 60 * 1000)
         self.refresh()
         QTimer.singleShot(5000, self._check_automatic_update)
 
@@ -373,7 +376,7 @@ class CoditoMainWindow(QMainWindow):
 
         self.sidebar_status = _label("●  Checking connection", "SidebarFooter")
         layout.addWidget(self.sidebar_status)
-        footer = _label("Secure local access\nCodito MVP 0.1.0", "SidebarFooter")
+        footer = _label(f"Secure local access\nCodito MVP {__version__}", "SidebarFooter")
         footer.setWordWrap(True)
         layout.addWidget(footer)
         return sidebar
@@ -611,7 +614,7 @@ class CoditoMainWindow(QMainWindow):
             )
         )
         update_actions = QHBoxLayout()
-        self.auto_update_checkbox = QCheckBox("Automatically check for stable updates")
+        self.auto_update_checkbox = QCheckBox("Automatically install stable updates")
         self.auto_update_checkbox.toggled.connect(self.set_auto_update)
         update_actions.addWidget(self.auto_update_checkbox)
         update_actions.addStretch()
@@ -977,7 +980,7 @@ class CoditoMainWindow(QMainWindow):
             self._show_error(response, "The update preference could not be saved.")
             return
         self.statusBar().showMessage(
-            "Automatic update checks enabled" if enabled else "Automatic update checks disabled",
+            "Automatic updates enabled" if enabled else "Automatic updates disabled",
             3000,
         )
 
@@ -1008,6 +1011,9 @@ class CoditoMainWindow(QMainWindow):
                 QMessageBox.information(self, "Codito updates", "Codito is up to date.")
             return
         self.update_status.setText(f"Version {value.latest_version} available")
+        if self._update_check_silent:
+            self._pending_update = value
+            return
         answer = QMessageBox.question(
             self,
             "Install Codito update?",
@@ -1246,4 +1252,4 @@ def run_desktop(config: AgentConfig, client: NamedPipeClient, *, minimized: bool
     tray.show()
     if not minimized:
         QTimer.singleShot(0, window.show_window)
-    return app.exec()
+    return int(app.exec())

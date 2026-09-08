@@ -248,6 +248,13 @@ class DeviceWebSocketClient:
                 )
             self._terminal_pending.pop(envelope.correlation_id, None)
             return
+        if envelope.kind is MessageKind.HEARTBEAT:
+            await self._send_new(
+                MessageKind.HEARTBEAT_ACK,
+                correlation_id=envelope.message_id,
+                payload={},
+            )
+            return
         if envelope.kind in {MessageKind.HEARTBEAT_ACK, MessageKind.WELCOME}:
             return
         if envelope.kind is MessageKind.OPERATION_CANCEL:

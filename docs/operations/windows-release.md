@@ -26,12 +26,12 @@ From a clean Windows 11 x64 checkout:
 uv sync --frozen --package codito-agent --extra ui --extra package
 dotnet test agent/broker/Codito.Broker.sln --configuration Release --maxcpucount:1
 ./agent/packaging/scripts/Test-PackagingConfig.ps1
-./agent/packaging/scripts/Build-WindowsDevPackage.ps1 -Version 0.1.0
+./agent/packaging/scripts/Build-WindowsDevPackage.ps1 -Version 0.1.1
 ./agent/packaging/scripts/Test-WindowsDevPackage.ps1 `
-    -ArchivePath installer-output/Codito-0.1.0-win-x64-dev.zip
+    -ArchivePath installer-output/Codito-0.1.1-win-x64-dev.zip
 ```
 
-The build produces `installer-output/Codito-0.1.0-win-x64-dev.zip` and its outer
+The build produces `installer-output/Codito-0.1.1-win-x64-dev.zip` and its outer
 `.sha256` file. The ZIP contains a sorted `SHA256SUMS` manifest, three separate
 entrypoints, and the broker:
 
@@ -45,15 +45,15 @@ sets `SOURCE_DATE_EPOCH` and `PYTHONHASHSEED`; identical source and locked tools
 are therefore the reproducibility boundary. Always compare the published outer
 hash and the inner manifest instead of trusting a filename.
 
-## GitHub preview release and bootstrap
+## GitHub release and bootstrap
 
-Pushing an exact `vX.Y.Z` tag runs `.github/workflows/windows-release.yml` on a
-GitHub-hosted Windows runner. The workflow repeats formatting, lint, strict type,
-agent, and broker tests, builds the ZIP, and publishes it as an explicitly unsigned
-prerelease. A preview can then be installed for the current user with:
+Every ordinary push to `main` runs `.github/workflows/windows-release.yml` on a
+GitHub-hosted Windows runner. The workflow increments the patch version, updates
+the version files and lockfile, repeats the release gates, commits and tags the
+version, and publishes an unsigned stable ZIP. It can be installed with:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/akbaramd/CoditoMcp/main/scripts/bootstrap-windows.ps1))) -VersionTag v0.1.0 -AllowPrerelease
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/akbaramd/CoditoMcp/main/scripts/bootstrap-windows.ps1)))
 ```
 
 The bootstrap accepts only an HTTPS asset hosted by GitHub whose exact filename
@@ -66,7 +66,8 @@ system-wide runtime installation.
 ## In-app update checks
 
 The desktop Update Center checks only the latest stable GitHub release. Automatic
-checks are opt-in and use the same validation path as a manual check. The updater:
+installation is enabled by default and runs at startup and every six hours, using
+the same validation path as a manual check. The updater:
 
 1. accepts only exact stable `vX.Y.Z` releases and `Codito-X.Y.Z-win-x64.zip`;
 2. verifies the asset host, size, GitHub-published digest, downloaded SHA-256, ZIP
@@ -75,9 +76,9 @@ checks are opt-in and use the same validation path as a manual check. The update
    installer through the System32 Windows PowerShell executable.
 
 The updater never executes a release note, alternate asset name, redirect-selected
-script, or model-provided command. Until production signing is configured, only
-the explicit preview bootstrap is expected to work; stable automatic update must
-not be enabled for unsigned test packages.
+script, or model-provided command. Production code signing remains required to
+remove Windows publisher warnings; GitHub release and SHA-256 verification still
+apply to unsigned MVP packages.
 
 ## Per-user MSI
 
@@ -85,7 +86,7 @@ After the authorized WiX/OSMF review:
 
 ```powershell
 $env:CODITO_WIX_OSMF_REVIEWED = "1"
-./agent/packaging/scripts/Build-WindowsInstaller.ps1 -Version 0.1.0
+./agent/packaging/scripts/Build-WindowsInstaller.ps1 -Version 0.1.1
 Remove-Item Env:CODITO_WIX_OSMF_REVIEWED
 ```
 

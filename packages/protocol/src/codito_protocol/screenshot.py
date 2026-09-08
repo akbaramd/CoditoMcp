@@ -10,7 +10,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field, model_validator
 
-from .types import CoditoModel, Sha256
+from .types import CoditoModel, OpaqueId, Sha256
 
 MAX_IMAGE_BYTES = 600000
 PNG_HEADER_BYTES = 33
@@ -19,6 +19,9 @@ DisplayId = Annotated[str, Field(pattern=r"^screen_[a-f0-9]{64}$")]
 
 
 class DeviceScreenshotInput(CoditoModel):
+    project_id: OpaqueId | None = Field(
+        default=None, description="Optional origin project binding."
+    )
     action: Literal["capture", "list_displays"] = "capture"
     purpose: str = Field(min_length=1, max_length=1000)
     display: DisplaySelector = "primary"

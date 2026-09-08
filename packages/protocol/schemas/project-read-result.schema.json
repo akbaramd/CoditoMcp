@@ -165,7 +165,8 @@
             "isolated",
             "native_approval",
             "native_trusted",
-            "native_project"
+            "native_project",
+            "full_access"
           ],
           "title": "Mode",
           "type": "string"

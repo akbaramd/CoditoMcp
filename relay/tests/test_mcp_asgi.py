@@ -7,6 +7,7 @@ import sys
 import pytest
 from mcp_types.version import LATEST_HANDSHAKE_VERSION
 from starlette.testclient import TestClient
+from test_facade_http import assert_focused_facade_http
 from test_mcp_scope_challenge import assert_screen_scope_challenge_survives_http_sdk_serialization
 from test_screenshot_wire_image import assert_selected_screen_is_imagecontent_in_actual_sdk_response
 
@@ -72,15 +73,32 @@ def test_mcp_initialization_list_and_local_tool_call(
         assert tools.status_code == 200, tools.text
         descriptors = tools.json()["result"]["tools"]
         assert [tool["name"] for tool in descriptors] == [
-            "project_read",
-            "project_apply_patch",
-            "project_shell",
-            "project_manage",
-            "device_read",
-            "device_screenshot",
-            "device_desktop",
+            "projects_list",
+            "project_add",
+            "project_rename",
+            "project_remove",
+            "directory_list",
+            "file_read",
+            "text_search",
+            "file_patch",
+            "file_delete",
+            "execute_shell",
+            "shell_status",
+            "shell_cancel",
+            "screen_list",
+            "screenshot_capture",
+            "browser_open",
         ]
         assert all(tool.get("_meta", {}).get("securitySchemes") for tool in descriptors)
+        for descriptor in descriptors:
+            assert descriptor["title"]
+            assert descriptor["outputSchema"]["properties"]["ok"]
+            assert descriptor["inputSchema"]["additionalProperties"] is False
+            assert not {"action", "operation", "approved", "trusted"}.intersection(
+                descriptor["inputSchema"]["properties"]
+            )
+            for status in ("invoking", "invoked"):
+                assert 1 <= len(descriptor["_meta"][f"openai/toolInvocation/{status}"]) <= 64
         called = client.post(
             endpoint,
             headers=versioned_headers,
@@ -95,6 +113,7 @@ def test_mcp_initialization_list_and_local_tool_call(
         result = called.json()["result"]
         assert result["isError"] is False
         assert result["structuredContent"]["operation_id"] == "local"
+        assert_focused_facade_http(client, oauth_token, link, monkeypatch)
         # The SDK session manager is intentionally single-use; reuse this HTTP lifespan.
         assert_screen_scope_challenge_survives_http_sdk_serialization(
             client, oauth_token, link, caplog

@@ -12,6 +12,7 @@ import regex as regex_module  # type: ignore[import-untyped]
 
 from .db import AgentDatabase
 from .errors import AgentError
+from .models import Project
 from .paths import ProjectPathResolver, _is_reparse, validate_relative_path
 
 MAX_READ_BYTES = 2_097_152
@@ -126,7 +127,9 @@ class ProjectReadService:
         self.database = database
         self.resolver = resolver or ProjectPathResolver()
 
-    def execute(self, request: dict[str, Any]) -> ToolResponse:
+    def execute(
+        self, request: dict[str, Any], *, target_project: Project | None = None
+    ) -> ToolResponse:
         operation = request.get("operation")
         if operation == "list_projects":
             return self.list_projects()
@@ -144,6 +147,7 @@ class ProjectReadService:
                 cursor=request.get("cursor"),
                 glob=request.get("glob"),
                 recursive=bool(request.get("recursive", False)),
+                target_project=target_project,
             )
         if operation == "read_file":
             return self.read_file(
@@ -152,7 +156,9 @@ class ProjectReadService:
                 start_line=request.get("start_line"),
                 end_line=request.get("end_line"),
                 max_bytes=int(request.get("max_bytes", 262_144)),
+                max_lines=request.get("max_lines"),
                 cursor=request.get("continuation", request.get("cursor")),
+                target_project=target_project,
             )
         if operation == "search_text":
             return self.search_text(
@@ -165,6 +171,7 @@ class ProjectReadService:
                 max_bytes_per_match=int(request.get("max_bytes_per_match", 2048)),
                 limit=int(request.get("max_results", request.get("limit", 50))),
                 cursor=request.get("continuation", request.get("cursor")),
+                target_project=target_project,
             )
         raise AgentError("invalid_request", "Unsupported project_read operation")
 
@@ -184,12 +191,13 @@ class ProjectReadService:
         cursor: str | None = None,
         glob: str | None = None,
         recursive: bool = False,
+        target_project: Project | None = None,
     ) -> ToolResponse:
         if not 1 <= limit <= MAX_DIRECTORY_RESULTS:
             raise AgentError("invalid_request", "Directory result limit is out of range")
         if glob is not None:
             self._validate_glob(glob)
-        project = self.database.get_project(project_id)
+        project = target_project or self.database.get_project(project_id)
         directory = self.resolver.resolve(
             project, relative, directory=True, allow_root=True
         ).absolute
@@ -253,10 +261,14 @@ class ProjectReadService:
         start_line: int | None = None,
         end_line: int | None = None,
         max_bytes: int = 262_144,
+        max_lines: int | None = None,
         cursor: str | None = None,
+        target_project: Project | None = None,
     ) -> ToolResponse:
         if not 1 <= max_bytes <= MAX_READ_BYTES:
             raise AgentError("invalid_request", "max_bytes is out of range")
+        if max_lines is not None and not 1 <= max_lines <= 2000:
+            raise AgentError("invalid_request", "max_lines is out of range")
         if cursor and (start_line is not None or end_line is not None):
             raise AgentError("invalid_request", "cursor cannot be combined with a line range")
         if start_line is not None and (not isinstance(start_line, int) or start_line < 1):
@@ -266,7 +278,7 @@ class ProjectReadService:
         if start_line and end_line and end_line < start_line:
             raise AgentError("invalid_request", "end_line must not precede start_line")
 
-        project = self.database.get_project(project_id)
+        project = target_project or self.database.get_project(project_id)
         with self.resolver.open_read(project, relative) as stream:
             raw = stream.read(MAX_READ_BYTES * 8 + 1)
         size = len(raw)
@@ -283,6 +295,8 @@ class ProjectReadService:
             raise AgentError("invalid_cursor", "Continuation cursor exceeds the file")
         first_number = line_index + 1
         stop_index = min(end_line, len(lines)) if end_line is not None else len(lines)
+        if max_lines is not None:
+            stop_index = min(stop_index, line_index + max_lines)
         selected_parts: list[str] = []
         consumed = 0
         next_line, next_character = line_index, character_offset
@@ -349,6 +363,7 @@ class ProjectReadService:
         max_bytes_per_match: int = 2048,
         limit: int = 50,
         cursor: str | None = None,
+        target_project: Project | None = None,
     ) -> ToolResponse:
         if not isinstance(query, str) or not query or len(query) > 4096:
             raise AgentError("invalid_request", "query must contain 1 to 4096 characters")
@@ -364,7 +379,7 @@ class ProjectReadService:
                 raise AgentError("invalid_request", "Every glob must be text")
             self._validate_glob(pattern)
 
-        project = self.database.get_project(project_id)
+        project = target_project or self.database.get_project(project_id)
         result_offset = _decode_cursor(cursor)
         base = self.resolver.resolve(project, path, directory=True, allow_root=True).absolute
         candidates: list[Path] = []

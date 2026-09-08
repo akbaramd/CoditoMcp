@@ -17,7 +17,9 @@ from codito_protocol.screenshot import (
     DisplayCatalog,
 )
 
+from .access_policy import project_access_policy
 from .approvals import ApprovalManager, ApprovalRisk, action_digest
+from .db import AgentDatabase
 from .errors import AgentError
 from .read_tools import ToolResponse
 
@@ -153,11 +155,13 @@ class DeviceScreenshotService:
         *,
         account_id: str,
         device_id: str,
+        database: AgentDatabase | None = None,
     ) -> None:
         self.approvals = approvals
         self.capture = capture
         self.account_id = account_id
         self.device_id = device_id
+        self.database = database
 
     async def execute(
         self,
@@ -169,9 +173,20 @@ class DeviceScreenshotService:
         deadline_at: datetime,
     ) -> ToolResponse:
         generation = self.approvals.generation
+        policy = None
+        project = None
+        if request.project_id is not None:
+            if self.database is None:
+                raise AgentError("project_unavailable", "Project policy is unavailable")
+            project = self.database.get_project(request.project_id)
+            policy = project_access_policy(project, inside_project=False)
 
         def ensure_current() -> None:
             self.approvals.ensure_current(generation, deadline_at)
+            if project is not None and self.database is not None:
+                current = self.database.get_project(project.project_id)
+                if not current.enabled or current.mode != project.mode:
+                    raise AgentError("approval_expired", "Local project access changed")
 
         catalog = DisplayCatalog.model_validate(
             await self.capture.list_displays(deadline_at, ensure_current=ensure_current)
@@ -218,11 +233,14 @@ class DeviceScreenshotService:
             "and connection grant until revoked, signed out, or the monitor layout changes. "
             "This is separate from file and shell access.",
         )
-        await self.approvals.request(
-            approval,
-            session_eligible=False,
-            screen_scope=(display.id, identity, display.label) if persistent else None,
-        )
+        if policy is None or policy.requires_approval:
+            await self.approvals.request(
+                approval,
+                session_eligible=False,
+                screen_scope=(display.id, identity, display.label)
+                if persistent and (policy is None or policy.allow_saved_permissions)
+                else None,
+            )
         self.approvals.ensure_current(generation, deadline_at)
         pixels = await self.capture.capture(
             request.max_dimension,

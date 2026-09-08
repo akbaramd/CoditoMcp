@@ -1,127 +1,72 @@
 # Local approval policy
 
-Updated 2026-09-08: [ADR 0013](../adr/0013-native-project-approvals.md) extends the
-original matrix below with opt-in native_project, separate persistent shell grants,
-non-consuming approval delivery and one-use native-toast action tokens.
-[ADR 0014](../adr/0014-consented-screenshots.md) adds screen consent; [ADR 0015](../adr/0015-selected-display-and-browser-consent.md)
-extends it with selected-display Always allow and separate one-shot browser opening.
-These are implemented cooperative native policies, not a completed AppContainer sandbox.
+Updated 2026-09-08. [ADR 0018](../adr/0018-focused-tools-and-local-access.md)
+supersedes the earlier project-mode matrix. OAuth authorization and Windows
+consent are separate; neither tool metadata nor model-supplied fields confer
+local trust.
 
-Authorization and approval are separate. OAuth answers whether a remote client may
-request a capability. The Windows policy/UI answers whether this exact device action
-may execute under the selected local mode.
+## Three selectable project modes
 
-## Project modes
+| UI mode / stored value | Inside project | External files, shell, screen/browser |
+| --- | --- | --- |
+| Ask every time / `native_approval` | Approval required | Approval required |
+| Project access / `native_project` | Ordinary file operations and recognized project commands run without prompts | Approval required; eligible saved permissions may apply |
+| Full device access / `full_access` | No local prompt | No local prompt |
 
-| Mode | Isolation | Prompt | Authority statement |
-|---|---|---|---|
-| `isolated` (default) | Verified AppContainer + Job Object, project grant only, no network | None for allowed project-only actions | Bounded by tested sandbox and handle policy |
-| `native_approval` | Logged-in user token | One-shot for each shell/native-sensitive action | Full user authority for the approved process |
-| `native_project` | Cooperative native policy, not a sandbox | None for ordinary project work; explicit outside cwd/declared or recognized external paths require consent | Full user authority; arbitrary/dynamic accesses cannot be exhaustively detected |
-| `native_trusted` | Logged-in user token | None after explicit local opt-in warning | Full user filesystem/network authority; escape cannot be reliably detected |
+Full access requires an explicit local warning/confirmation and grants the
+logged-in user's native filesystem/network/desktop authority. It does not bypass
+OAuth scopes, ownership, lock/secure-desktop protections, path validation,
+operation limits or Windows ACLs; it provides no elevation.
 
-Sandbox failure always returns `sandbox_unavailable`; it never silently falls back.
-A caller can explicitly request `project_shell.execution=native_approval` for a
-one-shot native run using installed Windows tools. This does not change project mode.
+Existing `native_trusted` is **not** upgraded to Full access. Its previous consent
+did not authorize all screen/file operations. Legacy modes stay visible as legacy
+until the user explicitly selects a new mode. `isolated` remains fail-closed:
+the current broker does not prove AppContainer confinement.
 
-## Decision matrix
+Ask every time suppresses reuse and offering of persistent permissions for that
+operation, without silently deleting the user's saved permissions.
 
-| Capability/risk | Isolated | Native approval | Native trusted | Session grant eligible? |
-|---|---|---|---|---|
-| List projects/directories | Allow | Allow | Allow | Yes, read-only |
-| Read/search normal project files | Allow | Allow | Allow | Yes, read-only |
-| Suspected secret file | Local deny/prompt per policy | One-shot or deny | Local warning/policy | **No** |
-| Add/update normal project file | Allow after hash/policy | One-shot if native implementation needed | Allow | Only isolated, non-secret, non-delete |
-| Delete/move-overwrite | One-shot | One-shot | Local configured behavior | **No** |
-| Isolated shell without network | Allow only after broker self-test | N/A | N/A | At most narrowly similar isolated action |
-| Native shell | N/A | One-shot | Allow | **No** |
-| External read via `device_read` | Windows consent independent of project mode | Same | Same | Separate persistent **read-only** folder grant available |
-| External write | Not via isolated tools | Possible through explicitly approved native command | Possible through trusted command | **No** |
-| Network capability | Deny in isolated v1 | Consequence of one-shot native command | Consequence of trusted command | **No** |
-| Elevation/arbitrary GUI/PTY/detach | Deny | Deny | Deny through shell API | **No** |
-| Screen metadata | `screen:read`; no pixels | Same | Same | No pixel permission is granted |
-| Capture selected display | Separate local consent | Same | Same | Separate saved display permission available |
-| Open HTTP/HTTPS URL in default browser/Firefox | Separate one-shot local consent | Same | Same | **No**, including saved file/shell/screen grants |
+## Native execution limits
 
-`native_project` extends the original matrix: ordinary project reads and anchored
-writes/deletes/moves do not prompt; native commands follow the cooperative routing
-described above. Saved shell scope permissions are independent of read permissions.
-No claim is made that a native process is confined to its working directory.
+PowerShell/CMD runs as the logged-in user. Cwd is not a security boundary.
+Project access detects literal external paths and recognized dynamic/compound
+syntax; unclassifiable recognized syntax requests review. Build tools, plugins,
+scripts and child processes can perform transitive access which inspection of
+the initial command cannot exhaustively detect. This is cooperative approval
+routing, not an escape-proof sandbox. Project IDs select authority per call;
+device-wide OAuth does not bind one conversation to one active project.
 
-## Approval request display
+## Deny, Allow, Always allow
 
-A new request displays an actionable Windows notification without automatically
-raising the Codito window or a modal dialog. Eligible native notifications offer
-`Deny`, `Allow`, `Always allow`; one-shot-only capabilities offer `Review details`
-instead of Always. Native toast actions may approve only through a valid one-use
-daemon-bound token. When notifications are suppressed/unavailable, requests remain
-pending and can be reviewed from the local Overview/tray.
+Approval delivery uses the tested native toast/COM action path plus the persistent
+bottom-right fallback panel. Neither delivery mechanism raises the main Codito
+window automatically. Actions carry one-use daemon-bound tokens; expiry, locking,
+revocation, security-generation change and cancellation invalidate pending actions.
 
-The user explicitly opens **Review pending approvals** or the notification's
-review action to see a dialog. It shows:
+Deny or closing/expiry never authorizes. Allow permits the displayed operation.
+Always allow appears only for capabilities with a defined persisted scope:
 
-- requesting account and OAuth link/grant label;
-- device and project title plus local root (visible locally only);
-- exact patch or command and canonical action digest suffix;
-- resolved executable and working directory;
-- environment values added/removed/redacted, not inherited secrets;
-- requested paths, network implication, execution mode, timeout/output cap;
-- reason for the prompt and explicit authority/risk statement.
+- File reads: same account/grant/link/device, origin project (new anchored calls),
+  requested folder and root identity. Never permits writes or execution.
+- Shell: exact command/executor/cwd/environment/executable identity and project/
+  account/grant/link/device binding. It is not a wildcard for every command in a
+  directory. Executable identity is rechecked; this is not handle-pinned execution.
+- Screenshots: selected display configuration and account/grant/link/device. A
+  changed topology requires fresh consent. Never permits browser/shell/file use.
 
-The dialog defaults to `Deny`. It offers `Allow once` and only policy-eligible
-session/persistent options. Closing or expiration does not approve; display/IPC
-failure cannot imply consent. Pending actions remain subject to security-generation
-and deadline checks.
+Patch/deletion and browser-opening approvals remain one-shot outside explicit
+Full access. A saved read permission cannot become a write permission.
 
-For `device_read`, Windows offers `Always allow reading this folder`.
-It covers the displayed directory and descendants, including private data the
-Windows user can access. It is bound to account/grant/link/device/root identity,
-survives restart/reconnect, and can be revoked under Settings. It does not grant
-editing, deletion, execution, network operations, or elevation. Sign-out and
-re-enrollment remove saved permissions. See ADR 0012 for the changed path contract.
+Settings shows saved permission scope, capability, action identity and account/
+link. Refresh, Revoke selected and Revoke category are local authenticated
+operations. Revocation invalidates pending requests. Full access is an independent
+project setting: removing a saved grant does not turn off explicit Full access.
+Sign-out/re-enrollment clears the existing saved permissions.
 
-For `device_screenshot`, Always allow is separate and permits future captures of
-the selected display configuration, including private visible content, without
-another prompt. Its key binds account/OAuth grant/link/device, `screen:read`, display
-ID and identity/topology. It does not grant all-screen capture, browser actions,
-files or shell. `primary` is resolved to a specific display before authorization.
-Changed layout/scale/primary configuration requires fresh approval. A serial-less
-monitor replaced with identical hardware on the same port can retain its logical
-identity; Always allow does not authenticate a unique physical monitor.
+## Approval details
 
-Settings → saved screenshot permissions → **Revoke all screenshot permissions**
-removes only screen grants and invalidates pending approvals. Sign-out/re-enrollment
-removes saved permissions. Capture remains disabled while locked or on a secure
-desktop even when a matching saved permission exists.
-
-For `device_desktop`, `shell:execute` only authorizes requesting browser opening.
-The local `desktop:open_url` prompt always asks for one-shot consent and names the
-exact browser/URL, network contact and use of existing browser sessions. Neither
-saved native shell permission nor saved screen permission can satisfy it.
-
-## Decision binding
-
-The daemon accepts decisions through the authenticated local named pipe. Native
-toast callbacks additionally carry a random per-button 256-bit token resolved to
-the immutable pending request and decision. Request state binds:
-
-`request_id, action_digest, account_id, grant_id, link_id, device_id, project_id,
-capability, connection_epoch, decision, deadline, security_generation`.
-
-Per-button tokens are consumed atomically before execution. The callback contains
-no authority to create a request or extend its deadline; mismatched, expired or
-replayed activations fail closed. Native notifications use the registered COM
-activator, not Windows URL-scheme launching. A relay/model never overrides a local
-decision or repairs a rejected activation by asserting `approved=true`.
-
-## Session grants
-
-A session grant is no broader than account + OAuth grant + device + project +
-capability + normalized action-family digest + connection epoch. It expires after
-30 minutes absolute or 10 minutes idle, whichever comes first. It clears on Windows
-lock, sleep, logout, agent/UI restart, grant/link/device revocation, project identity
-change, or relay disconnect exceeding 60 seconds.
-
-“Similar” must be deterministically defined (for example, the same read-only
-operation under the same project subtree), shown before approval, and tested. It
-cannot be inferred from natural-language purpose.
+Show the requesting account/link, project, target root/cwd, exact command or patch,
+purpose, executable/environment details and risk reason. Never log OAuth secrets,
+activation tokens or screenshot pixels. Main-window activation is not required
+for approval or image capture. Generation/deadline checks remain mandatory before
+data release or execution, including operations exempted from a local prompt.

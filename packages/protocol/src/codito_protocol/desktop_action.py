@@ -9,7 +9,7 @@ from urllib.parse import unquote, urlsplit
 
 from pydantic import AfterValidator, AnyHttpUrl, Field, TypeAdapter
 
-from .types import CoditoModel
+from .types import CoditoModel, OpaqueId
 
 _HTTP_URL = TypeAdapter(AnyHttpUrl)
 _BAD_PERCENT = re.compile(r"%(?![0-9a-fA-F]{2})")
@@ -53,6 +53,9 @@ BrowserChoice = Literal["default", "firefox"]
 
 
 class DeviceDesktopInput(CoditoModel):
+    project_id: OpaqueId | None = Field(
+        default=None, description="Optional origin project binding."
+    )
     action: Literal["open_browser"] = "open_browser"
     browser: BrowserChoice = "default"
     url: BrowserUrl

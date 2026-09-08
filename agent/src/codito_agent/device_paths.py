@@ -48,6 +48,7 @@ class WindowsReadScope:
         self.scope_path = normalize_read_scope(scope_path)
         self.root = Path(self.scope_path)
         self._handles: list[int] = []
+        self._directories: dict[Path, tuple[int, _FileInfo]] = {}
         self._kernel: Any = ctypes.WinDLL("kernel32", use_last_error=True)
         self._kernel.CreateFileW.argtypes = [
             wintypes.LPCWSTR,
@@ -105,12 +106,19 @@ class WindowsReadScope:
         for handle in reversed(self._handles):
             self._kernel.CloseHandle(handle)
         self._handles.clear()
+        self._directories.clear()
+
+    def release_for_mutation(self) -> None:
+        """Release read pins before an atomic rename; callers must revalidate identities."""
+        self.close()
 
     def _open(self, path: Path, *, directory: bool) -> tuple[int, _FileInfo]:
+        if directory and path in self._directories:
+            return self._directories[path]
         # OPEN_REPARSE_POINT + BACKUP_SEMANTICS, OPEN_EXISTING. No elevation.
         handle = self._kernel.CreateFileW(
             str(path),
-            0x80 if directory else 0x80000000,
+            0x81 if directory else 0x80000000,  # LIST_DIRECTORY | READ_ATTRIBUTES
             1,  # Neither write nor delete sharing: also blocks in-place reparse conversion.
             None,
             3,
@@ -132,6 +140,8 @@ class WindowsReadScope:
             raise AgentError("invalid_path", "The path has the wrong file type")
         if not directory and info.links != 1:
             raise AgentError("unsafe_path", "Hardlinked files cannot use directory read consent")
+        if directory:
+            self._directories[path] = (handle, info)
         return handle, info
 
     def _target(
@@ -152,13 +162,40 @@ class WindowsReadScope:
         path, _, _ = self._target(relative, directory=True)
         return path
 
-    def read_bytes(self, relative: str, check: Callable[[], None]) -> bytes:
+    def file_size(self, relative: str) -> int:
+        """Validate a file by handle without reading its content; release it immediately."""
         _, handle, info = self._target(relative, directory=False)
         if handle is None or info is None:
             raise AgentError("invalid_path", "A file path is required")
-        maximum = 16 * 1024 * 1024
+        self._handles.remove(handle)
+        self._kernel.CloseHandle(handle)
+        return int((info.size_high << 32) | info.size_low)
+
+    def read_bytes(
+        self,
+        relative: str,
+        check: Callable[[], None],
+        *,
+        release_file: bool = False,
+        max_bytes: int = 16 * 1024 * 1024,
+    ) -> bytes:
+        _, handle, info = self._target(relative, directory=False)
+        if handle is None or info is None:
+            raise AgentError("invalid_path", "A file path is required")
+        try:
+            return self._read_handle(handle, info, check, max_bytes)
+        finally:
+            if release_file:
+                self._handles.remove(handle)
+                self._kernel.CloseHandle(handle)
+
+    def _read_handle(
+        self, handle: int, info: _FileInfo, check: Callable[[], None], maximum: int
+    ) -> bytes:
+        if not 0 <= maximum <= 16 * 1024 * 1024:
+            raise AgentError("invalid_request", "Read byte budget is out of range")
         if (info.size_high << 32) | info.size_low > maximum:
-            raise AgentError("file_too_large", "Device text reads are limited to 16 MiB files")
+            raise AgentError("file_too_large", "File exceeds the remaining read byte budget")
         data = bytearray()
         buffer = ctypes.create_string_buffer(65536)
         while True:

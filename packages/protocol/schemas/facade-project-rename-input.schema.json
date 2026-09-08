@@ -1,0 +1,28 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-project-rename-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "idempotency_key": {
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "idempotency_key",
+    "project_id"
+  ],
+  "title": "ProjectRenameInput",
+  "type": "object"
+}

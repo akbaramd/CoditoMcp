@@ -12,7 +12,9 @@ from typing import Any
 
 from codito_protocol.desktop_action import BrowserChoice, DeviceDesktopInput, DeviceDesktopResult
 
+from .access_policy import project_access_policy
 from .approvals import ApprovalManager, ApprovalRisk, action_digest
+from .db import AgentDatabase
 from .errors import AgentError
 from .read_tools import ToolResponse
 
@@ -128,11 +130,13 @@ class DeviceDesktopService:
         *,
         account_id: str,
         device_id: str,
+        database: AgentDatabase | None = None,
     ) -> None:
         self.approvals = approvals
         self.actions = actions
         self.account_id = account_id
         self.device_id = device_id
+        self.database = database
 
     async def execute(
         self,
@@ -144,6 +148,13 @@ class DeviceDesktopService:
         deadline_at: datetime,
     ) -> ToolResponse:
         generation = self.approvals.generation
+        policy = None
+        project = None
+        if request.project_id is not None:
+            if self.database is None:
+                raise AgentError("project_unavailable", "Project policy is unavailable")
+            project = self.database.get_project(request.project_id)
+            policy = project_access_policy(project, inside_project=False)
         approval = ApprovalManager.build_request(
             account_id=self.account_id,
             grant_id=grant_id,
@@ -165,10 +176,15 @@ class DeviceDesktopService:
             "and screenshot permissions do not authorize browser actions.",
             command={"action": "open_browser", "browser": request.browser, "url": request.url},
         )
-        await self.approvals.request(approval, session_eligible=False)
+        if policy is None or policy.requires_approval:
+            await self.approvals.request(approval, session_eligible=False)
 
         def ensure_current() -> None:
             self.approvals.ensure_current(generation, deadline_at)
+            if project is not None and self.database is not None:
+                current = self.database.get_project(project.project_id)
+                if not current.enabled or current.mode != project.mode:
+                    raise AgentError("approval_expired", "Local project access changed")
 
         ensure_current()
         await self.actions.open_browser(

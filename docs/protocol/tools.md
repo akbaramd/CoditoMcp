@@ -1,256 +1,141 @@
 # MCP tool contracts
 
-The public MCP endpoint exposes seven bounded tools. JSON Schema snapshots live in
-[`packages/protocol/schemas`](../../packages/protocol/schemas) and are generated
-from the Pydantic models in `codito_protocol`. Unknown fields are rejected.
+Updated 2026-09-08. The public catalog now contains 15 focused tools. Existing
+authenticated legacy names remain callable for cached clients but are not listed.
+See [ADR 0018](../adr/0018-focused-tools-and-local-access.md).
 
-Every successful tool response contains structured JSON plus a concise readable
-summary. Every failure contains a stable `ErrorCode`, safe message, retryability,
-correlation ID, and bounded structured detail. HTTP/MCP authentication errors also
-carry the standards-required challenge metadata.
+| Tool | Action |
+| --- | --- |
+| `projects_list` | List registered projects and their locally configured mode |
+| `project_add` | Request registration; the user chooses the folder in Windows |
+| `project_rename` | Rename project metadata |
+| `project_remove` | Remove registration, not the folder or its files |
+| `directory_list` | List bounded directory entries |
+| `file_read` | Read numbered text, hash, encoding and newline metadata |
+| `text_search` | Search bounded text/globs with continuation |
+| `file_patch` | Apply an exact anchored add/update/delete/move patch |
+| `file_delete` | Delete one file with a required current hash |
+| `execute_shell` | Execute an exact command string in PowerShell or CMD |
+| `shell_status` | Resume job output by sequence cursor |
+| `shell_cancel` | Cancel the specified running job |
+| `screen_list` | List display metadata without capturing pixels |
+| `screenshot_capture` | Capture the selected display and return MCP image content |
+| `browser_open` | Open an HTTP/HTTPS URL in default browser or Firefox |
 
-## Common invariants
+## Identity, authorization and metadata
 
-- `project_id`, `job_id`, and `idempotency_key` are opaque URL-safe identifiers.
-- Project paths use `/`, are relative to the selected project, and use `""` for root.
-- Inputs cannot choose device/account or assert approval/trust. Those come from
-  OAuth/link context and local Windows consent. `device_read.scope_path` explicitly
-  requests an absolute directory; it does not register a project or grant access.
-- `project_shell.execution=native_approval` requests one-shot native consent;
-  `project_policy` uses the existing locally selected mode.
-- All counts, byte sizes, timeouts, pages, and outputs have schema-enforced limits.
-- The relay authorizes before dispatch; the agent independently checks the bound
-  account/device/project/action digest and its local policy.
-- Tunnel operations wrap input as `{"tool_name": ..., "input": ...}` and the action
-  digest covers that complete wrapper, not only the inner input.
+Every content/action tool requires an opaque `project_id` and a human-readable
+`purpose` (job status/cancellation use job identity). Device-only project/display
+listing has no project context. OAuth account/link/device/project checks and
+capability scopes always apply, including Full device access.
 
-## `device_read`
+Project ID selects authority **per call**. The current device-wide OAuth grant
+is not a conversation-bound single-project grant. A caller can select another
+registered project it is authorized to use. An explicit external target under
+another project does not change the origin project's local policy.
 
-Annotations: read-only, non-destructive, idempotent, open-world. Requires `files:read`
-and local Windows consent. No `project_id` is needed: the authenticated device link
-routes the request. `operation` is `list_directory` or `read_file`; `scope_path` is
-the requested absolute local directory and `path` is relative to it. `purpose` is
-mandatory. Listings are non-recursive, with `offset`/`limit` bounded by 10,000 scanned
-entries and 500 returned entries. Files are at most 16 MiB, text-only; `start_line`,
-`max_lines`, `max_bytes` bound the response. Results include names/types or numbered
-text, encoding, newline style, size, SHA-256 and continuation/truncation fields.
+Each descriptor includes an action-specific title, accurate safety annotations,
+OAuth security schemes and static short invoking/invoked status strings.
+ChatGPT controls its own narrative and host approval UI. Metadata cannot force a
+custom sentence for every runtime argument. After a schema change, a client with
+cached tools may need a tool refresh; the old callable aliases remain available.
 
-An Always allow decision permits only reads with the same scope and local
-account/grant/link/device/root identity. It cannot authorize patch or shell tools.
-Unrequested directories are not silently registered. Reparse paths, placeholders,
-hardlinks and protected Windows ACLs remain blocked. See ADR 0012.
+## Files
 
-## `project_read`
+`path` and all patch paths are relative to the project root. Optional
+`scope_path` explicitly requests an absolute Windows directory as the target
+root. The agent validates/pins it locally; it never registers it automatically.
+Within that scope, all file paths remain relative and reject traversal, ADS,
+device/UNC aliases, reparse points, hardlinked mutations and unsupported roots.
+The user's Windows ACLs still apply; these tools do not elevate.
 
-Annotations: read-only, non-destructive, idempotent, closed-world.
+External access follows the selected local project policy. Read-only saved
+folder grants cannot authorize writes, deletes, shell or screenshots.
 
-| Operation | Required scopes | Purpose |
-|---|---|---|
-| `list_projects` | `projects:read` | List authorized projects for this device link |
-| `list_directory` | `projects:read files:read` | List bounded metadata below a relative directory |
-| `read_file` | `projects:read files:read` | Read bounded numbered text and content metadata |
-| `search_text` | `projects:read files:read` | Search bounded files/results under a relative path |
+`file_read` accepts `start_line`, `max_lines`, `max_bytes` and a continuation.
+Its whole-file SHA-256 is the precondition for patch/delete. UTF-8 and BOM-marked
+UTF-16 can be read; text patches currently require UTF-8. Limits and complete
+schemas are generated from `codito_protocol.facade`, not duplicated by hand.
 
-Because MCP tool metadata cannot vary by the discriminated operation, the advertised
-tool-level scheme conservatively lists `projects:read files:read`. The server still
-allows `list_projects` with only `projects:read` after validating the operation.
+`file_patch` takes `patch`, `base_hashes`, `idempotency_key`, `dry_run`.
+A hash means the existing file must match; null means the destination must not
+exist. All source and move destination paths must be covered exactly.
 
-Representative inputs:
-
-```json
-{"operation":"list_projects","limit":50}
+```text
+*** Begin Patch
+*** Update File: src/example.py
+@@
+-def greeting():
+-    return "old"
++def greeting():
++    return "new"
+*** Add File: notes.txt
++New file
+*** Delete File: obsolete.txt
+*** End Patch
 ```
+
+Update sections may contain `*** Move to: relative/destination` before their
+hunks. Each hunk begins with `@@`, contains exact context/removal lines and
+replacement lines. Ambiguous or missing anchors fail; there is no fuzzy match.
+Parent directories must already exist. Required hashes prevent silent overwrite.
+All hunks preflight before mutation; a local journal provides batch rollback/
+crash recovery. External reads retain directory handle pins. Atomic replacement
+releases those read pins and immediately revalidates root/parent/target identities,
+so it is not a handle-relative OS transaction invisible to other native processes.
+Idempotency binds account/grant/link/device/project and target scope.
+
+`file_delete` accepts one `path`, `base_hash`, `idempotency_key` and
+`dry_run`; internally it uses the same journaled patch engine.
+
+## Shell
 
 ```json
 {
-  "operation": "read_file",
-  "project_id": "project_01J123456789ABCDEF",
-  "path": "src/codito/app.py",
-  "start_line": 1,
-  "end_line": 200,
-  "max_bytes": 262144
-}
-```
-
-`read_file` returns numbered text, detected encoding and newline style, total byte
-size, whole-file SHA-256, returned line bounds, truncation, and a signed opaque
-continuation cursor where needed. It never silently decodes malformed content.
-Directory and search continuation cursors bind the account/device/project,
-operation, query parameters, root identity, and snapshot/time; callers cannot edit
-them to expand access.
-
-## `project_apply_patch`
-
-Required scopes: `projects:read files:read files:write`.
-Annotations: state-changing, destructive, idempotent, closed-world.
-
-```json
-{
-  "project_id": "project_01J123456789ABCDEF",
-  "patch": "*** Begin Patch\n*** Update File: README.md\n@@\n-old\n+new\n*** End Patch\n",
-  "base_hashes": {
-    "README.md": "0000000000000000000000000000000000000000000000000000000000000000"
-  },
-  "idempotency_key": "patchkey_01J123456789ABCDEF",
-  "dry_run": false
-}
-```
-
-Every touched source and destination appears in `base_hashes`. A digest means the
-file must exist and match exactly. `null` means it must not exist. The agent parses
-and preflights all sections/hunks, rejects missing or ambiguous context, checks
-local approval policy, writes a recovery journal, and only then commits the batch.
-The result reports old/new hashes for each file and structured conflicts. A dry run
-performs all checks but no file replacement.
-
-Idempotency is scoped to account, OAuth grant, link/device, project, key, and action
-digest. Reusing a key with different content returns `idempotency_conflict`.
-
-See [anchored patch format](patch-format.md).
-
-## `project_shell`
-
-Required scopes: `projects:read shell:execute`.
-Annotations: state-changing, destructive, non-idempotent, open-world.
-
-Start a structured executable:
-
-```json
-{
-  "action": "start",
-  "project_id": "project_01J123456789ABCDEF",
-  "working_directory": "",
-  "purpose": "Run the unit test suite",
+  "project_id": "opaque-project-id",
+  "command": "dotnet build",
+  "executor": "powershell",
+  "cwd": "",
   "timeout_seconds": 300,
-  "output_limit_bytes": 2097152,
-  "idempotency_key": "shellkey_01J123456789ABCDEF",
-  "command": {
-    "kind": "exec",
-    "executable": "uv",
-    "arguments": ["run", "pytest", "-q"],
-    "environment": {}
-  }
+  "purpose": "Build the selected project",
+  "idempotency_key": "unique-build-request-001"
 }
 ```
 
-Or provide an explicit non-interactive script:
+No action enum or preselected command recipe is required. `executor` is
+`powershell` (default) or `cmd`. Empty cwd means project root; a relative cwd
+stays below it; an absolute cwd requests outside access. Execution timeout is
+1–1800 seconds. The initial response waits up to 30 seconds for output; a
+nonterminal response returns a job ID for `shell_status`, not a reason to resend
+the command. Output is bounded and sequenced; `shell_cancel` cancels that job.
+Approval waiting has a separate bounded timeout.
 
-```json
-{
-  "action": "start",
-  "project_id": "project_01J123456789ABCDEF",
-  "purpose": "Show repository status",
-  "idempotency_key": "shellkey_01J123456789ABCDEG",
-  "command": {"kind":"script","shell":"powershell","script":"git status --short"}
-}
-```
+Native commands use the installed Windows environment. Cwd is not a sandbox.
+Known external paths and recognized indirect/compound commands prompt in Project
+access; transitive behavior of arbitrary build tools cannot be exhaustively
+classified. Full device access is an explicit local opt-in to native user
+authority. No remote field can assert approved/trusted or change local policy.
+Commands are never automatically replayed after an uncertain start.
 
-`poll` and `cancel` both require the original `project_id` and `job_id`; ownership
-queries also include tenant, grant, link, and device. Poll resumes chunks strictly
-after `sequence_cursor` and returns `next_sequence_cursor`, terminal state, exit
-code, and truncation. Output chunks distinguish stdout/stderr/system.
+## Screens and browser
 
-No PTY, stdin, elevation, detachment, breakaway, or arbitrary GUI execution exists
-through `project_shell`; bounded browser opening is a separate tool below. A start
-that may have crossed the network boundary but lacks a durable start acknowledgment
-returns `outcome_unknown`; it is never automatically retried.
+`screenshot_capture` chooses `display` (primary or ID from `screen_list`),
+`max_dimension`, `purpose`, and project context. It still requires
+`screen:read` OAuth scope. Outside Full device access, a selected-display local
+permission is required; Ask every time does not reuse saved permission.
+Capture while locked/on a secure desktop is refused in every mode. Actual PNG
+pixels are returned as MCP ImageContent, not a resource URL. Durable history omits
+pixels, so a replay may honestly report that image bytes were not retained.
 
-## `project_manage`
+`browser_open` takes `url`, `browser`, project context and purpose.
+It uses `shell:execute` OAuth scope and separate local browser approval unless
+Full device access was explicitly selected. It reports submission to Windows,
+not proof the page loaded.
 
-Required scopes: `projects:read`; mutating operations also require `projects:write`.
-Annotations: state-changing, destructive, idempotent, closed-world.
+## Compatibility
 
-| Operation | Local behavior |
-|---|---|
-| `get_projects` | Returns opaque IDs and relay-safe metadata; never local roots |
-| `request_add_project` | Queues a 15-minute Windows request; the user alone chooses the folder |
-| `rename_project` | Requires one-shot local approval before changing the display title |
-| `remove_project` | Requires one-shot local approval and unregisters metadata only |
-
-`request_add_project` accepts a display title and idempotency key but deliberately
-has no path field. The desktop app opens the native folder picker and registers the
-root only after a local choice. `remove_project` never deletes the project folder or
-its contents. Re-enabling a removed registration remains a local desktop action.
-
-## `device_screenshot`
-
-Requires `screen:read`. Device-only routing: no `project_id`, local path, remote
-approval flag or arbitrary capture coordinates. An existing OAuth connection must
-authorize this scope; a local Always allow cannot expand its OAuth grant.
-
-List monitors without capturing pixels:
-
-```json
-{"action":"list_displays","purpose":"Choose the display to inspect"}
-```
-
-The response contains `action=list_displays`, `displays` and `topology_id`. Each
-display has an opaque `id`, label, primary flag, width, height, scale factor,
-identity fingerprint and `persistent_permission_supported`. At most 16 monitors
-are returned. Display metadata requires the same OAuth scope but no pixel consent.
-
-Capture one ID from that result:
-
-```json
-{
-  "action": "capture",
-  "display": "screen_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "purpose": "Inspect the requested monitor",
-  "max_dimension": 1600
-}
-```
-
-The example ID is illustrative: use the actual returned ID. `display=primary` and
-`action=capture` are defaults. The chosen primary is resolved before consent; an
-unavailable ID never falls back to another monitor. `max_dimension` is 640–2048.
-
-Windows asks Deny / Allow / Always allow when persistent permission is supported.
-Always allow covers only the selected logical display configuration, account,
-grant, link and device. Changed topology requires approval again. Identical
-serial-less hardware at the same port may keep its identity; this is not physical
-hardware authentication. Revocation is available in local Settings. File/shell
-permissions cannot authorize screenshots, and screen permissions cannot open a browser.
-
-Capture refuses locked or non-Default/secure desktops. The PNG result includes its
-display ID, width/height, timestamp and SHA-256. Image bytes are delivered as MCP
-ImageContent, not text pretending to contain a picture. PNG is at most 600 KB;
-base64 at most 800 KB. Durable SQLite/PostgreSQL journals omit image bytes; Redis
-transport and downstream ChatGPT retention remain separate concerns. See ADR 0015.
-
-## `device_desktop`
-
-Requires `shell:execute` and separate one-shot Windows approval. Device-only tool;
-only `action=open_browser` and `browser=default|firefox` are supported. It does not
-offer general remote keyboard/mouse control or authorize actions from saved grants.
-
-```json
-{
-  "action": "open_browser",
-  "browser": "firefox",
-  "url": "https://example.com/",
-  "purpose": "Open the requested page in Firefox"
-}
-```
-
-The URL is normalized HTTP/HTTPS, at most 4096 characters, without embedded
-credentials, control characters, malformed escaping or file/custom URL schemes.
-`purpose` is required and at most 1000 characters. The local approval displays the
-exact URL/browser and warns that browsing uses the user's profile and sessions.
-Firefox must be registered locally; no arbitrary executable, extra arguments or
-fallback browser can be chosen by the model.
-
-Success returns `action`, `browser`, normalized `url` and `status=submitted`.
-It confirms only OS submission, not page load. A subsequent `device_screenshot`
-call can inspect the selected screen subject to its independent permission. There
-is no combined action that silently grants screenshot access or waits for navigation.
-
-Offline devices reject before queuing. Requests possibly submitted without a
-terminal result become non-retryable `outcome_unknown` and are never automatically
-replayed. A caller should inspect the current screen before requesting a new open
-after an uncertain outcome; a new request still needs local browser consent.
-
-## Scope and annotation source of truth
-
-The runtime must derive advertised `securitySchemes` and annotations from
-`codito_protocol.TOOL_CONTRACTS` or assert exact equality in tests. Authorization is
-still performed on every request; metadata alone is not enforcement.
+Hidden aliases: `project_read`, `project_apply_patch`, `project_shell`,
+`project_manage`, `device_read`, `device_screenshot`, `device_desktop`.
+They use the same authorization and execution services. Unanchored legacy device
+operations keep their existing separate approval flow and never inherit a
+project's Full access setting.

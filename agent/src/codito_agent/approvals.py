@@ -159,6 +159,7 @@ class ApprovalManager:
                     request.device_id,
                     request.project_id,
                     "shell:execute",
+                    request.action_digest,
                     shell_scope[0],
                 ]
             )
@@ -187,12 +188,13 @@ class ApprovalManager:
                     request.device_id,
                     "device:read",
                     read_scope[0],
+                    *(["origin_project", request.project_id] if request.project_id else []),
                 ]
             )
             with self._lock:
                 if self._database.has_read_permission(permission_key, read_scope[1]):
                     return
-        if self._has_session_grant(request):
+        if session_eligible and self._has_session_grant(request):
             return
         from dataclasses import replace
 
@@ -261,21 +263,14 @@ class ApprovalManager:
         sandbox_proven: bool,
         request: ApprovalRequest,
     ) -> None:
+        del sandbox_proven  # Legacy isolated projects cannot be remotely activated.
         if mode is ProjectMode.ISOLATED:
-            if not sandbox_proven:
-                raise AgentError(
-                    "sandbox_unavailable",
-                    "Isolated execution is disabled because confinement was not proven",
-                )
-            if request.requested_network or request.requested_external_paths:
-                raise AgentError(
-                    "sandbox_policy_denied",
-                    "MVP isolated commands cannot request network or external paths",
-                )
-            return
-        if mode is ProjectMode.NATIVE_TRUSTED:
-            # This mode is an explicit local opt-in to the logged-in user's full
-            # authority. The UI must present that warning when the mode is set.
+            raise AgentError(
+                "sandbox_unavailable",
+                "Legacy isolated access requires choosing a native mode locally",
+            )
+        if mode is ProjectMode.FULL_ACCESS:
+            # New explicit local opt-in, never the persisted legacy native_trusted value.
             return
         await self.request(request, session_eligible=False)
 
@@ -379,6 +374,17 @@ class ApprovalManager:
         with self._lock:
             self._security_generation += 1
             return self._database.revoke_screen_permissions() if self._database else 0
+
+    def revoke_permission(self, category: str, permission_id: str) -> bool:
+        with self._lock:
+            deleted = (
+                self._database.revoke_permission(category, permission_id)
+                if self._database
+                else False
+            )
+            if deleted:
+                self._security_generation += 1
+            return deleted
 
     @staticmethod
     def _ensure_before_deadline(request: ApprovalRequest) -> None:

@@ -17,3 +17,4 @@ adds a new ADR that marks the prior one superseded.
 | [0015](0015-selected-display-and-browser-consent.md) | Selected-display Always allow and bounded browser opening | Accepted |
 | [0016](0016-oauth-refresh-continuity.md) | Bounded longer OAuth continuity and safe concurrent refresh | Accepted |
 | [0017](0017-hybrid-durable-async-operations.md) | Hybrid HTTP/WSS durable async operations and approval continuation | Accepted |
+| [0018](0018-focused-tools-and-local-access.md) | Focused tool names, direct commands, three local modes and exact saved permissions | Implementation and verification |

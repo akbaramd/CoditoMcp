@@ -21,7 +21,7 @@ from codito_agent.shell import ShellManager, _native_environment, _safe_environm
     "decision",
     [ApprovalDecision.ALLOW_ONCE, ApprovalDecision.DENY, ApprovalDecision.ALLOW_ALWAYS_READ],
 )
-async def test_isolated_project_can_request_native_but_never_bypass_consent(
+async def test_legacy_isolated_cannot_be_activated_by_remote_native_selector(
     tmp_path: Path, project_root: Path, decision: ApprovalDecision
 ) -> None:
     database = AgentDatabase(tmp_path / "db.sqlite3")
@@ -64,19 +64,10 @@ async def test_isolated_project_can_request_native_but_never_bypass_consent(
         connection_epoch=1,
         deadline_at=datetime.now(UTC) + timedelta(seconds=30),
     )
-    if decision is ApprovalDecision.ALLOW_ONCE:
-        result = await manager.start(request, **binding)
-        await manager._jobs[result.structured["job_id"]].task
-        assert len(started) == 1
-        # No project trust setting is changed by an approved native request.
-        assert database.get_project(project.project_id).mode is ProjectMode.ISOLATED
-    else:
-        result = await manager.start(request, **binding)
-        job = manager._jobs[result.structured["job_id"]]
-        await job.task
-        assert job.state == "failed"
-        assert started == []
-    assert len(prompted) == 1
+    with pytest.raises(AgentError, match="sandbox_unavailable"):
+        await manager.start(request, **binding)
+    assert started == prompted == []
+    assert database.get_project(project.project_id).mode is ProjectMode.ISOLATED
 
 
 def test_native_environment_keeps_tools_but_not_process_secrets(
@@ -123,11 +114,11 @@ class FakeProcess:
 
 
 @pytest.mark.asyncio
-async def test_native_trusted_shell_start_poll_and_terminal_journal(
+async def test_full_access_shell_start_poll_and_terminal_journal(
     tmp_path: Path, project_root: Path
 ) -> None:
     database = AgentDatabase(tmp_path / "agent.sqlite3")
-    project = database.register_project("Example", project_root, ProjectMode.NATIVE_TRUSTED)
+    project = database.register_project("Example", project_root, ProjectMode.FULL_ACCESS)
 
     async def deny(_: Any) -> ApprovalDecision:
         raise AssertionError("native trusted should not prompt")
@@ -196,7 +187,7 @@ async def test_shell_job_and_idempotency_are_bound_to_oauth_grant(
     tmp_path: Path, project_root: Path
 ) -> None:
     database = AgentDatabase(tmp_path / "agent.sqlite3")
-    project = database.register_project("Example", project_root, ProjectMode.NATIVE_TRUSTED)
+    project = database.register_project("Example", project_root, ProjectMode.FULL_ACCESS)
 
     async def deny(_: Any) -> ApprovalDecision:
         raise AssertionError("native trusted should not prompt")
@@ -267,7 +258,7 @@ async def test_shell_job_and_idempotency_are_bound_to_oauth_grant(
 @pytest.mark.asyncio
 async def test_shell_rejects_disabled_project(tmp_path: Path, project_root: Path) -> None:
     database = AgentDatabase(tmp_path / "agent.sqlite3")
-    project = database.register_project("Example", project_root, ProjectMode.NATIVE_TRUSTED)
+    project = database.register_project("Example", project_root, ProjectMode.FULL_ACCESS)
     database.disable_project(project.project_id)
 
     async def deny(_: Any) -> ApprovalDecision:

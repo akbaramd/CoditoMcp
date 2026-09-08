@@ -14,7 +14,7 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QSystemTrayIcon
 
 from codito_agent.config import AgentConfig
-from codito_agent.desktop_ui import CoditoMainWindow
+from codito_agent.desktop_ui import CoditoMainWindow, PermissionReviewDialog
 
 
 @pytest.fixture
@@ -574,3 +574,175 @@ def test_quit_completes_deferred_capture_without_collecting_pixels(corner_window
         "capture_id": "test_shutdown",
         "result": {"ok": False},
     } in calls
+
+
+@pytest.mark.parametrize(
+    "stored_mode",
+    ["isolated", "native_approval", "native_project", "native_trusted", "full_access"],
+)
+def test_projects_offer_three_access_levels_without_migrating_legacy(
+    background_window, stored_mode
+):
+    window, calls, _ = background_window
+    window._projects = [
+        {
+            "project_id": "sample_project",
+            "title": "Sample",
+            "root": "C:/sample",
+            "mode": stored_mode,
+        }
+    ]
+    window._populate_projects()
+    combo = window.projects_table.cellWidget(0, 2)
+    assert combo.count() == 3
+    assert [combo.itemText(index) for index in range(3)] == [
+        "Ask for every operation",
+        "Project access",
+        "Full device access",
+    ]
+    if stored_mode in {"isolated", "native_trusted"}:
+        assert combo.currentIndex() == -1
+        assert (
+            "blocked" if stored_mode == "isolated" else "Legacy shell trust"
+        ) in combo.placeholderText()
+    else:
+        assert combo.currentData() == stored_mode
+    assert not any(item["action"] == "project.mode" for item in calls)
+
+
+@pytest.mark.parametrize("accepted", [False, True])
+def test_full_device_access_requires_explicit_full_authority_confirmation(
+    background_window, monkeypatch, accepted
+):
+    window, calls, _ = background_window
+    window._projects = [
+        {"project_id": "sample_project", "title": "Sample", "root": "C:/sample", "mode": "isolated"}
+    ]
+    window._populate_projects()
+    combo = window.projects_table.cellWidget(0, 2)
+    warnings = []
+
+    def answer(*args):
+        warnings.append(args)
+        return QMessageBox.StandardButton.Yes if accepted else QMessageBox.StandardButton.Cancel
+
+    monkeypatch.setattr(QMessageBox, "warning", answer)
+    combo.setCurrentIndex(combo.findData("full_access"))
+    assert len(warnings) == 1
+    assert "WITHOUT LOCAL PROMPTS" in warnings[0][2]
+    assert "screens" in warnings[0][2] and "delete" in warnings[0][2]
+    assert "OAuth scopes" in warnings[0][2]
+    assert warnings[0][-1] == QMessageBox.StandardButton.Cancel
+    updates = [item for item in calls if item["action"] == "project.mode"]
+    if accepted:
+        assert updates == [
+            {
+                "action": "project.mode",
+                "project_id": "sample_project",
+                "mode": "full_access",
+                "acknowledge_full_user_authority": True,
+            }
+        ]
+    else:
+        assert not updates
+        assert combo.currentIndex() == -1
+        assert window._projects[0]["mode"] == "isolated"
+
+
+def test_activity_explains_only_successful_screenshot_replay_marker(background_window):
+    window, _, responses = background_window
+    responses["activity.list"] = {
+        "ok": True,
+        "activity": [
+            {
+                "capability": "device_screenshot",
+                "state": "succeeded",
+                "error_code": "outcome_unknown",
+            },
+            {"capability": "device_screenshot", "state": "failed", "error_code": "outcome_unknown"},
+            {"capability": "project_shell", "state": "succeeded", "error_code": "outcome_unknown"},
+        ],
+    }
+    window.refresh_activity()
+    assert window.activity_table.item(0, 3).text() == "Succeeded · image not retained"
+    assert window.activity_table.item(1, 3).text() == "Failed · outcome_unknown"
+    assert window.activity_table.item(2, 3).text() == "Succeeded · outcome_unknown"
+
+
+@pytest.mark.parametrize(
+    "category,capability",
+    [("read", "files:read"), ("shell", "shell:execute"), ("screen", "screen:read")],
+)
+def test_saved_permission_dialog_displays_scope_and_revokes_exact_selection(
+    background_window, monkeypatch, category, capability
+):
+    window, calls, responses = background_window
+    live = [
+        {
+            "permission_id": "sample_only",
+            "scope_path": "C:/sample",
+            "display_label": "Sample monitor",
+            "display_id": "monitor_only",
+            "account_id": "test_account",
+            "link_id": "test_link",
+        }
+    ]
+    responses[f"{category}_permissions.list"] = lambda _: {"ok": True, "permissions": list(live)}
+    responses["permissions.revoke"] = lambda _: live.clear() or {"ok": True, "revoked": 1}
+    dialog = PermissionReviewDialog(category, window._request, window)
+    try:
+        assert dialog.table.rowCount() == 1
+        assert dialog.table.item(0, 1).text() == capability
+        assert dialog.table.item(0, 2).text()
+        assert "test_account" in dialog.table.item(0, 3).text()
+        assert ("Sample monitor" if category == "screen" else "C:/sample") in dialog.table.item(
+            0, 0
+        ).text()
+        dialog.table.selectRow(0)
+        assert dialog.revoke_selected.isEnabled()
+        monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.StandardButton.Yes)
+        dialog.revoke_selected.click()
+        assert {
+            "action": "permissions.revoke",
+            "category": category,
+            "permission_id": "sample_only",
+        } in calls
+        assert dialog.table.rowCount() == 0
+        assert not dialog.revoke_selected.isEnabled()
+        assert not dialog.revoke_all.isEnabled()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_permission_revoke_cancel_failure_and_refresh_do_not_claim_success(
+    background_window, monkeypatch
+):
+    window, calls, responses = background_window
+    responses["read_permissions.list"] = {
+        "ok": True,
+        "permissions": [{"permission_id": "sample_only", "scope_path": "C:/sample"}],
+    }
+    dialog = PermissionReviewDialog("read", window._request, window)
+    try:
+        dialog.table.selectRow(0)
+        monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.StandardButton.Cancel)
+        dialog.revoke_selected.click()
+        assert not any(item["action"] == "permissions.revoke" for item in calls)
+        monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.StandardButton.Yes)
+        responses["permissions.revoke"] = {"ok": False}
+        dialog.revoke_selected.click()
+        assert "Revocation failed" in dialog.status.text()
+        assert dialog.table.rowCount() == 1
+        responses["read_permissions.list"] = {"ok": False}
+        dialog.refresh_permissions()
+        assert "stale" in dialog.status.text()
+        dialog.table.selectRow(0)
+        assert not dialog.revoke_selected.isEnabled()
+        assert not dialog.revoke_all.isEnabled()
+        responses["read_permissions.list"] = {"ok": True, "permissions": []}
+        dialog.refresh_permissions()
+        assert dialog.table.rowCount() == 0
+    finally:
+        dialog.close()
+        dialog.deleteLater()

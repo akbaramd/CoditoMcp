@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 
+from .device_read import normalize_read_scope
 from .types import CoditoModel, OpaqueId, ProjectGlob, RelativePath, Sha256
 
 
@@ -19,7 +20,26 @@ class ListProjectsInput(CoditoModel):
     limit: int = Field(default=50, ge=1, le=100, description="Maximum projects to return.")
 
 
-class ListDirectoryInput(CoditoModel):
+class ScopedReadInput(CoditoModel):
+    scope_path: str | None = Field(
+        default=None,
+        description="Requested external Windows directory; local approval is required.",
+    )
+    purpose: str | None = Field(default=None, min_length=1, max_length=1000)
+
+    @field_validator("scope_path")
+    @classmethod
+    def normalized_scope(cls, value: str | None) -> str | None:
+        return normalize_read_scope(value) if value is not None else None
+
+    @model_validator(mode="after")
+    def external_scope_requires_purpose(self) -> ScopedReadInput:
+        if self.scope_path is not None and self.purpose is None:
+            raise ValueError("External reads require a purpose for local approval")
+        return self
+
+
+class ListDirectoryInput(ScopedReadInput):
     operation: Literal["list_directory"] = Field(
         description="List bounded metadata below a project-relative directory."
     )
@@ -37,11 +57,17 @@ class ListDirectoryInput(CoditoModel):
     limit: int = Field(default=200, ge=1, le=1000, description="Maximum entries to return.")
 
 
-class ReadFileInput(CoditoModel):
+class ReadFileInput(ScopedReadInput):
     operation: Literal["read_file"] = Field(description="Read a bounded, numbered file range.")
     project_id: OpaqueId = Field(description="Opaque ID from list_projects; never a local path.")
     path: RelativePath = Field(description="Forward-slash path relative to the project root.")
     start_line: int = Field(default=1, ge=1, description="One-based first line to return.")
+    max_lines: int | None = Field(
+        default=None,
+        ge=1,
+        le=2000,
+        description="Optional per-page line cap, also enforced when resuming continuation.",
+    )
     end_line: int | None = Field(
         default=None,
         ge=1,
@@ -60,7 +86,7 @@ class ReadFileInput(CoditoModel):
     )
 
 
-class SearchTextInput(CoditoModel):
+class SearchTextInput(ScopedReadInput):
     operation: Literal["search_text"] = Field(description="Search bounded text inside a project.")
     project_id: OpaqueId = Field(description="Opaque ID from list_projects; never a local path.")
     query: str = Field(min_length=1, max_length=4096, description="Literal text or regex to find.")
@@ -103,7 +129,7 @@ class ProjectSummary(CoditoModel):
     project_id: OpaqueId
     title: str = Field(min_length=1, max_length=200)
     device_id: OpaqueId
-    mode: Literal["isolated", "native_approval", "native_trusted", "native_project"]
+    mode: Literal["isolated", "native_approval", "native_trusted", "native_project", "full_access"]
     online: bool
 
 

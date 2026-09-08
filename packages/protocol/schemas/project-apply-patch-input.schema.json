@@ -41,6 +41,33 @@
       "description": "Opaque ID from list_projects; never a local path.",
       "title": "Project Id",
       "type": "string"
+    },
+    "purpose": {
+      "anyOf": [
+        {
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Purpose"
+    },
+    "scope_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Requested external Windows directory; never proof of approval.",
+      "title": "Scope Path"
     }
   },
   "required": [

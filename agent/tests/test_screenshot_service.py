@@ -10,12 +10,57 @@ from codito_protocol.screenshot import DeviceScreenshotInput
 from codito_agent.approvals import ApprovalDecision, ApprovalManager
 from codito_agent.db import AgentDatabase
 from codito_agent.errors import AgentError
+from codito_agent.models import ProjectMode
 from codito_agent.screen_capture import DeviceScreenshotService, ScreenCaptureQueue
 
 PNG = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAA9hAAAPYQGoP6dp"
     "AAAADElEQVQImWNgYGAAAAAEAAGjChXjAAAAAElFTkSuQmCC"
 )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode,prompt_count",
+    [
+        (ProjectMode.NATIVE_APPROVAL, 2),
+        (ProjectMode.NATIVE_PROJECT, 1),
+        (ProjectMode.FULL_ACCESS, 0),
+        (ProjectMode.NATIVE_TRUSTED, 2),
+    ],
+)
+async def test_project_policy_controls_screen_consent_without_upgrading_legacy(
+    tmp_path, project_root, mode, prompt_count
+):
+    database = AgentDatabase(tmp_path / "project-screens.sqlite")
+    project = database.register_project("Screens", project_root, mode)
+    prompts = []
+
+    async def prompt(request):
+        prompts.append(request)
+        return (
+            ApprovalDecision.ALLOW_ALWAYS_SCREEN
+            if mode is ProjectMode.NATIVE_PROJECT
+            else ApprovalDecision.ALLOW_ONCE
+        )
+
+    capture = ScreenCaptureQueue()
+    service = DeviceScreenshotService(
+        ApprovalManager(prompt, database),
+        capture,
+        account_id="account",
+        device_id="device",
+        database=database,
+    )
+    request = DeviceScreenshotInput(
+        purpose="Synthetic screen policy", project_id=project.project_id
+    )
+    for _ in range(2):
+        result = await execute(service, capture, request=request)
+        assert result.structured["image_base64"] == PNG
+    assert len(prompts) == prompt_count
+
+
 SCREEN_A = "screen_" + "a" * 64
 SCREEN_B = "screen_" + "b" * 64
 CATALOG = {

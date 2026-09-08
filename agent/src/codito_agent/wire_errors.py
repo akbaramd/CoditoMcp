@@ -36,6 +36,7 @@ LOCAL_ERROR_MAP: dict[str, ErrorCode] = {
     "invalid_ipc_request": ErrorCode.INVALID_REQUEST,
     "invalid_patch": ErrorCode.PATCH_INVALID,
     "invalid_path": ErrorCode.PATH_INVALID,
+    "invalid_permission": ErrorCode.INVALID_REQUEST,
     "invalid_project": ErrorCode.INVALID_REQUEST,
     "invalid_project_root": ErrorCode.PATH_INVALID,
     "invalid_request": ErrorCode.INVALID_REQUEST,

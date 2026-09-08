@@ -1,0 +1,23 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-project-add-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "idempotency_key": {
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "idempotency_key"
+  ],
+  "title": "ProjectAddInput",
+  "type": "object"
+}

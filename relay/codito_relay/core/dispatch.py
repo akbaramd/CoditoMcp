@@ -31,6 +31,7 @@ from codito_protocol.screenshot import (
     durable_tool_result,
 )
 from django.conf import settings
+from django.core import signing
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from pydantic import TypeAdapter, ValidationError
@@ -286,11 +287,17 @@ def _validate_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, 
         )
     try:
         if tool_name == "device_desktop":
-            return DeviceDesktopInput.model_validate(arguments).model_dump(mode="json")
+            return DeviceDesktopInput.model_validate(arguments).model_dump(
+                mode="json", exclude_none=True
+            )
         if tool_name == "device_screenshot":
-            return DeviceScreenshotInput.model_validate(arguments).model_dump(mode="json")
+            return DeviceScreenshotInput.model_validate(arguments).model_dump(
+                mode="json", exclude_none=True
+            )
         if tool_name == "device_read":
-            return DeviceReadInput.model_validate(arguments).model_dump(mode="json")
+            return DeviceReadInput.model_validate(arguments).model_dump(
+                mode="json", exclude_none=True
+            )
         if tool_name == "project_read":
             validated = validate_project_read(arguments)
             return validated.model_dump(mode="json", exclude_none=True)
@@ -322,7 +329,9 @@ def _lookup_route(
     except Device.DoesNotExist as exc:
         raise ToolDispatchError("device_not_found", "The bound device no longer exists") from exc
     operation = str(arguments.get("operation", ""))
-    if tool_name in {"device_read", "device_screenshot", "device_desktop"}:
+    if tool_name in {"device_read", "device_screenshot", "device_desktop"} and not arguments.get(
+        "project_id"
+    ):
         return device, None
     if (tool_name == "project_read" and operation == "list_projects") or (
         tool_name == "project_manage" and operation in {"get_projects", "request_add_project"}
@@ -345,12 +354,47 @@ def _lookup_route(
     return device, project
 
 
-def _list_projects(principal: MCPPrincipal) -> dict[str, Any]:
+def _list_projects(principal: MCPPrincipal, arguments: dict[str, Any]) -> dict[str, Any]:
     projects = Project.objects.filter(
         account_id=principal.account_id,
         device_id=principal.device_id,
         status=Project.Status.AVAILABLE,
-    ).order_by("title", "id")
+    ).order_by("id")
+    binding = [principal.account_id, str(principal.device_id), str(principal.link_id)]
+    cursor = arguments.get("cursor")
+    if cursor:
+        try:
+            decoded = signing.loads(cursor, salt="codito.projects-list.v1", max_age=3600)
+            if (
+                not isinstance(decoded, dict)
+                or decoded.get("binding") != binding
+                or not isinstance(decoded.get("id"), str)
+            ):
+                raise ValueError("Invalid cursor binding")
+        except (signing.BadSignature, ValueError, TypeError) as exc:
+            raise ToolDispatchError(
+                "invalid_request", "Project cursor is invalid or expired"
+            ) from exc
+        projects = projects.filter(id__gt=decoded["id"])
+    limit = int(arguments.get("limit", 50))
+    page = list(projects[: limit + 1])
+    device = Device.objects.get(pk=principal.device_id, account_id=principal.account_id)
+    online = (
+        device.status == Device.Status.ONLINE
+        and device.last_seen_at is not None
+        and (timezone.now() - device.last_seen_at).total_seconds()
+        <= settings.DEVICE_OFFLINE_AFTER_SECONDS
+    )
+    continuation = None
+    if len(page) > limit:
+        last = page[limit - 1]
+        continuation = {
+            "cursor": signing.dumps(
+                {"binding": binding, "id": str(last.pk)},
+                salt="codito.projects-list.v1",
+                compress=True,
+            )
+        }
     return {
         "operation": "list_projects",
         "projects": [
@@ -359,15 +403,16 @@ def _list_projects(principal: MCPPrincipal) -> dict[str, Any]:
                 "title": project.title,
                 "device_id": str(project.device_id),
                 "mode": project.mode,
-                "online": True,
+                "online": online,
             }
-            for project in projects
+            for project in page[:limit]
         ],
+        "continuation": continuation,
     }
 
 
-def _list_managed_projects(principal: MCPPrincipal) -> dict[str, Any]:
-    result = _list_projects(principal)
+def _list_managed_projects(principal: MCPPrincipal, arguments: dict[str, Any]) -> dict[str, Any]:
+    result = _list_projects(principal, arguments)
     result["operation"] = "get_projects"
     return result
 
@@ -477,7 +522,7 @@ def _mark_delivery_failure(
 ) -> None:
     if error.code == "device_offline":
         status = Operation.Status.FAILED
-    elif tool_name in {"project_shell", "device_desktop"}:
+    elif error.code == "outcome_unknown":
         status = Operation.Status.OUTCOME_UNKNOWN
     else:
         status = Operation.Status.FAILED
@@ -502,6 +547,8 @@ async def dispatch_tool(
     arguments = _validate_arguments(tool_name, raw_arguments)
     operation_name = str(arguments.get("operation", ""))
     required_scopes = _required_scopes(tool_name, operation_name)
+    if arguments.get("project_id"):
+        required_scopes |= frozenset({"projects:read"})
     try:
         for required_scope in required_scopes:
             principal.require(required_scope)
@@ -513,10 +560,12 @@ async def dispatch_tool(
         principal, tool_name, arguments
     )
     if tool_name == "project_read" and operation_name == "list_projects":
-        result = await sync_to_async(_list_projects, thread_sensitive=True)(principal)
+        result = await sync_to_async(_list_projects, thread_sensitive=True)(principal, arguments)
         return DispatchReceipt(operation_id="local", result=result)
     if tool_name == "project_manage" and operation_name == "get_projects":
-        result = await sync_to_async(_list_managed_projects, thread_sensitive=True)(principal)
+        result = await sync_to_async(_list_managed_projects, thread_sensitive=True)(
+            principal, arguments
+        )
         return DispatchReceipt(operation_id="local", result=result)
     now = timezone.now()
     if (
@@ -598,6 +647,14 @@ async def dispatch_tool(
         ) from exc
     selected_transport = transport or RedisStreamTransport()
     await sync_to_async(_mark_dispatched, thread_sensitive=True)(operation.pk)
+    uncertain_start = tool_name == "device_desktop" or (
+        tool_name == "project_shell" and arguments.get("action") == "start"
+    )
+    uncertainty_message = (
+        "The browser action may have executed; do not automatically retry it"
+        if tool_name == "device_desktop"
+        else "The shell command may have started; do not automatically resubmit it"
+    )
     try:
         result = await selected_transport.publish_and_wait(
             device_id=str(device.pk),
@@ -606,10 +663,10 @@ async def dispatch_tool(
             timeout_seconds=settings.OPERATION_TIMEOUT_SECONDS,
         )
     except ToolDispatchError as exc:
-        if tool_name == "device_desktop" and exc.code != "device_offline":
+        if uncertain_start and exc.code != "device_offline":
             mapped = ToolDispatchError(
                 "outcome_unknown",
-                "The browser action may have executed; do not automatically retry it",
+                uncertainty_message,
                 retryable=False,
                 details={"operation_id": str(operation.pk)},
             )
@@ -623,13 +680,13 @@ async def dispatch_tool(
         raise
     except Exception as exc:
         mapped = ToolDispatchError(
-            "outcome_unknown" if tool_name == "device_desktop" else "relay_unavailable",
+            "outcome_unknown" if uncertain_start else "relay_unavailable",
             (
-                "The browser action may have executed; do not automatically retry it"
-                if tool_name == "device_desktop"
+                uncertainty_message
+                if uncertain_start
                 else "The relay transport is temporarily unavailable"
             ),
-            retryable=tool_name != "device_desktop",
+            retryable=not uncertain_start,
             details={"operation_id": str(operation.pk)},
         )
         await sync_to_async(_mark_delivery_failure, thread_sensitive=True)(
@@ -639,6 +696,17 @@ async def dispatch_tool(
     try:
         validated_result = _validate_device_result(tool_name, result)
     except ToolDispatchError as exc:
+        if uncertain_start:
+            mapped = ToolDispatchError(
+                "outcome_unknown",
+                uncertainty_message,
+                retryable=False,
+                details={"operation_id": str(operation.pk)},
+            )
+            await sync_to_async(_mark_delivery_failure, thread_sensitive=True)(
+                operation.pk, tool_name, mapped
+            )
+            raise mapped from exc
         await sync_to_async(_mark_delivery_failure, thread_sensitive=True)(
             operation.pk, tool_name, exc
         )

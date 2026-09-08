@@ -7,13 +7,15 @@ import re
 import shutil
 import threading
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, cast
 
 from .db import AgentDatabase
 from .errors import AgentError
-from .models import OperationState
+from .file_targets import resolve_file_target
+from .models import OperationState, Project
 from .operation_gate import ProjectOperationGate
 from .paths import ProjectPathResolver, ValidatedPath, validate_relative_path
 from .read_tools import ToolResponse
@@ -92,9 +94,18 @@ def _sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _request_digest(patch: str, base_hashes: dict[str, str | None], dry_run: bool) -> str:
+def _no_check() -> None:
+    """Direct local callers have no asynchronous consent lifecycle."""
+
+
+def _request_digest(
+    patch: str, base_hashes: dict[str, str | None], dry_run: bool, scope_path: str | None = None
+) -> str:
+    value: dict[str, Any] = {"patch": patch, "base_hashes": base_hashes, "dry_run": dry_run}
+    if scope_path is not None:
+        value["scope_path"] = scope_path
     encoded = json.dumps(
-        {"patch": patch, "base_hashes": base_hashes, "dry_run": dry_run},
+        value,
         separators=(",", ":"),
         sort_keys=True,
     ).encode()
@@ -258,6 +269,8 @@ class PatchService:
         grant_id: str,
         link_id: str,
         device_id: str,
+        scope_path: str | None = None,
+        purpose: str = "",
     ) -> ToolResponse | None:
         """Return/recover a prior patch, or prove that a fresh retry is needed.
 
@@ -267,7 +280,7 @@ class PatchService:
         """
 
         normalized_hashes = self._normalize_base_hashes(base_hashes)
-        digest = _request_digest(patch, normalized_hashes, dry_run)
+        digest = _request_digest(patch, normalized_hashes, dry_run, scope_path)
         binding = {
             "account_id": account_id,
             "grant_id": grant_id,
@@ -320,11 +333,16 @@ class PatchService:
         link_id: str,
         device_id: str,
         reconcile_incomplete: bool = False,
+        scope_path: str | None = None,
+        purpose: str = "",
+        target_project: Project | None = None,
+        check: Callable[[], None] = _no_check,
     ) -> ToolResponse:
+        check()
         if not isinstance(idempotency_key, str) or not 8 <= len(idempotency_key) <= 200:
             raise AgentError("invalid_request", "idempotency_key must contain 8 to 200 characters")
         normalized_hashes = self._normalize_base_hashes(base_hashes)
-        digest = _request_digest(patch, normalized_hashes, dry_run)
+        digest = _request_digest(patch, normalized_hashes, dry_run, scope_path)
         binding = {
             "account_id": account_id,
             "grant_id": grant_id,
@@ -334,6 +352,12 @@ class PatchService:
         project = self.database.get_project(project_id)
         if not project.enabled:
             raise AgentError("project_disabled", "The requested project is disabled")
+        if scope_path is not None:
+            if target_project is None or target_project.root != Path(scope_path):
+                raise AgentError(
+                    "invalid_request", "External patch target was not locally resolved"
+                )
+            project = target_project
         prior = self.database.get_idempotency(
             project_id, "project_apply_patch", idempotency_key, **binding
         )
@@ -372,7 +396,9 @@ class PatchService:
         sections = self.parser.parse(patch)
         owner = f"patch:{idempotency_key}"
         with self.operation_gate.hold(project_id, owner), self._project_lock(project_id):
-            preflight = self._preflight(project, sections, normalized_hashes)
+            check()
+            preflight = self._preflight(project, sections, normalized_hashes, check=check)
+            check()
             result = {
                 "project_id": project_id,
                 "idempotency_key": idempotency_key,
@@ -416,6 +442,7 @@ class PatchService:
                     request_digest=digest,
                     result=result,
                     binding=binding,
+                    check=check,
                 )
             except Exception as exc:
                 if not isinstance(exc, AgentError) or exc.code != "recovery_failed":
@@ -507,6 +534,8 @@ class PatchService:
         project: Any,
         sections: tuple[PatchSection, ...],
         base_hashes: dict[str, str | None],
+        *,
+        check: Callable[[], None] = _no_check,
     ) -> _Preflight:
         required = {section.path for section in sections}
         required.update(
@@ -523,6 +552,7 @@ class PatchService:
         touched: set[str] = set()
         preflight = _Preflight()
         for section in sections:
+            check()
             paths = {section.path}
             if section.destination is not None:
                 paths.add(section.destination)
@@ -558,7 +588,10 @@ class PatchService:
             )
             if validated.absolute.stat().st_size > MAX_PATCH_FILE_BYTES:
                 raise AgentError("file_too_large", "Patch target exceeds the 8 MiB limit")
-            old_raw = validated.absolute.read_bytes()
+            with self.resolver.open_read(project, section.path) as stream:
+                old_raw = stream.read(MAX_PATCH_FILE_BYTES + 1)
+            if len(old_raw) > MAX_PATCH_FILE_BYTES:
+                raise AgentError("file_too_large", "Patch target exceeds the 8 MiB limit")
             old_hash = _sha(old_raw)
             if expected_hash is None or old_hash != expected_hash:
                 raise AgentError(
@@ -617,23 +650,38 @@ class PatchService:
         request_digest: str,
         result: dict[str, Any],
         binding: dict[str, str],
+        check: Callable[[], None] = _no_check,
     ) -> None:
         # Re-check content preconditions as a complete batch immediately before
         # creating backups or performing any mutation. File identity alone does
         # not detect an in-place write to the same file.
+        check()
         self._verify_commit_preconditions(project, preflight)
+        check()
         transaction = self.journal_root / journal_id
         backups = transaction / "backups"
         backups.mkdir(parents=True)
         records: list[dict[str, Any]] = []
+        mutated = False
         try:
             for index, relative in enumerate(sorted(preflight.desired)):
+                check()
                 validated = preflight.validated[relative]
                 self.resolver.revalidate_for_mutation(project, validated)
                 existed = validated.target_identity is not None
                 backup_name = f"{index:04d}.bak" if existed else None
                 if existed:
-                    shutil.copy2(validated.absolute, backups / str(backup_name))
+                    with self.resolver.open_read(project, relative) as stream:
+                        raw = stream.read(MAX_PATCH_FILE_BYTES + 1)
+                    expected = next(
+                        change.old_hash for change in preflight.changes if change.source == relative
+                    )
+                    if _sha(raw) != expected:
+                        raise AgentError("patch_conflict", "File changed before journal backup")
+                    with (backups / str(backup_name)).open("xb") as backup:
+                        backup.write(raw)
+                        backup.flush()
+                        os.fsync(backup.fileno())
                 records.append({"path": relative, "existed": existed, "backup": backup_name})
             manifest = {
                 "version": 1,
@@ -646,21 +694,31 @@ class PatchService:
                 "state": "prepared",
                 "records": records,
             }
+            registered = self.database.get_project(project.project_id)
+            if project.root != registered.root:
+                # Local journal only; never synchronize absolute paths to the relay.
+                manifest["scope_path"] = str(project.root)
             self._write_manifest(transaction, manifest)
             manifest["state"] = "committing"
             self._write_manifest(transaction, manifest)
 
             for relative, desired in preflight.desired.items():
+                check()
                 validated = preflight.validated[relative]
                 self.resolver.revalidate_for_mutation(project, validated)
+                mutated = True
                 if desired is None:
                     validated.absolute.unlink()
                 else:
                     self._atomic_replace(validated.absolute, desired)
+            check()
             manifest["state"] = "committed"
             self._write_manifest(transaction, manifest)
         except Exception:
-            self._restore(project, transaction, records)
+            if mutated:
+                self._restore(project, transaction, records)
+            else:
+                shutil.rmtree(transaction, ignore_errors=True)
             raise
         finally:
             manifest_path = transaction / "manifest.json"
@@ -800,9 +858,14 @@ class PatchService:
             shutil.rmtree(transaction, ignore_errors=True)
             return
         project = self.database.get_project(str(manifest["project_id"]))
-        if project.root_fingerprint != manifest.get("root_fingerprint"):
-            raise AgentError("recovery_failed", "Project identity differs from the journal")
-        self._restore(project, transaction, list(manifest["records"]))
+        with resolve_file_target(project, manifest.get("scope_path")) as target:
+            if target.project.root_fingerprint != manifest.get("root_fingerprint"):
+                raise AgentError("recovery_failed", "Project identity differs from the journal")
+            if target.pinned_scope is not None:
+                for record in manifest["records"]:
+                    target.pinned_scope.directory(str(Path(record["path"]).parent))
+                target.pinned_scope.release_for_mutation()
+            self._restore(target.project, transaction, list(manifest["records"]))
         self.database.delete_idempotency(
             str(manifest["project_id"]),
             "project_apply_patch",

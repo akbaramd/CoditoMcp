@@ -276,6 +276,25 @@ class CoditoDaemon:
             return {"ok": True, "request_id": self.approval_queue.consume_review_request()}
         if action == "screen_permissions.list":
             return {"ok": True, "permissions": self.database.list_screen_permissions()}
+        if action == "permissions.revoke":
+            category = request.get("category")
+            permission_id = request.get("permission_id")
+            if (
+                set(request) != {"action", "category", "permission_id"}
+                or not isinstance(category, str)
+                or category not in {"read", "shell", "screen"}
+                or not isinstance(permission_id, str)
+                or not 1 <= len(permission_id) <= 128
+                or not all(
+                    character.isascii() and (character.isalnum() or character in "_-")
+                    for character in permission_id
+                )
+            ):
+                return {"ok": False, "error": "invalid_permission"}
+            revoked = self.approvals.revoke_permission(category, permission_id)
+            if revoked:
+                self.approval_queue.deny_all()
+            return {"ok": True, "revoked": int(revoked)}
         if action == "screen_permissions.revoke_all":
             count = self.approvals.revoke_screen_permissions()
             self.approval_queue.deny_all()
@@ -352,15 +371,17 @@ class CoditoDaemon:
         if action == "project.mode":
             mode = ProjectMode(str(request.get("mode", "")))
             if (
-                mode in {ProjectMode.NATIVE_TRUSTED, ProjectMode.NATIVE_PROJECT}
+                mode
+                in {ProjectMode.FULL_ACCESS, ProjectMode.NATIVE_TRUSTED, ProjectMode.NATIVE_PROJECT}
                 and request.get("acknowledge_full_user_authority") is not True
             ):
                 raise AgentError(
                     "confirmation_required",
-                    "Native trusted mode requires acknowledging full user authority",
+                    "Native access requires explicitly acknowledging full user authority",
                 )
             self.database.set_project_mode(str(request.get("project_id", "")), mode)
             self.approvals.clear("trust_change")
+            self.approval_queue.deny_all()
             self._project_metadata_changed()
             return {"ok": True}
         if action == "project.rename":

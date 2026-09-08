@@ -1,0 +1,16 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-screen-list-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "purpose": {
+      "default": "List available Windows screens without capturing pixels",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    }
+  },
+  "title": "ScreenListInput",
+  "type": "object"
+}

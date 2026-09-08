@@ -8,6 +8,7 @@ import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path, PureWindowsPath
 from typing import BinaryIO
 
@@ -328,6 +329,16 @@ class ProjectPathResolver:
 
     @contextmanager
     def open_read(self, project: Project, relative: str) -> Iterator[BinaryIO]:
+        if os.name == "nt":
+            # Lazy import avoids the low-level handle helper's path-validation import cycle.
+            from .device_paths import WindowsReadScope
+
+            self.verify_project(project)
+            with WindowsReadScope(str(project.root)) as scope:
+                raw = scope.read_bytes(relative, lambda: None)
+                with BytesIO(raw) as memory_stream:
+                    yield memory_stream
+            return
         validated = self.resolve(project, relative, directory=False)
         before = validated.target_identity
         try:

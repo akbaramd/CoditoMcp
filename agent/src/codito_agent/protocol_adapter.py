@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+import threading
+from collections.abc import Callable
+from contextlib import suppress
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from codito_protocol import (
@@ -21,16 +25,47 @@ from codito_protocol.desktop_action import DeviceDesktopInput, DeviceDesktopResu
 from codito_protocol.screenshot import DeviceScreenshotInput, ScreenshotToolResult
 from pydantic import TypeAdapter, ValidationError
 
+from .access_policy import authorize_project_operation
 from .approvals import ApprovalManager, ApprovalRisk, action_digest
 from .db import AgentDatabase
 from .desktop_actions import DesktopActionQueue, DeviceDesktopService
 from .device_read import DeviceReadService
 from .errors import AgentError
+from .file_targets import resolve_file_target
+from .models import Project
 from .patching import PatchService
 from .project_management import ProjectManagementService
 from .read_tools import ProjectReadService, ToolResponse, _decode_cursor, _encode_cursor
+from .scoped_read_tools import read_scoped_files
 from .screen_capture import DeviceScreenshotService, ScreenCaptureQueue
 from .shell import ShellManager
+
+
+async def _drain_file_worker(
+    perform: Callable[[Callable[[], None]], ToolResponse],
+) -> ToolResponse:
+    """A cancelled coroutine must not release pinned handles under a live thread."""
+    cancelled = threading.Event()
+
+    def check_cancelled() -> None:
+        if cancelled.is_set():
+            raise AgentError("approval_expired", "File operation was cancelled before starting")
+
+    def run() -> ToolResponse:
+        check_cancelled()
+        return perform(check_cancelled)
+
+    worker = asyncio.create_task(asyncio.to_thread(run))
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        cancelled.set()
+        while not worker.done():
+            with suppress(asyncio.CancelledError, Exception):
+                await asyncio.shield(worker)
+        if not worker.cancelled():
+            worker.exception()
+        raise
 
 
 class AgentProtocolAdapter:
@@ -62,14 +97,24 @@ class AgentProtocolAdapter:
         self._read_result: TypeAdapter[Any] = TypeAdapter(ProjectReadResult)
         self._shell_result: TypeAdapter[Any] = TypeAdapter(ProjectShellResult)
         self._manage_result: TypeAdapter[Any] = TypeAdapter(ProjectManageResult)
-        self.device_reads = DeviceReadService(approvals, account_id=account_id, device_id=device_id)
+        self.device_reads = DeviceReadService(
+            approvals, account_id=account_id, device_id=device_id, database=database
+        )
         self.screen_queue = ScreenCaptureQueue()
         self.screenshots = DeviceScreenshotService(
-            approvals, self.screen_queue, account_id=account_id, device_id=device_id
+            approvals,
+            self.screen_queue,
+            account_id=account_id,
+            device_id=device_id,
+            database=database,
         )
         self.desktop_queue = DesktopActionQueue()
         self.desktop_actions = DeviceDesktopService(
-            approvals, self.desktop_queue, account_id=account_id, device_id=device_id
+            approvals,
+            self.desktop_queue,
+            account_id=account_id,
+            device_id=device_id,
+            database=database,
         )
 
     async def execute(
@@ -118,7 +163,17 @@ class AgentProtocolAdapter:
             elif tool_name == "project_read":
                 read_request = validate_project_read(payload)
                 async with self._read_semaphore:
-                    response = await asyncio.to_thread(self._read, read_request)
+                    if isinstance(read_request, ListProjectsInput):
+                        response = await asyncio.to_thread(self._read, read_request)
+                    else:
+                        response = await self._file_operation(
+                            read_request,
+                            grant_id=grant_id,
+                            link_id=link_id,
+                            connection_epoch=connection_epoch,
+                            deadline_at=deadline_at,
+                            mutation=False,
+                        )
                 validated = self._read_result.validate_python(response.structured)
             elif tool_name == "project_apply_patch":
                 patch_request = validate_project_apply_patch(payload)
@@ -138,41 +193,13 @@ class AgentProtocolAdapter:
                             validated_cached.model_dump(mode="json", exclude_none=True),
                             cached.text,
                         )
-                sections = self.patches.parser.parse(patch_request.patch)
-                project = self.database.get_project(patch_request.project_id)
-                if (
-                    project.mode.value != "native_project"
-                    and not patch_request.dry_run
-                    and any(section.action in {"delete", "move"} for section in sections)
-                ):
-                    project = self.database.get_project(patch_request.project_id)
-                    approval = ApprovalManager.build_request(
-                        account_id=self.account_id,
-                        grant_id=grant_id,
-                        link_id=link_id,
-                        device_id=self.device_id,
-                        project_id=patch_request.project_id,
-                        project_title=project.title,
-                        capability="files:write",
-                        action_digest=action_digest(patch_request),
-                        connection_epoch=connection_epoch,
-                        deadline_at=deadline_at,
-                        risk=ApprovalRisk.DELETE,
-                        summary="Delete one or more project files using an anchored patch",
-                        patch=patch_request.patch,
-                    )
-                    await self.approvals.authorize_patch(approval, contains_delete=True)
-                if deadline_at <= datetime.now(UTC):
-                    raise AgentError(
-                        "deadline_exceeded", "Operation deadline elapsed before patch commit"
-                    )
-                response = await asyncio.to_thread(
-                    self.patches.apply,
-                    **value,
-                    account_id=self.account_id,
+                response = await self._file_operation(
+                    patch_request,
                     grant_id=grant_id,
                     link_id=link_id,
-                    device_id=self.device_id,
+                    connection_epoch=connection_epoch,
+                    deadline_at=deadline_at,
+                    mutation=True,
                 )
                 validated = ProjectApplyPatchResult.model_validate(response.structured)
             elif tool_name == "project_shell":
@@ -207,7 +234,128 @@ class AgentProtocolAdapter:
             ) from exc
         return ToolResponse(validated.model_dump(mode="json", exclude_none=True), response.text)
 
-    def _read(self, request: Any) -> ToolResponse:
+    async def _file_operation(
+        self,
+        request: Any,
+        *,
+        grant_id: str,
+        link_id: str,
+        connection_epoch: int,
+        deadline_at: datetime,
+        mutation: bool,
+    ) -> ToolResponse:
+        project = self.database.get_project(request.project_id)
+        generation = self.approvals.generation
+        self.approvals.ensure_current(generation, deadline_at)
+        scope_path = request.scope_path
+        with resolve_file_target(project, scope_path) as target:
+
+            def ensure_policy() -> None:
+                self.approvals.ensure_current(generation, deadline_at)
+                current = self.database.get_project(project.project_id)
+                if not current.enabled or current.mode != project.mode:
+                    raise AgentError("approval_expired", "Local project access changed")
+
+            external = not target.inside_project
+            write = mutation and not request.dry_run
+            sections = self.patches.parser.parse(request.patch) if mutation else ()
+            deleting = write and any(section.action in {"delete", "move"} for section in sections)
+            capability = "files:write" if write else "device:read" if external else "files:read"
+            operation = "file_patch" if mutation else request.operation
+            approval = self.approvals.build_request(
+                account_id=self.account_id,
+                grant_id=grant_id,
+                link_id=link_id,
+                device_id=self.device_id,
+                project_id=project.project_id,
+                project_title=project.title,
+                capability=capability,
+                action_digest=action_digest(request),
+                connection_epoch=connection_epoch,
+                deadline_at=deadline_at,
+                risk=ApprovalRisk.DELETE
+                if deleting
+                else ApprovalRisk.WRITE
+                if write
+                else ApprovalRisk.READ,
+                summary=(
+                    f"{operation}: {request.purpose}\n"
+                    f"Target root: {target.project.root}\n"
+                    f"Path: {getattr(request, 'path', '(patch document)') or '(root)'}"
+                ),
+                patch=request.patch if mutation else None,
+                requested_external_paths=(target.scope_path,)
+                if external and target.scope_path
+                else (),
+            )
+            read_scope = (
+                (target.scope_path, target.scope_identity)
+                if external
+                and not mutation
+                and target.scope_path
+                and target.scope_identity
+                and self.approvals.supports_saved_permissions
+                else None
+            )
+            await authorize_project_operation(
+                project,
+                self.approvals,
+                approval,
+                inside_project=target.inside_project,
+                read_scope=read_scope,
+            )
+            self.approvals.ensure_current(generation, deadline_at)
+            if mutation:
+                if target.pinned_scope is not None:
+                    for section in sections:
+                        target.pinned_scope.directory(str(Path(section.path).parent))
+                        if section.destination:
+                            target.pinned_scope.directory(str(Path(section.destination).parent))
+                    # Windows atomic replacement requires delete sharing on the
+                    # parent. Release read pins, then the patch resolver rechecks
+                    # root/parent/target identities before every mutation.
+                    target.pinned_scope.release_for_mutation()
+                value = request.model_dump(mode="python")
+                value["scope_path"] = target.scope_path
+
+                def perform(check_cancelled: Callable[[], None]) -> ToolResponse:
+                    def check() -> None:
+                        check_cancelled()
+                        ensure_policy()
+
+                    check()
+                    return self.patches.apply(
+                        **value,
+                        target_project=target.project if target.scope_path else None,
+                        account_id=self.account_id,
+                        grant_id=grant_id,
+                        link_id=link_id,
+                        device_id=self.device_id,
+                        check=check,
+                    )
+            else:
+
+                def perform(check_cancelled: Callable[[], None]) -> ToolResponse:
+                    def check() -> None:
+                        check_cancelled()
+                        ensure_policy()
+
+                    check()
+                    if target.pinned_scope is not None:
+                        value = request.model_dump(mode="python", exclude_none=True)
+                        if request.operation == "read_file" and value.get("continuation"):
+                            value.pop("start_line", None)
+                            value.pop("end_line", None)
+                        return self._normalize_read_response(
+                            request, read_scoped_files(target.pinned_scope, value, check)
+                        )
+                    return self._read(request)
+
+            result = await _drain_file_worker(perform)
+            ensure_policy()
+            return result
+
+    def _read(self, request: Any, target_project: Project | None = None) -> ToolResponse:
         if isinstance(request, ListProjectsInput):
             projects = self.database.list_projects()
             offset = _decode_cursor(request.cursor)
@@ -241,7 +389,15 @@ class AgentProtocolAdapter:
         if request.operation == "read_file" and value.get("continuation"):
             value["start_line"] = None
             value["end_line"] = None
-        response = self.reads.execute(value)
+        response = (
+            self.reads.execute(value, target_project=target_project)
+            if target_project is not None
+            else self.reads.execute(value)
+        )
+        return self._normalize_read_response(request, response)
+
+    @staticmethod
+    def _normalize_read_response(request: Any, response: ToolResponse) -> ToolResponse:
         structured = dict(response.structured)
         if structured.get("path") == ".":
             structured["path"] = ""

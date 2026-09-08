@@ -1,0 +1,21 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-project-remove-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "idempotency_key": {
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "idempotency_key"
+  ],
+  "title": "ProjectRemoveInput",
+  "type": "object"
+}

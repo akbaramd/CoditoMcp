@@ -1,0 +1,34 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-shell-status-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "job_id": {
+      "title": "Job Id",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "sequence_cursor": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Sequence Cursor",
+      "type": "integer"
+    },
+    "wait_milliseconds": {
+      "default": 30000,
+      "maximum": 30000,
+      "minimum": 0,
+      "title": "Wait Milliseconds",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "project_id",
+    "job_id"
+  ],
+  "title": "ShellStatusInput",
+  "type": "object"
+}

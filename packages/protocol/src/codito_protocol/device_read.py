@@ -10,6 +10,7 @@ from pydantic import Field, field_validator, model_validator
 from .types import (
     MAX_RELATIVE_PATH_CHARS,
     CoditoModel,
+    OpaqueId,
     RelativePath,
     Sha256,
     _validate_relative_path,
@@ -40,6 +41,9 @@ def normalize_read_scope(value: str) -> str:
 
 
 class DeviceReadInput(CoditoModel):
+    project_id: OpaqueId | None = Field(
+        default=None, description="Optional origin project binding."
+    )
     operation: Literal["list_directory", "read_file"]
     scope_path: str = Field(description="Directory to request read access to, e.g. C:/")
     path: RelativePath = Field(default="", description="Path relative to scope_path")

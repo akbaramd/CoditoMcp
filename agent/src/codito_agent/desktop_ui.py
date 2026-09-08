@@ -5,9 +5,10 @@ import json
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from PySide6.QtCore import QSize, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QColor, QDesktopServices, QFont, QIcon, QScreen
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -184,10 +186,27 @@ QStatusBar { background: #ffffff; color: #667085; border-top: 1px solid #eaecf0;
 """
 
 MODE_LABELS = {
-    "native_project": "Project access (native)",
-    "isolated": "Isolated",
-    "native_approval": "Native approval",
-    "native_trusted": "Native trusted",
+    "native_approval": "Ask for every operation",
+    "native_project": "Project access",
+    "full_access": "Full device access",
+}
+PROJECT_ACCESS_HELP = (
+    "Ask for every operation: every operation requests local approval.\n"
+    "Project access: files inside the project are free; outside access requires approval. "
+    "Native shell uses conservative path detection, not OS confinement: a working directory "
+    "does not prevent scripts or child processes accessing other paths.\n"
+    "Full device access: no local prompts, including screenshots; full Windows user authority. "
+    "OAuth scopes and locked-desktop protections still apply."
+)
+PermissionCategory = Literal["read", "shell", "screen"]
+PERMISSION_LABELS = {
+    "read": ("File reading", "files:read", "Read folder and descendants"),
+    "shell": (
+        "Native shell",
+        "shell:execute",
+        "Run native commands with full Windows user authority",
+    ),
+    "screen": ("Screenshots", "screen:read", "Capture selected monitor, including private windows"),
 }
 STATE_LABELS = {
     "received": "Received",
@@ -258,6 +277,153 @@ class MetricCard(QFrame):  # type: ignore[misc, unused-ignore]  # PySide wheel v
         self.detail = _label(detail, "SmallMuted")
         self.detail.setWordWrap(True)
         layout.addWidget(self.detail)
+
+
+class PermissionReviewDialog(QDialog):  # type: ignore[misc, unused-ignore]
+    """Local-only grant inventory; revoke an exact row or one capability group."""
+
+    def __init__(
+        self,
+        category: PermissionCategory,
+        request: Callable[[dict[str, Any]], dict[str, Any] | None],
+        parent: QWidget,
+    ) -> None:
+        super().__init__(parent)
+        self.category = category
+        self._request = request
+        self._permissions_current = False
+        title, self.capability, self.action_label = PERMISSION_LABELS[category]
+        self.setWindowTitle(f"Codito saved permissions — {title}")
+        self.resize(980, 500)
+        layout = QVBoxLayout(self)
+        explanation = QLabel(
+            "Saved Always allow permissions are scoped to the shown account/connection. "
+            "Revoking cancels pending approvals; it does not change a project's access mode. "
+            "Full device access can still authorize operations without these saved permissions."
+        )
+        explanation.setWordWrap(True)
+        explanation.setTextFormat(Qt.TextFormat.PlainText)
+        layout.addWidget(explanation)
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(
+            ["SCOPE", "CAPABILITY", "ACTION", "ACCOUNT / LINK", "CREATED"]
+        )
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.itemSelectionChanged.connect(self._selection_changed)
+        layout.addWidget(self.table)
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        self.status.setTextFormat(Qt.TextFormat.PlainText)
+        layout.addWidget(self.status)
+        buttons = QHBoxLayout()
+        refresh = QPushButton("Refresh")
+        refresh.clicked.connect(self.refresh_permissions)
+        buttons.addWidget(refresh)
+        self.revoke_selected = QPushButton("Revoke selected")
+        self.revoke_selected.clicked.connect(lambda: self.revoke(all_in_category=False))
+        buttons.addWidget(self.revoke_selected)
+        self.revoke_all = QPushButton(f"Revoke all {title.lower()} permissions")
+        self.revoke_all.clicked.connect(lambda: self.revoke(all_in_category=True))
+        buttons.addWidget(self.revoke_all)
+        buttons.addStretch()
+        close = QPushButton("Close")
+        close.clicked.connect(self.reject)
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
+        self.refresh_permissions()
+
+    def _selection_changed(self) -> None:
+        selected = self.table.selectedItems()
+        self.revoke_selected.setEnabled(
+            self._permissions_current
+            and bool(selected)
+            and isinstance(selected[0].data(Qt.ItemDataRole.UserRole), str)
+        )
+
+    def refresh_permissions(self) -> None:
+        response = self._request({"action": f"{self.category}_permissions.list"})
+        values = response.get("permissions") if response and response.get("ok") else None
+        if not isinstance(values, list) or not all(isinstance(value, dict) for value in values):
+            self._permissions_current = False
+            self.status.setText(
+                "Could not refresh permissions. Displayed rows may be stale; retry."
+            )
+            self.revoke_selected.setEnabled(False)
+            self.revoke_all.setEnabled(False)
+            return
+        self._permissions_current = True
+        self.table.setRowCount(0)
+        self.table.setRowCount(len(values))
+        for row, value in enumerate(values):
+            scope = (
+                f"{value.get('display_label', '')} · {value.get('display_id', '')}"
+                if self.category == "screen"
+                else str(value.get("scope_path") or "Unavailable")
+            )
+            columns = (
+                scope,
+                self.capability,
+                self.action_label,
+                f"{value.get('account_id', '')}\n{value.get('link_id', '')}",
+                str(value.get("created_at") or ""),
+            )
+            for column, text in enumerate(columns):
+                item = QTableWidgetItem(text)
+                item.setToolTip(text)
+                if column == 0:
+                    item.setData(Qt.ItemDataRole.UserRole, value.get("permission_id"))
+                self.table.setItem(row, column, item)
+        self.revoke_all.setEnabled(bool(values))
+        self.revoke_selected.setEnabled(False)
+        self.status.setText(
+            f"{len(values)} saved permission(s). Select a row to revoke only that grant."
+        )
+
+    def revoke(self, *, all_in_category: bool) -> None:
+        if not self._permissions_current:
+            return
+        payload: dict[str, Any] = {"action": f"{self.category}_permissions.revoke_all"}
+        if not all_in_category:
+            row = self.table.currentRow()
+            item = self.table.item(row, 0) if row >= 0 else None
+            permission_id = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+            if not isinstance(permission_id, str):
+                self.status.setText(
+                    "Select a current permission; refresh if its identifier is missing."
+                )
+                return
+            payload = {
+                "action": "permissions.revoke",
+                "category": self.category,
+                "permission_id": permission_id,
+            }
+        selection = (
+            "all permissions in this category" if all_in_category else "the selected permission"
+        )
+        if (
+            QMessageBox.question(
+                self,
+                "Revoke saved access?",
+                f"Revoke {selection}? Pending local approvals will be cancelled. "
+                "Project access modes are unchanged.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
+            return
+        response = self._request(payload)
+        if not response or not response.get("ok"):
+            self.status.setText(
+                "Revocation failed. Access was not confirmed removed; refresh and retry."
+            )
+            return
+        self.refresh_permissions()
 
 
 class UpdateWorker(QThread):  # type: ignore[misc, unused-ignore]  # PySide wheel varies by runner.
@@ -694,8 +860,9 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         banner_layout.setContentsMargins(15, 12, 15, 12)
         banner_layout.addWidget(_label("Security", "SectionTitle"))
         text = _label(
-            "Isolated projects fail closed unless the Windows sandbox broker proves containment. "
-            "Native commands always follow the selected local approval policy.",
+            "Choose each project's local access level. Native shell has your Windows account's "
+            "authority; the working directory is not a sandbox. Legacy isolated projects stay "
+            "blocked until you explicitly choose a supported access level.",
             "Muted",
         )
         text.setWordWrap(True)
@@ -730,10 +897,13 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         add_button.clicked.connect(self.add_project)
         toolbar.addWidget(add_button)
         layout.addLayout(toolbar)
+        access_help = _label(PROJECT_ACCESS_HELP, "Muted")
+        access_help.setWordWrap(True)
+        layout.addWidget(access_help)
 
         self.projects_table = QTableWidget(0, 4)
         self.projects_table.setHorizontalHeaderLabels(
-            ["PROJECT", "LOCAL FOLDER", "EXECUTION POLICY", "STATUS"]
+            ["PROJECT", "LOCAL FOLDER", "ACCESS LEVEL", "STATUS"]
         )
         self.projects_table.setAlternatingRowColors(True)
         self.projects_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -827,10 +997,12 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         permissions = QFrame()
         permissions.setObjectName("Card")
         permissions_layout = _card_layout(permissions)
-        permissions_layout.addWidget(_label("Saved device read permissions", "SectionTitle"))
+        permissions_layout.addWidget(_label("Saved Always allow permissions", "SectionTitle"))
         permissions_help = _label(
             "Always allow permits reading the selected folder and descendants for the approved "
-            "account/link only. It never permits file edits or Windows commands.",
+            "account/link only. Reading, shell and screenshots are separate capabilities. "
+            "Ask for every operation ignores these grants; "
+            "Full device access does not require them.",
             "Muted",
         )
         permissions_help.setWordWrap(True)
@@ -915,7 +1087,8 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         limits_layout.addWidget(_label("MVP safety boundaries", "SectionTitle"))
         boundaries = [
             "No elevation, interactive terminal, PTY, remote GUI, or detached process.",
-            "Native approval runs with your Windows account only after a one-shot local decision.",
+            "Ask for every operation requests a new local decision; saved Always allow is ignored.",
+            "Full device access removes local prompts, not OAuth scopes or locked-desktop checks.",
             "Credentials are protected for the current Windows user; project roots remain local.",
             "A failed sandbox broker never falls back silently to native execution.",
         ]
@@ -995,8 +1168,12 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             else f"Reconnect is automatic{f' · {reason}' if reason else ''}"
         )
         self.projects_metric.value.setText(str(len(self._projects)))
-        isolated = sum(1 for project in self._projects if project.get("mode") == "isolated")
-        self.projects_metric.detail.setText(f"{isolated} isolated · paths remain local")
+        blocked = sum(1 for project in self._projects if project.get("mode") == "isolated")
+        self.projects_metric.detail.setText(
+            f"{blocked} legacy isolated (blocked)"
+            if blocked
+            else "Local access levels · paths stay local"
+        )
         pending = int(response.get("pending_approvals") or 0)
         self.approvals_metric.value.setText(str(pending))
         self.approvals_metric.detail.setText(
@@ -1176,10 +1353,18 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             self.projects_table.setItem(row, 1, path)
 
             mode = QComboBox()
+            mode.setPlaceholderText(
+                "Legacy shell trust — choose access"
+                if project.get("mode") == "native_trusted"
+                else "Legacy isolated (blocked) — choose access"
+            )
+            mode.setToolTip(PROJECT_ACCESS_HELP)
             for value, label in MODE_LABELS.items():
                 mode.addItem(label, value)
             current = mode.findData(str(project.get("mode") or "isolated"))
-            mode.setCurrentIndex(max(0, current))
+            # No implicit upgrade of legacy isolated/unknown policies. The
+            # placeholder is not a fourth selectable access mode.
+            mode.setCurrentIndex(current)
             mode.currentIndexChanged.connect(
                 lambda index, item=mode, pid=project_id: self.change_project_mode(
                     pid, str(item.itemData(index)), item
@@ -1200,6 +1385,12 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         for row, item in enumerate(values):
             state = str(item.get("state") or "")
             error = str(item.get("error_code") or "")
+            if (
+                state == "succeeded"
+                and item.get("capability") == "device_screenshot"
+                and error == "outcome_unknown"
+            ):
+                error = "image not retained"
             cells = [
                 _relative_time(item.get("updated_at")),
                 str(item.get("capability") or "—"),
@@ -1239,18 +1430,29 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             (value for value in self._projects if value.get("project_id") == project_id), None
         )
         previous = str(project.get("mode") or "isolated") if project else "isolated"
+        if mode not in MODE_LABELS or project is None:
+            combo.blockSignals(True)
+            combo.setCurrentIndex(combo.findData(previous))
+            combo.blockSignals(False)
+            return
         if mode == previous:
             return
         acknowledged = False
-        if mode in {"native_trusted", "native_project"}:
+        if mode in {"full_access", "native_project"}:
             answer = QMessageBox.warning(
                 self,
                 f"Enable {MODE_LABELS[mode]}?",
                 (
                     "Project commands run without prompts. Outside working directories and "
-                    "declared/detected external paths require approval. "
+                    "declared/detected external paths require approval. File reads, edits and "
+                    "deletes inside this project do not prompt. Path detection is conservative, "
+                    "not a guarantee of containment. "
                     if mode == "native_project"
-                    else "All native commands run without prompts. "
+                    else "Allow an authorized client using this project to read, edit and delete "
+                    "any accessible files, execute Windows commands (including Docker, SSH and "
+                    "network access), capture screens including private windows, and open browsers "
+                    "WITHOUT LOCAL PROMPTS. OAuth scopes and locked-desktop protections "
+                    "still apply. "
                 )
                 + "Commands have your full Windows user filesystem and network authority. "
                 "This is NOT a sandbox: scripts can construct other paths and child processes "
@@ -1281,7 +1483,8 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         if project is not None:
             project["mode"] = mode
         self._rendered_project_signature = None
-        self.statusBar().showMessage(f"Execution policy changed to {MODE_LABELS[mode]}", 3000)
+        combo.setPlaceholderText("Choose access level")
+        self.statusBar().showMessage(f"Access level changed to {MODE_LABELS[mode]}", 3000)
 
     def _selected_project(self) -> dict[str, Any] | None:
         selected = self.projects_table.selectedItems()
@@ -1997,70 +2200,21 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         )
 
     def review_screen_permissions(self) -> None:
-        response = self._request({"action": "screen_permissions.list"})
-        if not response:
-            return
-        permissions = response.get("permissions", [])
-        dialog = QMessageBox(self)
-        dialog.setTextFormat(Qt.TextFormat.PlainText)
-        dialog.setWindowTitle("Codito saved screenshot permissions")
-        dialog.setText(f"{len(permissions)} saved monitor permission(s)")
-        dialog.setInformativeText(
-            "Each permission allows this connection to capture private visible content on "
-            "one approved monitor without another prompt. Revoke to require approval again."
-        )
-        dialog.setDetailedText(json.dumps(permissions, indent=2, ensure_ascii=False))
-        dialog.addButton("Close", QMessageBox.ButtonRole.RejectRole)
-        revoke = dialog.addButton(
-            "Revoke all screenshot permissions", QMessageBox.ButtonRole.DestructiveRole
-        )
-        dialog.exec()
-        if dialog.clickedButton() is revoke:
-            self._request({"action": "screen_permissions.revoke_all"})
+        self._review_permissions("screen")
 
     def review_read_permissions(self) -> None:
-        response = self._request({"action": "read_permissions.list"})
-        if not response:
-            return
-        permissions = response.get("permissions", [])
-        dialog = QMessageBox(self)
-        dialog.setTextFormat(Qt.TextFormat.PlainText)
-        dialog.setWindowTitle("Codito saved read permissions")
-        dialog.setText(f"{len(permissions)} saved read permission(s)")
-        dialog.setInformativeText(
-            "\n".join(str(item.get("scope_path", "")) for item in permissions)
-            or "No persistent read permissions."
-        )
-        dialog.setDetailedText(json.dumps(permissions, indent=2, ensure_ascii=False))
-        dialog.addButton("Close", QMessageBox.ButtonRole.RejectRole)
-        revoke = dialog.addButton(
-            "Revoke all read permissions", QMessageBox.ButtonRole.DestructiveRole
-        )
-        dialog.exec()
-        if dialog.clickedButton() is revoke:
-            self._request({"action": "read_permissions.revoke_all"})
+        self._review_permissions("read")
 
     def review_shell_permissions(self) -> None:
-        response = self._request({"action": "shell_permissions.list"})
-        if not response:
+        self._review_permissions("shell")
+
+    def _review_permissions(self, category: PermissionCategory) -> None:
+        if self._quitting:
             return
-        permissions = response.get("permissions", [])
-        dialog = QMessageBox(self)
-        dialog.setTextFormat(Qt.TextFormat.PlainText)
-        dialog.setWindowTitle("Codito saved shell permissions")
-        dialog.setText(f"{len(permissions)} saved native shell permission(s)")
-        dialog.setInformativeText(
-            "These grants allow full-user native commands for their request scope, not just "
-            "reading. They do not provide filesystem confinement."
-        )
-        dialog.setDetailedText(json.dumps(permissions, indent=2, ensure_ascii=False))
-        dialog.addButton("Close", QMessageBox.ButtonRole.RejectRole)
-        revoke = dialog.addButton(
-            "Revoke all shell permissions", QMessageBox.ButtonRole.DestructiveRole
-        )
+        dialog = PermissionReviewDialog(category, self._request, self)
         dialog.exec()
-        if dialog.clickedButton() is revoke:
-            self._request({"action": "shell_permissions.revoke_all"})
+        dialog.deleteLater()
+        self.refresh()
 
     def poll_project_request(self) -> None:
         if self._quitting or self._approval_dialog_active:

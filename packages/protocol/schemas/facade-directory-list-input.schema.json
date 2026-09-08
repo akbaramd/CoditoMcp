@@ -1,0 +1,73 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-directory-list-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cursor": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cursor"
+    },
+    "glob": {
+      "default": "*",
+      "title": "Glob",
+      "type": "string"
+    },
+    "limit": {
+      "default": 100,
+      "maximum": 500,
+      "minimum": 1,
+      "title": "Limit",
+      "type": "integer"
+    },
+    "path": {
+      "default": "",
+      "title": "Path",
+      "type": "string"
+    },
+    "project_id": {
+      "description": "Origin project ID from projects_list.",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "description": "Reason shown in local approval/history.",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "recursive": {
+      "default": false,
+      "title": "Recursive",
+      "type": "boolean"
+    },
+    "scope_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional requested absolute Windows directory outside the project, e.g. C:/Temp. Local project policy and Windows approval still apply; not a trust assertion.",
+      "title": "Scope Path"
+    }
+  },
+  "required": [
+    "project_id",
+    "purpose"
+  ],
+  "title": "DirectoryListInput",
+  "type": "object"
+}

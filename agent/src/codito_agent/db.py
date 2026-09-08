@@ -51,7 +51,9 @@ class AgentDatabase:
                     root TEXT NOT NULL UNIQUE,
                     root_fingerprint TEXT NOT NULL,
                     mode TEXT NOT NULL CHECK(
-                        mode IN ('isolated','native_approval','native_trusted')
+                        mode IN (
+                            'isolated','native_approval','native_trusted','native_project','full_access'
+                        )
                     ),
                     enabled INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL,
@@ -149,18 +151,22 @@ class AgentDatabase:
                     "SELECT sql FROM sqlite_master WHERE name='projects'"
                 ).fetchone()[0]
             )
-            if "native_project" not in schema:
+            missing_modes = [
+                mode for mode in ("native_project", "full_access") if f"'{mode}'" not in schema
+            ]
+            if missing_modes:
                 connection.execute("PRAGMA foreign_keys=OFF")
                 try:
                     connection.execute("BEGIN IMMEDIATE")
                     connection.execute(
-                        schema.replace("projects", "projects_v2", 1).replace(
-                            "'native_trusted'", "'native_trusted','native_project'"
+                        schema.replace("projects", "projects_v3", 1).replace(
+                            "'native_trusted'",
+                            "'native_trusted'," + ",".join(f"'{mode}'" for mode in missing_modes),
                         )
                     )
-                    connection.execute("INSERT INTO projects_v2 SELECT * FROM projects")
+                    connection.execute("INSERT INTO projects_v3 SELECT * FROM projects")
                     connection.execute("DROP TABLE projects")
-                    connection.execute("ALTER TABLE projects_v2 RENAME TO projects")
+                    connection.execute("ALTER TABLE projects_v3 RENAME TO projects")
                     if connection.execute("PRAGMA foreign_key_check").fetchone():
                         raise AgentError("migration_failed", "Project references failed validation")
                     connection.execute("COMMIT")
@@ -344,7 +350,8 @@ class AgentDatabase:
     def list_read_permissions(self) -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT scope_path,account_id,link_id,created_at FROM read_permissions "
+                "SELECT permission_key AS permission_id,scope_path,account_id,link_id,created_at "
+                "FROM read_permissions "
                 "ORDER BY created_at DESC"
             ).fetchall()
         return [dict(row) for row in rows]
@@ -378,7 +385,9 @@ class AgentDatabase:
             return [
                 dict(row)
                 for row in connection.execute(
-                    "SELECT scope_path,account_id,link_id,created_at FROM shell_permissions "
+                    "SELECT permission_key AS permission_id,scope_path,account_id,"
+                    "link_id,created_at "
+                    "FROM shell_permissions "
                     "ORDER BY created_at DESC"
                 )
             ]
@@ -412,7 +421,8 @@ class AgentDatabase:
             return [
                 dict(row)
                 for row in connection.execute(
-                    "SELECT display_id,display_label,account_id,link_id,created_at "
+                    "SELECT permission_key AS permission_id,display_id,display_label,"
+                    "account_id,link_id,created_at "
                     "FROM screen_permissions ORDER BY created_at DESC"
                 )
             ]
@@ -420,6 +430,19 @@ class AgentDatabase:
     def revoke_screen_permissions(self) -> int:
         with self._connect() as connection:
             return connection.execute("DELETE FROM screen_permissions").rowcount
+
+    def revoke_permission(self, category: str, permission_id: str) -> bool:
+        """Remove one local grant; category never becomes an SQL identifier."""
+        statements = {
+            "read": "DELETE FROM read_permissions WHERE permission_key=?",
+            "shell": "DELETE FROM shell_permissions WHERE permission_key=?",
+            "screen": "DELETE FROM screen_permissions WHERE permission_key=?",
+        }
+        statement = statements.get(category)
+        if statement is None:
+            raise AgentError("invalid_permission", "Unknown saved permission category")
+        with self._connect() as connection:
+            return connection.execute(statement, (permission_id,)).rowcount == 1
 
     def set_setting(self, key: str, value: str) -> None:
         if not key or len(key) > 100 or len(value) > 4096:

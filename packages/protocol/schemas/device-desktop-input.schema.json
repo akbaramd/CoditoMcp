@@ -18,6 +18,19 @@
       "title": "Browser",
       "type": "string"
     },
+    "project_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional origin project binding.",
+      "title": "Project Id"
+    },
     "purpose": {
       "maxLength": 1000,
       "minLength": 1,

@@ -7,11 +7,22 @@ from typing import Literal
 
 from pydantic import Field, TypeAdapter, field_validator, model_validator
 
+from .device_read import normalize_read_scope
 from .types import MAX_PATCH_BYTES, CoditoModel, OpaqueId, RelativePath, Sha256
 
 
 class ProjectApplyPatchInput(CoditoModel):
     project_id: OpaqueId = Field(description="Opaque ID from list_projects; never a local path.")
+    scope_path: str | None = Field(
+        default=None, description="Requested external Windows directory; never proof of approval."
+    )
+    purpose: str | None = Field(default=None, min_length=1, max_length=1000)
+
+    @field_validator("scope_path")
+    @classmethod
+    def normalized_scope(cls, value: str | None) -> str | None:
+        return normalize_read_scope(value) if value is not None else None
+
     patch: str = Field(
         min_length=35,
         description="Exact UTF-8 document using the Codito anchored Begin Patch v1 grammar.",
@@ -46,6 +57,12 @@ class ProjectApplyPatchInput(CoditoModel):
         if "\x00" in value:
             raise ValueError("patch contains NUL")
         return value
+
+    @model_validator(mode="after")
+    def external_scope_requires_purpose(self) -> ProjectApplyPatchInput:
+        if self.scope_path is not None and self.purpose is None:
+            raise ValueError("External patches require a purpose for local approval")
+        return self
 
     @model_validator(mode="after")
     def validate_complete_preconditions(self) -> ProjectApplyPatchInput:

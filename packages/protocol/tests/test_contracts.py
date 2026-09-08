@@ -28,7 +28,7 @@ IDEMPOTENCY_KEY = "idemkey_01J123456789ABCDEF"
 HASH = "0" * 64
 
 
-def test_exactly_seven_tools_are_public() -> None:
+def test_seven_legacy_wire_contracts_remain_available() -> None:
     assert set(TOOL_CONTRACTS) == {
         "project_read",
         "project_apply_patch",

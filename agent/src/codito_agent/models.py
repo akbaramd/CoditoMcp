@@ -10,6 +10,7 @@ class ProjectMode(StrEnum):
     NATIVE_APPROVAL = "native_approval"
     NATIVE_TRUSTED = "native_trusted"
     NATIVE_PROJECT = "native_project"
+    FULL_ACCESS = "full_access"
 
 
 @dataclass(frozen=True, slots=True)

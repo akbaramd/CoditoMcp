@@ -6,9 +6,19 @@ from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 from codito_protocol import TOOL_CONTRACTS
+from codito_protocol.facade import FACADE_MODELS, facade_wire_request
+from codito_protocol.facade_contracts import FACADE_CONTRACTS, FacadeToolResult
 from django.conf import settings
 from mcp.server.mcpserver import Context, MCPServer
-from mcp_types import CallToolResult, ImageContent, TextContent, ToolAnnotations
+from mcp_types import (
+    CallToolResult,
+    ImageContent,
+    InputRequiredResult,
+    TextContent,
+    Tool,
+    ToolAnnotations,
+)
+from pydantic import ValidationError
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 
@@ -16,11 +26,47 @@ from .authz import AuthorizationFailure, MCPPrincipal, authenticate_mcp
 from .diagnostics import emit
 from .dispatch import ToolDispatchError, dispatch_tool, error_tool_result, success_tool_result
 
-mcp = MCPServer(
+
+class CoditoMCPServer(MCPServer[Any]):
+    """Public SDK extension points keep cached aliases callable, but not listed."""
+
+    async def list_tools(self) -> list[Tool]:
+        return [
+            Tool(
+                name=name,
+                title=contract["title"],
+                description=contract["description"],
+                input_schema=FACADE_MODELS[name].model_json_schema(),
+                output_schema=FacadeToolResult.model_json_schema(),
+                annotations=ToolAnnotations(**contract["annotations"]),
+                meta={
+                    "securitySchemes": contract["securitySchemes"],
+                    "openai/toolInvocation/invoking": contract["invoking"],
+                    "openai/toolInvocation/invoked": contract["invoked"],
+                },
+            )
+            for name, contract in FACADE_CONTRACTS.items()
+        ]
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        context: Context[Any, Any] | None = None,
+    ) -> CallToolResult | InputRequiredResult:
+        if name in FACADE_MODELS:
+            return await _run(context or Context(mcp_server=self), name, arguments)
+        return await super().call_tool(name, arguments, context)
+
+
+mcp = CoditoMCPServer(
     "Codito",
     instructions=(
-        "Operate only on opaque projects registered to this device. Local approval and trust "
-        "are enforced by the Windows agent and cannot be asserted in tool inputs."
+        "Use focused tools with opaque project IDs from projects_list. Each content/action call "
+        "is authorized under that project's locally configured policy, not an ambient active "
+        "project session. Request explicit scope_path/cwd for user-requested outside access. "
+        "Windows enforces approval/trust; inputs cannot assert consent. Continue nonterminal "
+        "commands with shell_status using the same job_id, without resubmitting the command."
     ),
 )
 
@@ -46,8 +92,30 @@ async def _run(context: Context, name: str, arguments: dict[str, Any]) -> CallTo
     meta: dict[str, Any] | None = None
     try:
         principal = _principal(context)
-        receipt = await dispatch_tool(principal, name, arguments)
+        wire_name = name
+        if name in FACADE_MODELS:
+            try:
+                wire_name, arguments = facade_wire_request(name, arguments)
+            except ValidationError as exc:
+                raise ToolDispatchError(
+                    "invalid_request",
+                    "Tool input failed its focused contract; inspect the tool schema",
+                    details={
+                        "fields": sorted(
+                            {str(error["loc"][0]) for error in exc.errors() if error["loc"]}
+                        )
+                    },
+                ) from exc
+        receipt = await dispatch_tool(principal, wire_name, arguments)
         result = success_tool_result(receipt)
+        if name in FACADE_MODELS and "ok" not in result["structuredContent"]:
+            # The legacy local project-list result predates the common envelope.
+            result["structuredContent"] = {
+                "operation_id": receipt.operation_id,
+                "ok": True,
+                "text": result["content"][0]["text"],
+                "result": receipt.result,
+            }
     except ToolDispatchError as exc:
         result = error_tool_result(exc)
         if exc.code == "insufficient_scope" and principal is not None:
@@ -317,6 +385,7 @@ def _register_tool(name: str, function: Any) -> None:
     annotations = ToolAnnotations(**contract["annotations"])
     kwargs: dict[str, Any] = {
         "name": name,
+        "title": contract["title"],
         "description": contract["description"],
         "annotations": annotations,
     }

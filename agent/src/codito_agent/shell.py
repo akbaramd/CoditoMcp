@@ -7,11 +7,12 @@ import os
 import secrets
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
+from .access_policy import project_access_policy
 from .approvals import ApprovalManager, ApprovalRequest, ApprovalRisk, action_digest
 from .broker_client import BrokerClient
 from .db import AgentDatabase
@@ -22,7 +23,12 @@ from .models import OperationState, Project, ProjectMode
 from .operation_gate import ProjectOperationGate
 from .paths import ProjectPathResolver
 from .read_tools import ToolResponse
-from .shell_policy import outside_references, permission_scope
+from .shell_policy import (
+    executable_identity,
+    outside_references,
+    permission_scope,
+    uncertain_constructs,
+)
 
 
 class ProcessLike(Protocol):
@@ -300,6 +306,8 @@ class ShellManager:
         project = self.database.get_project(project_id)
         if not project.enabled:
             raise AgentError("project_disabled", "The requested project is disabled")
+        # Remote execution selectors cannot activate a legacy disabled sandbox.
+        project_access_policy(project, inside_project=True)
         execution = request.get("execution", "project_policy")
         if execution not in {"project_policy", "native_approval"}:
             raise AgentError("invalid_request", "Unknown execution policy request")
@@ -335,11 +343,13 @@ class ShellManager:
             command,
             request.get("requested_external_paths", []),
         )
-        needs_approval = (
-            mode is ProjectMode.NATIVE_APPROVAL
-            or external_cwd is not None
-            or (mode is ProjectMode.NATIVE_PROJECT and bool(references))
+        uncertainty = uncertain_constructs(command)
+        policy = project_access_policy(
+            replace(project, mode=mode),
+            inside_project=external_cwd is None and not references,
+            uncertain=bool(uncertainty),
         )
+        needs_approval = policy.requires_approval
         specification = self._build_specification(
             project,
             working_path,
@@ -360,6 +370,19 @@ class ShellManager:
             )
         # This is internal broker authority, never accepted from an MCP input.
         specification["external_working_directory_authorized"] = False
+        executor = executable_identity(specification)
+        approved_execution = {
+            "project_id": project.project_id,
+            "mode": mode.value,
+            "command": specification["command"],
+            "executor_identity": executor,
+            "working_directory": specification["working_directory"],
+            "environment": specification["environment"],
+            "timeout_seconds": timeout,
+            "output_limit_bytes": output_limit,
+            "external_references": references,
+            "uncertainty_reasons": uncertainty,
+        }
         approval_generation = self.approvals.generation
         approval = ApprovalManager.build_request(
             account_id=self.account_id,
@@ -369,7 +392,8 @@ class ShellManager:
             project_id=project_id,
             project_title=project.title,
             capability="shell:execute",
-            action_digest=action_digest(request),
+            # Stable exact execution identity: purpose/idempotency key are not authority.
+            action_digest=action_digest(approved_execution),
             connection_epoch=connection_epoch,
             deadline_at=datetime.now(UTC) + timedelta(seconds=approval_timeout)
             if needs_approval
@@ -381,8 +405,9 @@ class ShellManager:
                 else purpose
                 + "\nNative execution has the logged-in user's full filesystem and network "
                 "authority; the working directory is not a security boundary."
+                + ("\nReview reason: " + "; ".join(uncertainty) if uncertainty else "")
             ),
-            command=command,
+            command={**command, "resolved_executor_identity": executor},
             working_directory=str(working_path),
             environment_differences=specification["environment"],
             requested_network=mode is not ProjectMode.ISOLATED,
@@ -447,10 +472,12 @@ class ShellManager:
                         approval=approval,
                         generation=approval_generation,
                         needs_approval=needs_approval,
-                        persistent=mode is not ProjectMode.ISOLATED
+                        persistent=policy.allow_saved_permissions
                         and self.approvals.supports_saved_permissions,
-                        reuse_permission=execution != "native_approval",
+                        reuse_permission=policy.allow_saved_permissions,
                         external_cwd=external_cwd is not None,
+                        original_mode=project.mode,
+                        executor=executor,
                     ),
                     name=f"codito-shell-{job.job_id}",
                 )
@@ -544,6 +571,8 @@ class ShellManager:
         persistent: bool,
         reuse_permission: bool,
         external_cwd: bool,
+        original_mode: ProjectMode,
+        executor: dict[str, Any],
     ) -> None:
         pinned: WindowsReadScope | None = None
         try:
@@ -572,6 +601,16 @@ class ShellManager:
                 await self._notify(job)
             self.approvals.ensure_current(generation, approval.deadline_at)
             self._require_enabled(job.project_id)
+            current_project = self.database.get_project(job.project_id)
+            if current_project.mode is not original_mode:
+                raise AgentError(
+                    "approval_expired", "Project access mode changed before command start"
+                )
+            if needs_approval and executable_identity(specification) != executor:
+                raise AgentError(
+                    "approval_expired",
+                    "Resolved executable changed; request fresh command approval",
+                )
             specification["external_working_directory_authorized"] = external_cwd
             event("shell_starting", job.job_id)
             process = await self._process_starter(specification, isolated)

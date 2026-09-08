@@ -11,8 +11,10 @@ from codito_protocol import (
     RequestAddProjectInput,
 )
 
+from .access_policy import authorize_project_operation, project_access_policy
 from .approvals import ApprovalManager, ApprovalRisk, action_digest
 from .db import AgentDatabase
+from .errors import AgentError
 from .read_tools import ToolResponse
 
 
@@ -41,6 +43,8 @@ class ProjectManagementService:
         connection_epoch: int,
         deadline_at: datetime,
     ) -> ToolResponse:
+        generation = self.approvals.generation
+        self.approvals.ensure_current(generation, deadline_at)
         if isinstance(request, GetProjectsInput):
             projects = self.database.list_projects()
             result = {
@@ -96,7 +100,14 @@ class ProjectManagementService:
             risk=risk,
             summary=f"Allow ChatGPT to {verb} the registered project metadata?",
         )
-        await self.approvals.request(approval, session_eligible=False)
+        await authorize_project_operation(project, self.approvals, approval, inside_project=True)
+        self.approvals.ensure_current(generation, deadline_at)
+        current_project = self.database.get_project(project.project_id)
+        project_access_policy(current_project, inside_project=True)
+        if current_project.mode is not project.mode:
+            raise AgentError(
+                "approval_expired", "Project access mode changed before metadata mutation"
+            )
         if isinstance(request, RenameProjectInput):
             self.database.set_project_title(project.project_id, request.title)
             title = request.title.strip()

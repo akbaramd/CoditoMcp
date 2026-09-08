@@ -1,0 +1,72 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-file-patch-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "base_hashes": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "maxProperties": 256,
+      "minProperties": 1,
+      "title": "Base Hashes",
+      "type": "object"
+    },
+    "dry_run": {
+      "default": false,
+      "title": "Dry Run",
+      "type": "boolean"
+    },
+    "idempotency_key": {
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "patch": {
+      "description": "Exact anchored *** Begin Patch document.",
+      "minLength": 35,
+      "title": "Patch",
+      "type": "string"
+    },
+    "project_id": {
+      "description": "Origin project ID from projects_list.",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "description": "Reason shown in local approval/history.",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "scope_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional requested absolute Windows directory outside the project, e.g. C:/Temp. Local project policy and Windows approval still apply; not a trust assertion.",
+      "title": "Scope Path"
+    }
+  },
+  "required": [
+    "project_id",
+    "purpose",
+    "patch",
+    "base_hashes",
+    "idempotency_key"
+  ],
+  "title": "FilePatchInput",
+  "type": "object"
+}

@@ -1,0 +1,86 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-execute-shell-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "approval_timeout_seconds": {
+      "default": 180,
+      "maximum": 300,
+      "minimum": 15,
+      "title": "Approval Timeout Seconds",
+      "type": "integer"
+    },
+    "command": {
+      "description": "Exact noninteractive command/script to run.",
+      "minLength": 1,
+      "title": "Command",
+      "type": "string"
+    },
+    "cwd": {
+      "default": "",
+      "description": "Project-relative cwd (empty=root), or absolute requested Windows directory.",
+      "title": "Cwd",
+      "type": "string"
+    },
+    "executor": {
+      "default": "powershell",
+      "enum": [
+        "powershell",
+        "cmd"
+      ],
+      "title": "Executor",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "output_limit_bytes": {
+      "default": 2097152,
+      "maximum": 10485760,
+      "minimum": 1024,
+      "title": "Output Limit Bytes",
+      "type": "integer"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "requested_external_paths": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Requested External Paths",
+      "type": "array"
+    },
+    "start_wait_milliseconds": {
+      "default": 30000,
+      "maximum": 30000,
+      "minimum": 0,
+      "title": "Start Wait Milliseconds",
+      "type": "integer"
+    },
+    "timeout_seconds": {
+      "default": 300,
+      "maximum": 1800,
+      "minimum": 1,
+      "title": "Timeout Seconds",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "project_id",
+    "command",
+    "purpose",
+    "idempotency_key"
+  ],
+  "title": "ExecuteShellInput",
+  "type": "object"
+}

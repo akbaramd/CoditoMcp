@@ -2,6 +2,12 @@
 
 These are explicit scope boundaries, not hidden defects.
 
+Current tool/access definitions are in [ADR 0018](adr/0018-focused-tools-and-local-access.md).
+The selectable Full device access mode uses a new `full_access` value; persisted
+legacy trust is never upgraded automatically. Project access is cooperative native
+approval routing, not OS confinement. Device-wide OAuth authorizes project selection
+per call; there is no hidden conversation-wide single-project binding.
+
 - Windows 11 x64 is the only supported desktop. Protocol/core remain portable for a
   later macOS agent, but no macOS security claim exists.
 - Private device-specific MCP links in ChatGPT developer mode are supported; public
@@ -13,8 +19,9 @@ These are explicit scope boundaries, not hidden defects.
 - Only fixed local NTFS/ReFS project roots are accepted. UNC, removable media,
   drive roots, cloud placeholders, reparse roots, hardlink mutation, ADS, and device
   namespaces are rejected.
-- `native_trusted` deliberately grants the command the logged-in user's full
-  filesystem/network authority. Working directory is not containment.
+- `full_access` deliberately grants the logged-in user's native file/shell/desktop
+  authority without local prompts. Working directory is not containment. Legacy
+  `native_trusted` requires explicit reselection for this new broader policy.
 - No elevation, Windows service, interactive terminal, PTY/stdin, detached process,
   remote GUI, or offline mutation queue exists.
 - A sleeping, powered-off, or disconnected device cannot stay online. Codito offers

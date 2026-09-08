@@ -202,5 +202,5 @@ def test_schema_errors_and_export() -> None:
     with pytest.raises(KeyError, match="unknown Codito schema"):
         schema_for("not-real")
     written = export_schemas(Path(__file__).resolve().parents[1] / "schemas")
-    assert len(written) == 16
+    assert len(written) == 32
     assert all(path.read_text(encoding="utf-8").endswith("\n") for path in written)

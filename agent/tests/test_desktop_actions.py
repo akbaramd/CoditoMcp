@@ -5,8 +5,61 @@ import pytest
 from codito_protocol.desktop_action import DeviceDesktopInput
 
 from codito_agent.approvals import ApprovalDecision, ApprovalManager
+from codito_agent.db import AgentDatabase
 from codito_agent.desktop_actions import DesktopActionQueue, DeviceDesktopService
 from codito_agent.errors import AgentError
+from codito_agent.models import ProjectMode
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode,allowed",
+    [
+        (ProjectMode.FULL_ACCESS, True),
+        (ProjectMode.NATIVE_PROJECT, False),
+        (ProjectMode.NATIVE_APPROVAL, False),
+        (ProjectMode.NATIVE_TRUSTED, False),
+    ],
+)
+async def test_browser_full_access_is_explicit_not_legacy_trust(
+    tmp_path, project_root, mode, allowed
+):
+    database = AgentDatabase(tmp_path / "browser-policy.sqlite")
+    project = database.register_project("Browser", project_root, mode)
+    prompts = []
+
+    async def prompt(request):
+        prompts.append(request)
+        return ApprovalDecision.DENY
+
+    queue = DesktopActionQueue()
+    service = DeviceDesktopService(
+        ApprovalManager(prompt, database),
+        queue,
+        account_id="account",
+        device_id="device",
+        database=database,
+    )
+    task = asyncio.create_task(
+        service.execute(
+            DeviceDesktopInput(
+                url="https://example.com/", purpose="Synthetic", project_id=project.project_id
+            ),
+            grant_id="grant",
+            link_id="link",
+            connection_epoch=1,
+            deadline_at=datetime.now(UTC) + timedelta(seconds=3),
+        )
+    )
+    if allowed:
+        pending = await pending_request(queue)
+        queue.respond(pending["desktop_action_id"], {"ok": True})
+        assert (await task).structured["status"] == "submitted"
+        assert not prompts
+    else:
+        with pytest.raises(AgentError, match="denied"):
+            await task
+        assert len(prompts) == 1 and queue.next_request() is None
 
 
 async def pending_request(queue):

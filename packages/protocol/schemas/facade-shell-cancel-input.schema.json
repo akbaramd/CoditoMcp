@@ -1,0 +1,28 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-shell-cancel-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "job_id": {
+      "title": "Job Id",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "reason": {
+      "default": "cancelled by caller",
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "job_id"
+  ],
+  "title": "ShellCancelInput",
+  "type": "object"
+}

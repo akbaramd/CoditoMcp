@@ -34,7 +34,7 @@ def test_reject_invalid_read_scopes(scope):
         {"approved": True},
         {"trusted": True},
         {"allow_always": True},
-        {"project_id": "project_abcdefghijkl"},
+        {"project_id": "C:/not-an-opaque-project"},
     ],
 )
 def test_model_cannot_supply_read_authority(extra):

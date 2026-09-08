@@ -1,0 +1,78 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-file-read-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "continuation": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Continuation"
+    },
+    "max_bytes": {
+      "default": 65536,
+      "maximum": 262144,
+      "minimum": 256,
+      "title": "Max Bytes",
+      "type": "integer"
+    },
+    "max_lines": {
+      "default": 200,
+      "maximum": 2000,
+      "minimum": 1,
+      "title": "Max Lines",
+      "type": "integer"
+    },
+    "path": {
+      "description": "File path relative to project root or scope_path.",
+      "title": "Path",
+      "type": "string"
+    },
+    "project_id": {
+      "description": "Origin project ID from projects_list.",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "description": "Reason shown in local approval/history.",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "scope_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional requested absolute Windows directory outside the project, e.g. C:/Temp. Local project policy and Windows approval still apply; not a trust assertion.",
+      "title": "Scope Path"
+    },
+    "start_line": {
+      "default": 1,
+      "maximum": 1000000,
+      "minimum": 1,
+      "title": "Start Line",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "project_id",
+    "purpose",
+    "path"
+  ],
+  "title": "FileReadInput",
+  "type": "object"
+}

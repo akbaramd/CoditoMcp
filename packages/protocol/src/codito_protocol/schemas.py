@@ -12,6 +12,8 @@ from .desktop_action import DeviceDesktopInput, DeviceDesktopResult
 from .device_read import DeviceReadInput, DeviceReadResult
 from .envelope import TunnelEnvelope
 from .errors import ToolError
+from .facade import FACADE_MODELS
+from .facade_contracts import FacadeToolResult
 from .manage import ProjectManageInput, ProjectManageResult
 from .patch import ProjectApplyPatchInput, ProjectApplyPatchResult
 from .read import ProjectReadInput, ProjectReadResult
@@ -19,6 +21,11 @@ from .screenshot import DeviceScreenshotInput, ScreenshotToolResult
 from .shell import ProjectShellInput, ProjectShellResult
 
 _ADAPTERS: dict[str, TypeAdapter[Any]] = {
+    **{
+        f"facade-{name.replace('_', '-')}-input": TypeAdapter(model)
+        for name, model in FACADE_MODELS.items()
+    },
+    "facade-tool-result": TypeAdapter(FacadeToolResult),
     "device-desktop-input": TypeAdapter(DeviceDesktopInput),
     "device-desktop-result": TypeAdapter(DeviceDesktopResult),
     "device-screenshot-input": TypeAdapter(DeviceScreenshotInput),

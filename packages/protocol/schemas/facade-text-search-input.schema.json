@@ -1,0 +1,92 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-text-search-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "case_sensitive": {
+      "default": false,
+      "title": "Case Sensitive",
+      "type": "boolean"
+    },
+    "continuation": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Continuation"
+    },
+    "glob": {
+      "default": "**/*",
+      "title": "Glob",
+      "type": "string"
+    },
+    "max_bytes_per_match": {
+      "default": 2048,
+      "maximum": 16384,
+      "minimum": 128,
+      "title": "Max Bytes Per Match",
+      "type": "integer"
+    },
+    "max_results": {
+      "default": 100,
+      "maximum": 500,
+      "minimum": 1,
+      "title": "Max Results",
+      "type": "integer"
+    },
+    "path": {
+      "default": "",
+      "title": "Path",
+      "type": "string"
+    },
+    "project_id": {
+      "description": "Origin project ID from projects_list.",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "description": "Reason shown in local approval/history.",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "query": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Query",
+      "type": "string"
+    },
+    "regex": {
+      "default": false,
+      "title": "Regex",
+      "type": "boolean"
+    },
+    "scope_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional requested absolute Windows directory outside the project, e.g. C:/Temp. Local project policy and Windows approval still apply; not a trust assertion.",
+      "title": "Scope Path"
+    }
+  },
+  "required": [
+    "project_id",
+    "purpose",
+    "query"
+  ],
+  "title": "TextSearchInput",
+  "type": "object"
+}

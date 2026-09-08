@@ -2,7 +2,7 @@
 
 ## Native Windows work and screenshots
 
-Choose **Project access (native)** locally to use installed tools (`uv`, `.NET`, Git,
+Choose **Project access** locally to use installed tools (`uv`, `.NET`, Git,
 SSH, Docker) for prompt-free project work. Outside cwd / declared external paths
 require Windows Deny/Allow/Always allow. This is cooperative native approval routing,
 not an OS sandbox; arbitrary native commands still have the Windows user's authority.
@@ -10,7 +10,7 @@ Shell starts return a stable job ID and use a bounded event-driven wait for appr
 changes. If the start result is still non-terminal, long-poll/cancel that same job; never
 resubmit the intended command merely to continue an approval flow.
 
-`device_screenshot` lists monitors and sends a selected-display PNG to ChatGPT.
+`screen_list` lists monitors; `screenshot_capture` sends a selected-display PNG to ChatGPT.
 Re-authorize `screen:read` when adding it to an existing connection. Windows offers
 Deny / Allow / Always allow for eligible display configurations; saved screen access
 is separate from file/shell permissions and is revocable in Settings.
@@ -18,13 +18,14 @@ is separate from file/shell permissions and is revocable in Settings.
 Example tool sequence (replace `screen_<id>` with an ID returned by the first call):
 
 ```text
-device_screenshot(action="list_displays", purpose="Choose the monitor to inspect")
-device_desktop(action="open_browser", browser="firefox", url="https://example.com/",
-               purpose="Open the requested page in Firefox")
-device_screenshot(action="capture", display="screen_<id>", purpose="Inspect that monitor")
+screen_list(purpose="Choose the monitor to inspect")
+browser_open(project_id="<project-id>", browser="firefox", url="https://example.com/",
+             purpose="Open the requested page in Firefox")
+screenshot_capture(project_id="<project-id>", display="screen_<id>", purpose="Inspect monitor")
 ```
 
-Browser opening requires `shell:execute` and separate one-shot Windows approval.
+Browser opening requires `shell:execute` and separate one-shot Windows approval,
+unless **Full device access** was explicitly selected for the calling project.
 It submits the URL to Firefox or the default browser; it cannot confirm page load.
 There is no mouse/keyboard control, elevation or secure-desktop capture. Notifications
 do not automatically bring Codito to the foreground. See the
@@ -52,10 +53,22 @@ deploy/             Immutable container and Compose deployment assets
 docs/               Decisions, research, threat model, and runbooks
 ```
 
-The remote surface contains seven bounded MCP tools: `project_read`,
-`project_apply_patch`, `project_shell`, locally governed `project_manage`, and
-Windows-approved `device_read`, `device_screenshot` and `device_desktop`. See
-the [tool contract](docs/protocol/tools.md).
+The public catalog contains 15 focused tools: project list/add/rename/remove,
+directory listing, `file_read`, `text_search`, `file_patch`, `file_delete`,
+`execute_shell`, `shell_status`, `shell_cancel`, `screen_list`,
+`screenshot_capture` and `browser_open`. Old names remain hidden compatibility
+aliases. See the [tool contract](docs/protocol/tools.md).
+
+`execute_shell` takes the full `command` string, `executor` (`powershell` or `cmd`),
+`timeout_seconds`, project ID, cwd, purpose and idempotency key. It does not need an
+action enum. File tools accept an optional requested `scope_path` for approved
+external work; patch/delete retain exact hashes and recovery journaling.
+
+Project settings offer **Ask every time**, **Project access**, and explicit
+**Full device access**. Existing legacy trust is not silently upgraded. Saved
+permissions can be inspected/refreshed and revoked individually in Settings.
+Full access still requires valid OAuth scopes and never permits locked-desktop
+capture or elevation. See [local policy](docs/security/approval-policy.md).
 
 ## Install on Windows 11 x64
 
@@ -100,24 +113,23 @@ the server and must never enter Git.
 - Project roots are selected locally and absolute paths stay on the device.
 - Isolated shell execution must fail closed if the Windows broker cannot prove its
   AppContainer and Job Object controls.
-- `native_trusted` intentionally gives commands the full authority of the logged-in
-  Windows user and must be enabled locally with a prominent warning.
+- `full_access` explicitly permits native file/shell/desktop authority without
+  local prompts. Legacy `native_trusted` is not silently upgraded to this new mode.
 
 Report vulnerabilities according to [`SECURITY.md`](SECURITY.md).
 # Approved access to Windows outside projects
 
-Use `device_read` to request a drive/directory read without registering it as a
-project. For example: `operation=list_directory`, `scope_path=C:/`, `path=""`,
+Use `directory_list` to request a drive/directory read without registering it as a
+project. Supply the origin `project_id`, `scope_path=C:/`, `path=""`,
 `purpose="Inspect the requested drive"`. Windows asks **Deny**, **Allow once**, or
 **Always allow reading this folder**. Always allow is local, revocable in Settings,
 and read-only. Broad scopes can expose private files to the requesting client.
 
 For installed Windows tools such as `uv`, `dotnet`, or `git`, use
-`project_shell` with `execution=native_approval`. This requests one-shot Windows
-approval, uses the installed tool PATH, and grants the resulting command the
-logged-in user's full filesystem/network authority. Native scripts can change
-directories after approval. Project cwd is not an isolation boundary. Existing
-isolated mode remains fail-closed; it does not silently fall back to native.
+`execute_shell` with a full `command`, for example `dotnet build`. The local project
+mode controls approval. Native commands use the installed tool PATH and the
+logged-in user's filesystem/network authority. Project cwd is not an isolation
+boundary. Legacy isolated mode remains blocked until changed locally.
 
 Both relay and desktop must be updated for these capabilities. Refresh the
 ChatGPT connector tool list after updating.

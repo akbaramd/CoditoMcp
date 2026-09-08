@@ -169,6 +169,7 @@ class Project(models.Model):
         ISOLATED = "isolated", "Isolated"
         NATIVE_APPROVAL = "native_approval", "Native approval"
         NATIVE_TRUSTED = "native_trusted", "Native trusted"
+        FULL_ACCESS = "full_access", "Full access (explicit local consent)"
         NATIVE_PROJECT = "native_project", "Project access (native)"
 
     class Status(models.TextChoices):

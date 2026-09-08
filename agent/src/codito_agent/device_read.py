@@ -13,7 +13,9 @@ from typing import Any
 
 from codito_protocol import DeviceReadInput, DeviceReadResult
 
+from .access_policy import project_access_policy
 from .approvals import ApprovalManager, ApprovalRisk, action_digest
+from .db import AgentDatabase
 from .device_paths import WindowsReadScope
 from .errors import AgentError
 from .read_tools import ToolResponse, _detect_text, _newline_style
@@ -27,11 +29,13 @@ class DeviceReadService:
         account_id: str,
         device_id: str,
         scope_factory: Callable[[str], WindowsReadScope] = WindowsReadScope,
+        database: AgentDatabase | None = None,
     ) -> None:
         self.approvals = approvals
         self.account_id = account_id
         self.device_id = device_id
         self.scope_factory = scope_factory
+        self.database = database
 
     async def execute(
         self,
@@ -43,6 +47,12 @@ class DeviceReadService:
         deadline_at: datetime,
     ) -> ToolResponse:
         generation = self.approvals.generation
+        project = None
+        if request.project_id is not None:
+            if self.database is None:
+                raise AgentError("project_unavailable", "Project policy is unavailable")
+            project = self.database.get_project(request.project_id)
+        policy = project_access_policy(project, inside_project=False) if project else None
         cancelled = threading.Event()
 
         def check() -> None:
@@ -60,8 +70,8 @@ class DeviceReadService:
                     grant_id=grant_id,
                     link_id=link_id,
                     device_id=self.device_id,
-                    project_id="",
-                    project_title="Outside projects",
+                    project_id=project.project_id if project else "",
+                    project_title=project.title if project else "Outside projects",
                     capability="device:read",
                     action_digest=action_digest(request),
                     connection_epoch=connection_epoch,
@@ -74,11 +84,14 @@ class DeviceReadService:
                     ),
                     requested_external_paths=(request.scope_path,),
                 )
-                await self.approvals.request(
-                    approval,
-                    session_eligible=False,
-                    read_scope=(request.scope_path, scope.identity),
-                )
+                if policy is None or policy.requires_approval:
+                    await self.approvals.request(
+                        approval,
+                        session_eligible=False,
+                        read_scope=(request.scope_path, scope.identity)
+                        if policy is None or policy.allow_saved_permissions
+                        else None,
+                    )
                 check()
                 worker = asyncio.create_task(asyncio.to_thread(self._read, scope, request, check))
                 try:

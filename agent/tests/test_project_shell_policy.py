@@ -10,7 +10,7 @@ from codito_agent.db import AgentDatabase
 from codito_agent.models import ProjectMode
 from codito_agent.paths import ProjectPathResolver
 from codito_agent.shell import ShellManager
-from codito_agent.shell_policy import outside_references
+from codito_agent.shell_policy import outside_references, uncertain_constructs
 
 
 @pytest.mark.parametrize(
@@ -28,9 +28,9 @@ def test_literal_reference_routing(command, expected):
     assert bool(outside_references(r"D:\project", r"D:\project", command, [])) == expected
 
 
-def manager_for(tmp_path, project_root, prompt):
+def manager_for(tmp_path, project_root, prompt, mode=ProjectMode.NATIVE_PROJECT):
     database = AgentDatabase(tmp_path / "shell.sqlite3")
-    project = database.register_project("Test", project_root, ProjectMode.NATIVE_PROJECT)
+    project = database.register_project("Test", project_root, mode)
     started = []
 
     async def start(spec, isolated):
@@ -244,3 +244,130 @@ async def test_external_cwd_is_passed_only_after_native_consent(tmp_path, projec
     await manager._jobs[response.structured["job_id"]].task
     assert len(started) == 1
     assert started[0]["external_working_directory_authorized"] is True
+
+
+@pytest.mark.parametrize(
+    "command,uncertain",
+    [
+        ({"kind": "exec", "executable": "uv", "arguments": ["run", "pytest"]}, False),
+        ({"kind": "exec", "executable": "dotnet", "arguments": ["build"]}, False),
+        ({"kind": "script", "script": "Get-ChildItem ."}, False),
+        ({"kind": "script", "script": "Get-ChildItem $env:USERPROFILE"}, True),
+        ({"kind": "script", "script": "dir . && dir .."}, True),
+        ({"kind": "script", "script": "Set-Location some-folder"}, True),
+        ({"kind": "exec", "executable": "pwsh.exe", "arguments": ["-Command", "dir"]}, True),
+        ({"kind": "exec", "executable": "python", "arguments": ["-c", "print(1)"]}, True),
+    ],
+)
+def test_recognized_indirection_prompts_without_blocking_normal_build_tools(command, uncertain):
+    assert bool(uncertain_constructs(command)) is uncertain
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows handle validation")
+@pytest.mark.asyncio
+async def test_explicit_full_access_allows_external_cwd_without_prompt(tmp_path, project_root):
+    async def prompt(_):
+        pytest.fail("Explicit Full device access must not request local approval")
+
+    manager, project, started = manager_for(tmp_path, project_root, prompt, ProjectMode.FULL_ACCESS)
+    response = await start_job(manager, project, external_working_directory=str(tmp_path))
+    job = manager._jobs[response.structured["job_id"]]
+    await job.task
+    assert job.state == "completed"
+    assert len(started) == 1
+    assert started[0]["external_working_directory_authorized"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [ProjectMode.NATIVE_APPROVAL, ProjectMode.NATIVE_TRUSTED])
+async def test_ask_every_and_legacy_trust_never_silently_allow_inside_shell(
+    tmp_path, project_root, mode
+):
+    prompted = []
+
+    async def prompt(value):
+        prompted.append(value)
+        assert not value.persistent_shell_eligible
+        return ApprovalDecision.ALLOW_ONCE
+
+    manager, project, started = manager_for(tmp_path, project_root, prompt, mode)
+    for key in ("first_command", "second_command"):
+        response = await start_job(manager, project, idempotency_key=key)
+        await manager._jobs[response.structured["job_id"]].task
+    assert len(started) == 2
+    assert len(prompted) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changed", ["command", "environment", "executor"])
+async def test_always_shell_is_exact_execution_not_working_directory_grant(
+    tmp_path, project_root, monkeypatch, changed
+):
+    prompted = []
+    executor = {"path": "executor.exe", "file_id": 1}
+    monkeypatch.setattr("codito_agent.shell.executable_identity", lambda _: dict(executor))
+
+    async def prompt(value):
+        prompted.append(value)
+        return ApprovalDecision.ALLOW_ALWAYS_SHELL
+
+    manager, project, started = manager_for(tmp_path, project_root, prompt)
+    command = {"kind": "exec", "executable": "uv", "arguments": ["run", "pytest"]}
+    for key in ("first_command", "repeat_command"):
+        response = await start_job(
+            manager,
+            project,
+            command=command,
+            requested_external_paths=["C:/"],
+            idempotency_key=key,
+        )
+        await manager._jobs[response.structured["job_id"]].task
+    assert len(prompted) == 1
+    if changed == "command":
+        command = {**command, "arguments": ["run", "pytest", "--collect-only"]}
+    elif changed == "environment":
+        command = {**command, "environment": {"EXPLICIT_TEST_OPTION": "new-value"}}
+    else:
+        executor["file_id"] = 2
+    response = await start_job(
+        manager,
+        project,
+        command=command,
+        requested_external_paths=["C:/"],
+        idempotency_key="changed_command",
+    )
+    await manager._jobs[response.structured["job_id"]].task
+    assert len(started) == 3
+    assert len(prompted) == 2
+    assert prompted[0].action_digest != prompted[1].action_digest
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changed", ["mode", "executor"])
+async def test_pending_approval_rechecks_local_mode_and_executor_before_start(
+    tmp_path, project_root, monkeypatch, changed
+):
+    opened = asyncio.Event()
+    release = asyncio.Event()
+    executor = {"path": "executor.exe", "file_id": 1}
+    monkeypatch.setattr("codito_agent.shell.executable_identity", lambda _: dict(executor))
+
+    async def prompt(_):
+        opened.set()
+        await release.wait()
+        return ApprovalDecision.ALLOW_ONCE
+
+    manager, project, started = manager_for(tmp_path, project_root, prompt)
+    response = await start_job(manager, project, requested_external_paths=["C:/"])
+    job = manager._jobs[response.structured["job_id"]]
+    await opened.wait()
+    if changed == "mode":
+        # Even without daemon generation invalidation, re-read catches stale trust.
+        manager.database.set_project_mode(project.project_id, ProjectMode.NATIVE_APPROVAL)
+    else:
+        executor["file_id"] = 2
+    release.set()
+    await job.task
+    assert started == []
+    assert job.state == "failed"
+    assert "approval_expired" in job.chunks[-1].text

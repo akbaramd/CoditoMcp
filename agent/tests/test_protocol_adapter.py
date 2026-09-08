@@ -4,11 +4,14 @@ import asyncio
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from codito_agent.approvals import ApprovalDecision, ApprovalManager
+from codito_agent.db import AgentDatabase
+from codito_agent.models import ProjectMode
 from codito_agent.protocol_adapter import AgentProtocolAdapter
 from codito_agent.read_tools import ToolResponse
 
@@ -49,13 +52,19 @@ class ConcurrentReadService:
 
 
 @pytest.mark.asyncio
-async def test_adapter_enforces_configured_read_concurrency() -> None:
+async def test_adapter_enforces_configured_read_concurrency(
+    tmp_path: Path, project_root: Path
+) -> None:
     async def deny(_: Any) -> ApprovalDecision:
         raise AssertionError("reads must not prompt")
 
     reads = ConcurrentReadService()
+    database = AgentDatabase(tmp_path / "reads.sqlite")
+    project = database.register_project(
+        "Read concurrency", project_root, ProjectMode.NATIVE_PROJECT
+    )
     adapter = AgentProtocolAdapter(
-        database=object(),  # type: ignore[arg-type]
+        database=database,
         reads=reads,  # type: ignore[arg-type]
         patches=object(),  # type: ignore[arg-type]
         shells=object(),  # type: ignore[arg-type]
@@ -66,7 +75,7 @@ async def test_adapter_enforces_configured_read_concurrency() -> None:
     )
     request = {
         "operation": "read_file",
-        "project_id": "project_abcdefghijkl",
+        "project_id": project.project_id,
         "path": "file.txt",
     }
     await asyncio.gather(

@@ -48,11 +48,38 @@
           "title": "Project Id",
           "type": "string"
         },
+        "purpose": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Purpose"
+        },
         "recursive": {
           "default": false,
           "description": "Whether to traverse subdirectories.",
           "title": "Recursive",
           "type": "boolean"
+        },
+        "scope_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Requested external Windows directory; local approval is required.",
+          "title": "Scope Path"
         }
       },
       "required": [
@@ -139,6 +166,21 @@
           "title": "Max Bytes",
           "type": "integer"
         },
+        "max_lines": {
+          "anyOf": [
+            {
+              "maximum": 2000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional per-page line cap, also enforced when resuming continuation.",
+          "title": "Max Lines"
+        },
         "operation": {
           "const": "read_file",
           "description": "Read a bounded, numbered file range.",
@@ -154,6 +196,33 @@
           "description": "Opaque ID from list_projects; never a local path.",
           "title": "Project Id",
           "type": "string"
+        },
+        "purpose": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Purpose"
+        },
+        "scope_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Requested external Windows directory; local approval is required.",
+          "title": "Scope Path"
         },
         "start_line": {
           "default": 1,
@@ -233,6 +302,20 @@
           "title": "Project Id",
           "type": "string"
         },
+        "purpose": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Purpose"
+        },
         "query": {
           "description": "Literal text or regex to find.",
           "maxLength": 4096,
@@ -245,6 +328,19 @@
           "description": "Interpret query as a bounded regular expression.",
           "title": "Regex",
           "type": "boolean"
+        },
+        "scope_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Requested external Windows directory; local approval is required.",
+          "title": "Scope Path"
         }
       },
       "required": [

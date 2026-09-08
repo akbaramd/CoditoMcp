@@ -17,7 +17,14 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--show-status", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--toast-activation", help=argparse.SUPPRESS)
+    parser.add_argument("--register-activation", action="store_true", help=argparse.SUPPRESS)
     arguments = parser.parse_args(argv)
+    if arguments.register_activation:
+        from .notifications import register_activation
+
+        # Installer repair uses the same implementation as normal desktop startup.
+        # No daemon IPC, graphical window or approval is created in this mode.
+        raise SystemExit(0 if register_activation() else 1)
     try:
         from .desktop_ui import run_desktop
     except ImportError as exc:

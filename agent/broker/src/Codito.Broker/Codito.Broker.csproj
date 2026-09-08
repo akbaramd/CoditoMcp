@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <!-- COM toast activation must not allocate a console or steal foreground focus.
+         Explicitly redirected stdin/stdout used by daemon operations remain supported. -->
+    <OutputType>WinExe</OutputType>
     <IsTestProject>false</IsTestProject>
     <AssemblyName>Codito.Broker</AssemblyName>
     <RootNamespace>Codito.Broker</RootNamespace>

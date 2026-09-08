@@ -1,0 +1,39 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/device-desktop-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "const": "open_browser",
+      "default": "open_browser",
+      "title": "Action",
+      "type": "string"
+    },
+    "browser": {
+      "default": "default",
+      "enum": [
+        "default",
+        "firefox"
+      ],
+      "title": "Browser",
+      "type": "string"
+    },
+    "status": {
+      "const": "submitted",
+      "default": "submitted",
+      "title": "Status",
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "title": "DeviceDesktopResult",
+  "type": "object"
+}

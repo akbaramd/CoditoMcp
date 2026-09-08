@@ -22,6 +22,7 @@ class ApprovalDecision(StrEnum):
     ALLOW_SESSION = "allow_session"
     ALLOW_ALWAYS_READ = "allow_always_read"
     ALLOW_ALWAYS_SHELL = "allow_always_shell"
+    ALLOW_ALWAYS_SCREEN = "allow_always_screen"
 
 
 class ApprovalRisk(StrEnum):
@@ -56,6 +57,7 @@ class ApprovalRequest:
     session_eligible: bool = False
     persistent_read_eligible: bool = False
     persistent_shell_eligible: bool = False
+    persistent_screen_eligible: bool = False
 
 
 @dataclass(slots=True)
@@ -105,10 +107,39 @@ class ApprovalManager:
         session_eligible: bool,
         read_scope: tuple[str, str] | None = None,
         shell_scope: tuple[str, str] | None = None,
+        screen_scope: tuple[str, str, str] | None = None,
         reuse_shell_permission: bool = True,
     ) -> None:
         self._ensure_before_deadline(request)
         permission_key = ""
+        if screen_scope is not None:
+            if (
+                read_scope is not None
+                or shell_scope is not None
+                or request.capability != "screen:read"
+                or request.risk is not ApprovalRisk.READ
+                or request.command is not None
+                or request.patch is not None
+                or request.requested_external_paths
+                or request.requested_network
+                or request.project_id != screen_scope[0]
+                or session_eligible
+                or self._database is None
+            ):
+                raise AgentError("invalid_approval", "Persistent screen permission is unavailable")
+            permission_key = action_digest(
+                [
+                    request.account_id,
+                    request.grant_id,
+                    request.link_id,
+                    request.device_id,
+                    "screen:read",
+                    screen_scope[0],
+                ]
+            )
+            with self._lock:
+                if self._database.has_screen_permission(permission_key, screen_scope[1]):
+                    return
         if shell_scope is not None:
             if (
                 read_scope is not None
@@ -170,6 +201,7 @@ class ApprovalManager:
             session_eligible=session_eligible,
             persistent_read_eligible=read_scope is not None,
             persistent_shell_eligible=shell_scope is not None,
+            persistent_screen_eligible=screen_scope is not None,
         )
         with self._lock:
             security_generation = self._security_generation
@@ -201,6 +233,13 @@ class ApprovalManager:
                     raise AgentError("invalid_approval", "Always allow shell is unavailable here")
                 self._database.save_shell_permission(
                     permission_key, *shell_scope, request.account_id, request.link_id
+                )
+                return
+            if decision is ApprovalDecision.ALLOW_ALWAYS_SCREEN:
+                if screen_scope is None or self._database is None:
+                    raise AgentError("invalid_approval", "Always allow screen is unavailable here")
+                self._database.save_screen_permission(
+                    permission_key, *screen_scope, request.account_id, request.link_id
                 )
                 return
         if decision is ApprovalDecision.DENY:
@@ -335,6 +374,11 @@ class ApprovalManager:
         with self._lock:
             self._security_generation += 1
             return self._database.revoke_shell_permissions() if self._database else 0
+
+    def revoke_screen_permissions(self) -> int:
+        with self._lock:
+            self._security_generation += 1
+            return self._database.revoke_screen_permissions() if self._database else 0
 
     @staticmethod
     def _ensure_before_deadline(request: ApprovalRequest) -> None:

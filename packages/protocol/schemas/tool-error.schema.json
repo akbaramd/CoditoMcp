@@ -34,6 +34,8 @@
         "shell_not_running",
         "output_limit_exceeded",
         "outcome_unknown",
+        "screenshot_unavailable",
+        "desktop_unavailable",
         "cancelled",
         "internal_error"
       ],

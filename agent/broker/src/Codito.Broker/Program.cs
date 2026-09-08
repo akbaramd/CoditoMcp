@@ -1,6 +1,19 @@
 using System.Text.Json;
 using Codito.Broker;
 
+if (args.Length == 1 && args[0] == "--toast-listener")
+{
+    return ToastActivationHost.Run(listenUntilParentExit: true);
+}
+
+if (args.Contains("--toast-server", StringComparer.Ordinal)
+    && args.All(value => value == "--toast-server"
+        || value.Equals("-Embedding", StringComparison.OrdinalIgnoreCase)
+        || value.Equals("/Embedding", StringComparison.OrdinalIgnoreCase)))
+{
+    return ToastActivationHost.Run();
+}
+
 if (args.Length != 1 || args[0] is not ("--json" or "--run-json"))
 {
     Console.Error.WriteLine("Codito.Broker accepts only --json or --run-json.");
@@ -23,6 +36,19 @@ try
     if (args[0] == "--json" && request.Operation == "notify" && request.Toast is not null)
     {
         ApprovalToast.Show(request.Toast);
+        await JsonSerializer.SerializeAsync(Console.OpenStandardOutput(), new { ok = true });
+        return 0;
+    }
+    if (args[0] == "--json" && request.Operation == "notify-probe")
+    {
+        var available = await ApprovalToast.IsProtocolAvailableAsync();
+        await JsonSerializer.SerializeAsync(Console.OpenStandardOutput(),
+            new { ok = available, protocol_available = available });
+        return available ? 0 : 69;
+    }
+    if (args[0] == "--json" && request.Operation == "notify-cleanup")
+    {
+        ApprovalToast.ClearStale();
         await JsonSerializer.SerializeAsync(Console.OpenStandardOutput(), new { ok = true });
         return 0;
     }

@@ -232,9 +232,33 @@ class CoditoDaemon:
                 ],
             }
         if action == "approval.next":
-            return {"ok": True, "approval": self.approval_queue.next_request()}
+            selected_id = request.get("request_id")
+            return {
+                "ok": True,
+                "approval": self.approval_queue.next_request(
+                    str(selected_id) if selected_id is not None else None
+                ),
+            }
         if action == "screen.next":
             return {"ok": True, "capture": self.adapter.screen_queue.next_request()}
+        if action == "desktop.next":
+            return {"ok": True, "desktop_action": self.adapter.desktop_queue.next_request()}
+        if action == "desktop.respond":
+            desktop_result = request.get("result")
+            return {
+                "ok": isinstance(desktop_result, dict)
+                and self.adapter.desktop_queue.respond(
+                    str(request.get("desktop_action_id", "")), desktop_result
+                )
+            }
+        if action == "approval.review.next":
+            return {"ok": True, "request_id": self.approval_queue.consume_review_request()}
+        if action == "screen_permissions.list":
+            return {"ok": True, "permissions": self.database.list_screen_permissions()}
+        if action == "screen_permissions.revoke_all":
+            count = self.approvals.revoke_screen_permissions()
+            self.approval_queue.deny_all()
+            return {"ok": True, "revoked": count}
         if action == "screen.respond":
             result = request.get("result")
             return {

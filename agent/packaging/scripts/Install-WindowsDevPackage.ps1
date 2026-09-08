@@ -117,6 +117,11 @@ $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 New-Item -Path $runKey -Force | Out-Null
 $daemon = Join-Path $finalRoot 'daemon\codito-agent-daemon.exe'
 $tray = Join-Path $finalRoot 'tray\codito-agent-tray.exe'
+$registration = Start-Process -FilePath $tray -ArgumentList '--register-activation' `
+    -WorkingDirectory (Split-Path $tray) -WindowStyle Hidden -Wait -PassThru
+if ($registration.ExitCode -ne 0) {
+    throw 'Codito notification activation registration failed. No approvals were granted.'
+}
 Set-ItemProperty -LiteralPath $runKey -Name 'Codito Agent Daemon' -Value "`"$daemon`""
 Set-ItemProperty -LiteralPath $runKey -Name 'Codito Agent Tray' -Value "`"$tray`" --minimized"
 [IO.File]::WriteAllText(

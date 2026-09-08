@@ -7,6 +7,8 @@ import sys
 import pytest
 from mcp_types.version import LATEST_HANDSHAKE_VERSION
 from starlette.testclient import TestClient
+from test_mcp_scope_challenge import assert_screen_scope_challenge_survives_http_sdk_serialization
+from test_screenshot_wire_image import assert_selected_screen_is_imagecontent_in_actual_sdk_response
 
 from codito_relay.asgi import application
 
@@ -28,7 +30,9 @@ def test_asgi_imports_in_a_fresh_python_process() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_mcp_initialization_list_and_local_tool_call(oauth_token, link) -> None:  # type: ignore[no-untyped-def]
+def test_mcp_initialization_list_and_local_tool_call(
+    oauth_token, link, caplog, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
     raw, _ = oauth_token
     headers = {
         "Authorization": f"Bearer {raw}",
@@ -74,6 +78,7 @@ def test_mcp_initialization_list_and_local_tool_call(oauth_token, link) -> None:
             "project_manage",
             "device_read",
             "device_screenshot",
+            "device_desktop",
         ]
         assert all(tool.get("_meta", {}).get("securitySchemes") for tool in descriptors)
         called = client.post(
@@ -90,3 +95,10 @@ def test_mcp_initialization_list_and_local_tool_call(oauth_token, link) -> None:
         result = called.json()["result"]
         assert result["isError"] is False
         assert result["structuredContent"]["operation_id"] == "local"
+        # The SDK session manager is intentionally single-use; reuse this HTTP lifespan.
+        assert_screen_scope_challenge_survives_http_sdk_serialization(
+            client, oauth_token, link, caplog
+        )
+        assert_selected_screen_is_imagecontent_in_actual_sdk_response(
+            client, oauth_token, link, monkeypatch
+        )

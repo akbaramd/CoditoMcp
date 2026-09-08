@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 from codito_protocol.screenshot import (
+    DeviceDisplaysResult,
     DeviceScreenshotInput,
     DeviceScreenshotResult,
     durable_tool_result,
@@ -58,3 +59,34 @@ def test_screenshot_result_rejects_bad_data(field, value):
 def test_capture_input_never_accepts_approval_or_unbounded_size(extra):
     with pytest.raises(ValidationError):
         DeviceScreenshotInput.model_validate({"purpose": "Review UI", **extra})
+
+
+def test_selected_display_and_catalog_contract():
+    identifier = "screen_" + "a" * 64
+    request = DeviceScreenshotInput(purpose="Choose monitor", action="list_displays")
+    assert request.display == "primary"
+    assert DeviceScreenshotInput(purpose="Monitor", display=identifier).display == identifier
+    catalog = {
+        "displays": [
+            {
+                "id": identifier,
+                "label": "Monitor",
+                "primary": True,
+                "width": 1920,
+                "height": 1080,
+                "scale_factor": 1,
+                "identity": "a" * 64,
+                "persistent_permission_supported": True,
+            }
+        ],
+        "topology_id": "b" * 64,
+    }
+    result = DeviceDisplaysResult.model_validate(catalog)
+    assert result.action == "list_displays"
+    assert "image_base64" not in result.model_dump()
+    with pytest.raises(ValidationError, match="unique"):
+        DeviceDisplaysResult.model_validate({**catalog, "displays": catalog["displays"] * 2})
+    with pytest.raises(ValidationError, match="primary"):
+        DeviceDisplaysResult.model_validate(
+            {**catalog, "displays": [{**catalog["displays"][0], "primary": False}]}
+        )

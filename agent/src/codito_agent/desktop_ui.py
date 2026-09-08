@@ -278,6 +278,7 @@ class UpdateWorker(QThread):  # type: ignore[misc, unused-ignore]  # PySide whee
 
 class ApprovalToastWorker(QThread):  # type: ignore[misc, unused-ignore]
     failed = Signal()
+    shown = Signal()
 
     def __init__(self, broker: Path | None, approval: dict[str, Any]) -> None:
         super().__init__()
@@ -288,6 +289,7 @@ class ApprovalToastWorker(QThread):  # type: ignore[misc, unused-ignore]
         try:
             show_native_toast(self.broker, self.approval)
             event("toast_shown", str(self.approval.get("request_id", "")))
+            self.shown.emit()
         except Exception as exc:
             event("toast_failed", str(self.approval.get("request_id", "")), type(exc).__name__)
             self.failed.emit()
@@ -337,6 +339,7 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         self._quitting = False
         self._approval_dialog_active = False
         self._toast_workers: list[ApprovalToastWorker] = []
+        self._notified_approvals: set[str] = set()
         try:
             self._actionable_toasts = register_activation()
         except Exception as exc:
@@ -357,6 +360,7 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         self.approval_timer.start(750)
         self.capture_timer = QTimer(self)
         self.capture_timer.timeout.connect(self.poll_capture)
+        self.capture_timer.timeout.connect(self.poll_desktop_action)
         self.capture_timer.start(750)
         self.project_request_timer = QTimer(self)
         self.project_request_timer.timeout.connect(self.poll_project_request)
@@ -502,7 +506,7 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         metrics.addWidget(self.approvals_metric)
         layout.addLayout(metrics)
         self.review_approvals_button = QPushButton("Review pending approvals")
-        self.review_approvals_button.clicked.connect(self.poll_approval)
+        self.review_approvals_button.clicked.connect(self.review_pending_approvals)
         layout.addWidget(self.review_approvals_button)
         test_notification = QPushButton("Test Windows approval notification (no command)")
         test_notification.clicked.connect(lambda: self._request({"action": "approval.test"}))
@@ -694,6 +698,16 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         shell_permissions_button = QPushButton("Review / revoke saved shell permissions")
         shell_permissions_button.clicked.connect(self.review_shell_permissions)
         permissions_layout.addWidget(shell_permissions_button)
+        screen_permissions_button = QPushButton("Review / revoke saved screenshot permissions")
+        screen_permissions_button.clicked.connect(self.review_screen_permissions)
+        permissions_layout.addWidget(screen_permissions_button)
+        screen_help = _label(
+            "Screenshot Always allow is separate: only the approved monitor and connection. "
+            "It may reveal private windows. Changing monitors/layout requires new approval.",
+            "Muted",
+        )
+        screen_help.setWordWrap(True)
+        permissions_layout.addWidget(screen_help)
         layout.addWidget(permissions)
 
         endpoint = QFrame()
@@ -793,9 +807,9 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         menu.addAction(quit_action)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self._tray_activated)
-        self.tray.messageClicked.connect(self.poll_approval)
+        self.tray.messageClicked.connect(self.review_pending_approvals)
         approvals_action = QAction("Review pending approvals", self)
-        approvals_action.triggered.connect(self.poll_approval)
+        approvals_action.triggered.connect(self.review_pending_approvals)
         menu.addAction(approvals_action)
 
     def _show_page(self, index: int) -> None:
@@ -1321,9 +1335,29 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
     def poll_approval(self) -> None:
         if self._approval_dialog_active:
             return
+        review = self._request({"action": "approval.review.next"})
+        if review and isinstance(review.get("request_id"), str):
+            self.review_pending_approvals(request_id=review["request_id"])
+            return
         response = self._request({"action": "approval.next"})
         approval = response.get("approval") if response else None
         if not isinstance(approval, dict):
+            self._notified_approvals.clear()
+            return
+        identifier = str(approval["request_id"])
+        if identifier in self._notified_approvals:
+            return
+        self._notified_approvals.add(identifier)
+        self._notify_approval(approval)
+
+    def review_pending_approvals(self, *, request_id: str | None = None) -> None:
+        """Open details only on an explicit local review action, never on arrival."""
+        if self._approval_dialog_active:
+            return
+        response = self._request({"action": "approval.next", "request_id": request_id})
+        approval = response.get("approval") if response else None
+        if not isinstance(approval, dict):
+            self.statusBar().showMessage("No pending approval", 3000)
             return
         self._approval_dialog_active = True
         try:
@@ -1338,7 +1372,9 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         finally:
             self._approval_dialog_active = False
 
-    def _show_approval(self, approval: dict[str, Any]) -> None:
+    def _notify_approval(self, approval: dict[str, Any]) -> None:
+        """Background toast delivery must not replace the user's foreground window."""
+
         def fallback_toast() -> None:
             self.tray.showMessage(
                 "Codito approval required — open Codito to decide",
@@ -1351,6 +1387,11 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             worker = ApprovalToastWorker(self.config.broker_path, approval)
             self._toast_workers.append(worker)
             worker.failed.connect(fallback_toast)
+            worker.shown.connect(
+                lambda: self._request(
+                    {"action": "approval.displayed", "request_id": approval["request_id"]}
+                )
+            )
 
             def completed() -> None:
                 self._toast_workers.remove(worker)
@@ -1360,6 +1401,8 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             worker.start()
         else:
             fallback_toast()
+
+    def _show_approval(self, approval: dict[str, Any]) -> None:
         self.showNormal()
         self.raise_()
         self.activateWindow()
@@ -1379,6 +1422,14 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
                 "scope/account/link. It grants full Windows user authority, not confinement to "
                 "these paths. A different requested scope asks again. Revoke in Settings."
                 if approval.get("persistent_shell_eligible")
+                else ""
+            )
+            + (
+                "\n\nAlways allow screen saves capture access to THIS monitor for this "
+                "account/connection, including private visible windows. Other monitors and "
+                "layout changes require fresh approval. Revoke in Settings. It never allows "
+                "file access, commands or browser control. Codito minimizes before capture."
+                if approval.get("persistent_screen_eligible")
                 else ""
             )
             + (
@@ -1415,6 +1466,11 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         once = dialog.addButton("Allow once", QMessageBox.ButtonRole.AcceptRole)
         always_read = None
         always_shell = None
+        always_screen = None
+        if approval.get("persistent_screen_eligible"):
+            always_screen = dialog.addButton(
+                "Always allow this monitor", QMessageBox.ButtonRole.YesRole
+            )
         if approval.get("persistent_shell_eligible"):
             always_shell = dialog.addButton(
                 "Always allow shell for this scope", QMessageBox.ButtonRole.YesRole
@@ -1482,6 +1538,12 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             decision = "allow_always_read"
         elif always_shell is not None and clicked is always_shell:
             decision = "allow_always_shell"
+        elif always_screen is not None and clicked is always_screen:
+            decision = "allow_always_screen"
+        if decision != "deny" and approval.get("capability") in {"screen:read", "desktop:open_url"}:
+            # Review was explicitly opened: remove Codito before accepting the
+            # request so the next GUI tick sees the intended desktop/browser.
+            self.showMinimized()
         response = self._request(
             {
                 "action": "approval.respond",
@@ -1505,18 +1567,80 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         if not isinstance(request, dict):
             return
         try:
-            from .desktop_capture import capture_primary_screen
+            from .desktop_capture import capture_screen, list_displays
 
             if datetime.fromisoformat(request["deadline_at"]) <= datetime.now(UTC):
                 raise ValueError("Capture expired")
-            result = capture_primary_screen(int(request["max_dimension"]))
-            event("screen_captured", str(request["capture_id"]))
+            if request.get("action") == "list_displays":
+                result = list_displays()
+            else:
+                result = capture_screen(
+                    str(request["display_id"]),
+                    int(request["max_dimension"]),
+                    str(request["topology_id"]),
+                )
+                event("screen_captured", str(request["capture_id"]))
         except Exception as exc:
             event("screen_capture_failed", str(request.get("capture_id", "")), type(exc).__name__)
             result = {"ok": False}
         self._request(
             {"action": "screen.respond", "capture_id": request["capture_id"], "result": result}
         )
+
+    def poll_desktop_action(self) -> None:
+        if self._approval_dialog_active:
+            return
+        response = self._request({"action": "desktop.next"})
+        request = response.get("desktop_action") if response else None
+        if not isinstance(request, dict):
+            return
+        try:
+            from codito_protocol.desktop_action import DeviceDesktopInput
+
+            from .desktop_browser import open_browser_url
+
+            if datetime.fromisoformat(request["deadline_at"]) <= datetime.now(UTC):
+                raise ValueError("Desktop action expired")
+            browser_request = DeviceDesktopInput(
+                browser=request["browser"], url=request["url"], purpose="Approved browser request"
+            )
+            accepted = open_browser_url(browser_request.browser, browser_request.url)
+            event(
+                "desktop_action_submitted" if accepted else "desktop_action_refused",
+                str(request["desktop_action_id"]),
+            )
+        except Exception as exc:
+            event("desktop_action_failed", str(request["desktop_action_id"]), type(exc).__name__)
+            accepted = False
+        self._request(
+            {
+                "action": "desktop.respond",
+                "desktop_action_id": request["desktop_action_id"],
+                "result": {"ok": accepted},
+            }
+        )
+
+    def review_screen_permissions(self) -> None:
+        response = self._request({"action": "screen_permissions.list"})
+        if not response:
+            return
+        permissions = response.get("permissions", [])
+        dialog = QMessageBox(self)
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.setWindowTitle("Codito saved screenshot permissions")
+        dialog.setText(f"{len(permissions)} saved monitor permission(s)")
+        dialog.setInformativeText(
+            "Each permission allows this connection to capture private visible content on "
+            "one approved monitor without another prompt. Revoke to require approval again."
+        )
+        dialog.setDetailedText(json.dumps(permissions, indent=2, ensure_ascii=False))
+        dialog.addButton("Close", QMessageBox.ButtonRole.RejectRole)
+        revoke = dialog.addButton(
+            "Revoke all screenshot permissions", QMessageBox.ButtonRole.DestructiveRole
+        )
+        dialog.exec()
+        if dialog.clickedButton() is revoke:
+            self._request({"action": "screen_permissions.revoke_all"})
 
     def review_read_permissions(self) -> None:
         response = self._request({"action": "read_permissions.list"})

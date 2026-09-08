@@ -8,18 +8,21 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
+from .desktop_action import DeviceDesktopInput, DeviceDesktopResult
 from .device_read import DeviceReadInput, DeviceReadResult
 from .envelope import TunnelEnvelope
 from .errors import ToolError
 from .manage import ProjectManageInput, ProjectManageResult
 from .patch import ProjectApplyPatchInput, ProjectApplyPatchResult
 from .read import ProjectReadInput, ProjectReadResult
-from .screenshot import DeviceScreenshotInput, DeviceScreenshotResult
+from .screenshot import DeviceScreenshotInput, ScreenshotToolResult
 from .shell import ProjectShellInput, ProjectShellResult
 
 _ADAPTERS: dict[str, TypeAdapter[Any]] = {
+    "device-desktop-input": TypeAdapter(DeviceDesktopInput),
+    "device-desktop-result": TypeAdapter(DeviceDesktopResult),
     "device-screenshot-input": TypeAdapter(DeviceScreenshotInput),
-    "device-screenshot-result": TypeAdapter(DeviceScreenshotResult),
+    "device-screenshot-result": TypeAdapter(ScreenshotToolResult),
     "device-read-input": TypeAdapter(DeviceReadInput),
     "device-read-result": TypeAdapter(DeviceReadResult),
     "project-read-input": TypeAdapter(ProjectReadInput),

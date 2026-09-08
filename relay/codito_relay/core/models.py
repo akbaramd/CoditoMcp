@@ -304,6 +304,7 @@ class Operation(models.Model):
         MANAGE = "project_manage", "Project management"
         DEVICE_READ = "device_read", "Approved device read"
         DEVICE_SCREENSHOT = "device_screenshot", "Approved screenshot"
+        DEVICE_DESKTOP = "device_desktop", "Approved desktop action"
 
     class Status(models.TextChoices):
         ACCEPTED = "accepted", "Accepted"

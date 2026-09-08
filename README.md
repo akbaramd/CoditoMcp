@@ -8,10 +8,27 @@ require Windows Deny/Allow/Always allow. This is cooperative native approval rou
 not an OS sandbox; arbitrary native commands still have the Windows user's authority.
 Shell starts return a job immediately while waiting for approval; use poll/cancel.
 
-`device_screenshot` sends a current primary-display PNG directly to ChatGPT after
-separate local screen consent. Re-authorize `screen:read` when adding this tool to
-an existing connection. It cannot control the mouse/keyboard, elevate, or capture
-the secure desktop. [Acceptance guide](docs/operations/2026-09-08-approval-and-screen-release.md).
+`device_screenshot` lists monitors and sends a selected-display PNG to ChatGPT.
+Re-authorize `screen:read` when adding it to an existing connection. Windows offers
+Deny / Allow / Always allow for eligible display configurations; saved screen access
+is separate from file/shell permissions and is revocable in Settings.
+
+Example tool sequence (replace `screen_<id>` with an ID returned by the first call):
+
+```text
+device_screenshot(action="list_displays", purpose="Choose the monitor to inspect")
+device_desktop(action="open_browser", browser="firefox", url="https://example.com/",
+               purpose="Open the requested page in Firefox")
+device_screenshot(action="capture", display="screen_<id>", purpose="Inspect that monitor")
+```
+
+Browser opening requires `shell:execute` and separate one-shot Windows approval.
+It submits the URL to Firefox or the default browser; it cannot confirm page load.
+There is no mouse/keyboard control, elevation or secure-desktop capture. Notifications
+do not automatically bring Codito to the foreground. See the
+[tool contracts](docs/protocol/tools.md),
+[consent decision](docs/adr/0015-selected-display-and-browser-consent.md), and
+[acceptance guide](docs/operations/2026-09-08-approval-and-screen-release.md).
 
 Codito is a self-hosted, OAuth-protected bridge that lets ChatGPT work with
 registered projects on a user's Windows device, with Windows-approved access
@@ -33,9 +50,9 @@ deploy/             Immutable container and Compose deployment assets
 docs/               Decisions, research, threat model, and runbooks
 ```
 
-The remote surface contains five bounded MCP tools: `project_read`,
+The remote surface contains seven bounded MCP tools: `project_read`,
 `project_apply_patch`, `project_shell`, locally governed `project_manage`, and
-Windows-approved `device_read`. See
+Windows-approved `device_read`, `device_screenshot` and `device_desktop`. See
 the [tool contract](docs/protocol/tools.md).
 
 ## Install on Windows 11 x64

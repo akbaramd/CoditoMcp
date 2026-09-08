@@ -43,6 +43,8 @@ class ErrorCode(StrEnum):
     SHELL_NOT_RUNNING = "shell_not_running"
     OUTPUT_LIMIT_EXCEEDED = "output_limit_exceeded"
     OUTCOME_UNKNOWN = "outcome_unknown"
+    SCREENSHOT_UNAVAILABLE = "screenshot_unavailable"
+    DESKTOP_UNAVAILABLE = "desktop_unavailable"
     CANCELLED = "cancelled"
     INTERNAL_ERROR = "internal_error"
 

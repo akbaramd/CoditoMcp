@@ -1,4 +1,4 @@
-"""Bounded, consented primary-display screenshot contract."""
+"""Bounded, consented selected-display screenshot contract."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import base64
 import binascii
 import hashlib
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, model_validator
 
@@ -14,17 +14,48 @@ from .types import CoditoModel, Sha256
 
 MAX_IMAGE_BYTES = 600000
 PNG_HEADER_BYTES = 33
+DisplaySelector = Annotated[str, Field(pattern=r"^(primary|screen_[a-f0-9]{64})$")]
+DisplayId = Annotated[str, Field(pattern=r"^screen_[a-f0-9]{64}$")]
 
 
 class DeviceScreenshotInput(CoditoModel):
+    action: Literal["capture", "list_displays"] = "capture"
     purpose: str = Field(min_length=1, max_length=1000)
-    display: Literal["primary"] = "primary"
+    display: DisplaySelector = "primary"
     max_dimension: int = Field(default=1600, ge=640, le=2048)
+
+
+class DisplayInfo(CoditoModel):
+    id: DisplayId
+    label: str = Field(min_length=1, max_length=160)
+    primary: bool
+    width: int = Field(ge=1, le=32768)
+    height: int = Field(ge=1, le=32768)
+    scale_factor: float = Field(ge=0.25, le=8)
+    identity: Sha256
+    persistent_permission_supported: bool
+
+
+class DisplayCatalog(CoditoModel):
+    displays: list[DisplayInfo] = Field(min_length=1, max_length=16)
+    topology_id: Sha256
+
+    @model_validator(mode="after")
+    def unambiguous_displays(self) -> DisplayCatalog:
+        if len({item.id for item in self.displays}) != len(self.displays):
+            raise ValueError("Display identities must be unique")
+        if sum(item.primary for item in self.displays) != 1:
+            raise ValueError("Exactly one primary display is required")
+        return self
+
+
+class DeviceDisplaysResult(DisplayCatalog):
+    action: Literal["list_displays"] = "list_displays"
 
 
 class DeviceScreenshotResult(CoditoModel):
     mime_type: Literal["image/png"] = "image/png"
-    display: Literal["primary"] = "primary"
+    display: DisplaySelector = "primary"
     width: int = Field(ge=1, le=2048)
     height: int = Field(ge=1, le=2048)
     captured_at: datetime
@@ -50,6 +81,9 @@ class DeviceScreenshotResult(CoditoModel):
         if self.captured_at.tzinfo is None:
             raise ValueError("Screenshot timestamp requires timezone")
         return self
+
+
+ScreenshotToolResult = DeviceScreenshotResult | DeviceDisplaysResult
 
 
 def durable_tool_result(payload: dict[str, Any]) -> dict[str, Any]:

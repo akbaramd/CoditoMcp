@@ -10,13 +10,36 @@ def _oauth_scheme(*scopes: str) -> dict[str, Any]:
 
 
 TOOL_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
-    "device_screenshot": {
-        "title": "Capture the Windows primary display with local consent",
+    "device_desktop": {
+        "title": "Open a URL in the Windows browser with local consent",
         "description": (
-            "Request a current screenshot of this device's primary Windows display. "
+            "Ask Windows to open an HTTP/HTTPS URL in the default browser or installed Firefox. "
+            "Requires a separate one-shot Windows approval showing the exact browser and URL. "
+            "Returns submitted, not proof of page load. Existing browser profile/cookies "
+            "may be used. Cannot click, type, launch arbitrary apps, or use custom URI schemes. "
+            "No automatic replay after an uncertain open. Use device_screenshot separately "
+            "to inspect the display after the page loads."
+        ),
+        "required_scopes": ["shell:execute"],
+        "securitySchemes": [_oauth_scheme("shell:execute")],
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    },
+    "device_screenshot": {
+        "title": "Capture a selected Windows display with local consent",
+        "description": (
+            "Use action=list_displays to discover opaque display IDs without capturing pixels, "
+            "then action=capture with display='primary' or a returned screen ID. "
             "Returns an actual PNG image for visual inspection, not a filesystem path. "
             "Requires separate Windows screen consent; file/shell permissions do not authorize it. "
-            "Shows all visible primary-display windows, potentially including private data. "
+            "Shows all visible selected-display windows, potentially including private data. "
+            "Windows offers Deny, Allow, or Always allow for the same selected monitor, "
+            "account and connection. Saved screen permission is revoked in local Settings; "
+            "monitor/layout changes require new consent. "
             "Cannot capture the lock screen/UAC secure desktop or control mouse/keyboard. "
             "Image is scaled within max_dimension and 600 KB; repeat for a new capture."
         ),

@@ -135,11 +135,21 @@ def _validate_operation_binding(
 @transaction.atomic
 def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelope) -> Operation:
     operation = _validate_operation_binding(connection, envelope)
+    if envelope.kind is MessageKind.OPERATION_RESULT and operation.kind == "device_desktop":
+        _normalize_desktop_terminal(operation, envelope)
+    device_error = envelope.payload.get("error")
+    desktop_unknown = (
+        operation.kind == "device_desktop"
+        and isinstance(device_error, dict)
+        and device_error.get("code") == "outcome_unknown"
+    )
     states = {
         MessageKind.OPERATION_RECEIVED: Operation.Status.RECEIVED,
         MessageKind.OPERATION_STARTED: Operation.Status.RUNNING,
         MessageKind.OPERATION_RESULT: (
-            Operation.Status.FAILED
+            Operation.Status.OUTCOME_UNKNOWN
+            if desktop_unknown
+            else Operation.Status.FAILED
             if envelope.payload.get("ok") is False or envelope.payload.get("error")
             else Operation.Status.SUCCEEDED
         ),
@@ -173,7 +183,9 @@ def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelop
                 prior_status = operation.status
                 prior_error = operation.error_code
                 operation.status = (
-                    Operation.Status.FAILED
+                    Operation.Status.OUTCOME_UNKNOWN
+                    if desktop_unknown
+                    else Operation.Status.FAILED
                     if validated_payload.get("ok") is False or validated_payload.get("error")
                     else Operation.Status.SUCCEEDED
                 )
@@ -229,11 +241,18 @@ def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelop
         Operation.Status.RUNNING: 3,
         Operation.Status.SUCCEEDED: 4,
         Operation.Status.FAILED: 4,
+        Operation.Status.OUTCOME_UNKNOWN: 4,
     }
     if status and state_rank.get(status, 0) >= state_rank.get(operation.status, 0):
         operation.status = status
     if envelope.kind is MessageKind.OPERATION_RESULT:
         operation.result = durable_tool_result(envelope.payload)
+        if operation.kind == "device_desktop":
+            operation.error_code = (
+                str(device_error.get("code", "device_error"))
+                if isinstance(device_error, dict)
+                else ""
+            )
     operation.connection_epoch = connection.epoch
     operation.last_device_sequence = envelope.sequence
     operation.last_device_sequence_epoch = connection.epoch
@@ -241,6 +260,7 @@ def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelop
         update_fields=[
             "status",
             "result",
+            "error_code",
             "connection_epoch",
             "last_device_sequence",
             "last_device_sequence_epoch",
@@ -248,6 +268,32 @@ def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelop
         ]
     )
     return operation
+
+
+def _normalize_desktop_terminal(operation: Operation, envelope: TunnelEnvelope) -> None:
+    """Never persist/publish success for an invalid possibly-executed browser action."""
+    from codito_protocol.desktop_action import DeviceDesktopInput
+
+    from .dispatch import ToolDispatchError, _validate_device_result
+
+    try:
+        payload = _validate_device_result(operation.kind, envelope.payload)
+        if payload.get("ok") is True:
+            expected = DeviceDesktopInput.model_validate(operation.request_payload["input"])
+            result = payload["result"]
+            if result["url"] != expected.url or result["browser"] != expected.browser:
+                raise ValueError("Browser result differs from approved request")
+    except (ToolDispatchError, ValueError, KeyError, TypeError):
+        payload = _failure_payload(
+            ErrorCode.OUTCOME_UNKNOWN,
+            "The browser returned an invalid result and may have opened; "
+            "do not automatically retry",
+            str(operation.correlation_id),
+            retryable=False,
+        )
+    # The receive loop subsequently publishes this same envelope to Redis. Mutating
+    # it here keeps the durable state, MCP reply and terminal ACK consistent.
+    envelope.payload = payload
 
 
 def _failure_payload(

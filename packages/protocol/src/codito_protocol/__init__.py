@@ -1,6 +1,7 @@
 """Public Codito protocol API."""
 
 from .contracts import TOOL_CONTRACTS
+from .desktop_action import DeviceDesktopInput, DeviceDesktopResult
 from .device_read import DeviceReadInput, DeviceReadResult
 from .digest import canonical_action_bytes, compute_action_digest
 from .envelope import MessageKind, OperationPayload, TunnelBindings, TunnelEnvelope
@@ -47,6 +48,7 @@ from .schemas import (
     validate_project_read,
     validate_project_shell,
 )
+from .screenshot import DeviceDisplaysResult, DeviceScreenshotInput, DeviceScreenshotResult
 from .shell import (
     ProjectShellInput,
     ProjectShellResult,
@@ -68,8 +70,13 @@ __all__ = [
     "TOOL_CONTRACTS",
     "CoditoModel",
     "Continuation",
+    "DeviceDesktopInput",
+    "DeviceDesktopResult",
+    "DeviceDisplaysResult",
     "DeviceReadInput",
     "DeviceReadResult",
+    "DeviceScreenshotInput",
+    "DeviceScreenshotResult",
     "DirectoryEntry",
     "ErrorCode",
     "GetProjectsInput",

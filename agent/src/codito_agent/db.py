@@ -115,6 +115,15 @@ class AgentDatabase:
                     link_id TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS screen_permissions (
+                    permission_key TEXT PRIMARY KEY,
+                    display_id TEXT NOT NULL,
+                    display_identity TEXT NOT NULL,
+                    display_label TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    link_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS project_registration_requests (
                     request_id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
@@ -377,6 +386,40 @@ class AgentDatabase:
     def revoke_shell_permissions(self) -> int:
         with self._connect() as connection:
             return connection.execute("DELETE FROM shell_permissions").rowcount
+
+    def has_screen_permission(self, key: str, identity: str) -> bool:
+        with self._connect() as connection:
+            return (
+                connection.execute(
+                    "SELECT 1 FROM screen_permissions "
+                    "WHERE permission_key=? AND display_identity=?",
+                    (key, identity),
+                ).fetchone()
+                is not None
+            )
+
+    def save_screen_permission(
+        self, key: str, display_id: str, identity: str, label: str, account: str, link: str
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO screen_permissions VALUES (?,?,?,?,?,?,?)",
+                (key, display_id, identity, label, account, link, _now()),
+            )
+
+    def list_screen_permissions(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            return [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT display_id,display_label,account_id,link_id,created_at "
+                    "FROM screen_permissions ORDER BY created_at DESC"
+                )
+            ]
+
+    def revoke_screen_permissions(self) -> int:
+        with self._connect() as connection:
+            return connection.execute("DELETE FROM screen_permissions").rowcount
 
     def set_setting(self, key: str, value: str) -> None:
         if not key or len(key) > 100 or len(value) > 4096:

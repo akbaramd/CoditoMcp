@@ -23,9 +23,11 @@ from codito_protocol import (
     validate_project_read,
     validate_project_shell,
 )
+from codito_protocol.desktop_action import DeviceDesktopInput, DeviceDesktopResult
 from codito_protocol.screenshot import (
     DeviceScreenshotInput,
     DeviceScreenshotResult,
+    ScreenshotToolResult,
     durable_tool_result,
 )
 from django.conf import settings
@@ -220,8 +222,10 @@ def _validate_device_result(tool_name: str, payload: dict[str, Any]) -> dict[str
         raise ToolDispatchError("protocol_error", "Device result omitted ok/result fields")
     try:
         validated_result: Any
-        if tool_name == "device_screenshot":
-            validated_result = DeviceScreenshotResult.model_validate(payload["result"])
+        if tool_name == "device_desktop":
+            validated_result = DeviceDesktopResult.model_validate(payload["result"])
+        elif tool_name == "device_screenshot":
+            validated_result = TypeAdapter(ScreenshotToolResult).validate_python(payload["result"])
         elif tool_name == "device_read":
             validated_result = DeviceReadResult.model_validate(payload["result"])
         elif tool_name == "project_read":
@@ -246,6 +250,8 @@ def _validate_device_result(tool_name: str, payload: dict[str, Any]) -> dict[str
 
 
 def _required_scopes(tool_name: str, operation: str) -> frozenset[str]:
+    if tool_name == "device_desktop":
+        return frozenset({"shell:execute"})
     if tool_name == "device_screenshot":
         return frozenset({"screen:read"})
     if tool_name == "device_read":
@@ -279,6 +285,8 @@ def _validate_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, 
             details={"fields": sorted(supplied)},
         )
     try:
+        if tool_name == "device_desktop":
+            return DeviceDesktopInput.model_validate(arguments).model_dump(mode="json")
         if tool_name == "device_screenshot":
             return DeviceScreenshotInput.model_validate(arguments).model_dump(mode="json")
         if tool_name == "device_read":
@@ -314,7 +322,7 @@ def _lookup_route(
     except Device.DoesNotExist as exc:
         raise ToolDispatchError("device_not_found", "The bound device no longer exists") from exc
     operation = str(arguments.get("operation", ""))
-    if tool_name in {"device_read", "device_screenshot"}:
+    if tool_name in {"device_read", "device_screenshot", "device_desktop"}:
         return device, None
     if (tool_name == "project_read" and operation == "list_projects") or (
         tool_name == "project_manage" and operation in {"get_projects", "request_add_project"}
@@ -469,7 +477,7 @@ def _mark_delivery_failure(
 ) -> None:
     if error.code == "device_offline":
         status = Operation.Status.FAILED
-    elif tool_name == "project_shell":
+    elif tool_name in {"project_shell", "device_desktop"}:
         status = Operation.Status.OUTCOME_UNKNOWN
     else:
         status = Operation.Status.FAILED
@@ -493,11 +501,14 @@ async def dispatch_tool(
 ) -> DispatchReceipt:
     arguments = _validate_arguments(tool_name, raw_arguments)
     operation_name = str(arguments.get("operation", ""))
+    required_scopes = _required_scopes(tool_name, operation_name)
     try:
-        for required_scope in _required_scopes(tool_name, operation_name):
+        for required_scope in required_scopes:
             principal.require(required_scope)
     except AuthorizationFailure as exc:
-        raise ToolDispatchError(exc.code, exc.description) from exc
+        raise ToolDispatchError(
+            exc.code, exc.description, details={"required_scopes": sorted(required_scopes)}
+        ) from exc
     device, project = await sync_to_async(_lookup_route, thread_sensitive=True)(
         principal, tool_name, arguments
     )
@@ -595,15 +606,31 @@ async def dispatch_tool(
             timeout_seconds=settings.OPERATION_TIMEOUT_SECONDS,
         )
     except ToolDispatchError as exc:
+        if tool_name == "device_desktop" and exc.code != "device_offline":
+            mapped = ToolDispatchError(
+                "outcome_unknown",
+                "The browser action may have executed; do not automatically retry it",
+                retryable=False,
+                details={"operation_id": str(operation.pk)},
+            )
+            await sync_to_async(_mark_delivery_failure, thread_sensitive=True)(
+                operation.pk, tool_name, mapped
+            )
+            raise mapped from exc
         await sync_to_async(_mark_delivery_failure, thread_sensitive=True)(
             operation.pk, tool_name, exc
         )
         raise
     except Exception as exc:
         mapped = ToolDispatchError(
-            "relay_unavailable",
-            "The relay transport is temporarily unavailable",
-            retryable=True,
+            "outcome_unknown" if tool_name == "device_desktop" else "relay_unavailable",
+            (
+                "The browser action may have executed; do not automatically retry it"
+                if tool_name == "device_desktop"
+                else "The relay transport is temporarily unavailable"
+            ),
+            retryable=tool_name != "device_desktop",
+            details={"operation_id": str(operation.pk)},
         )
         await sync_to_async(_mark_delivery_failure, thread_sensitive=True)(
             operation.pk, tool_name, mapped

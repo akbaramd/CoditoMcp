@@ -127,6 +127,7 @@ class _PendingApproval:
     loop: asyncio.AbstractEventLoop
     future: asyncio.Future[ApprovalDecision]
     displayed: bool = False
+    review_requested: bool = False
     toast_tokens: dict[str, str] = field(default_factory=dict)
 
 
@@ -146,6 +147,8 @@ class QueuedApprovalPrompt:
                 decisions.append("allow_always_read")
             if request.persistent_shell_eligible:
                 decisions.append("allow_always_shell")
+            if request.persistent_screen_eligible:
+                decisions.append("allow_always_screen")
             pending = _PendingApproval(request, loop, future)
             pending.toast_tokens = {decision: secrets.token_urlsafe(32) for decision in decisions}
             self._pending[request.request_id] = pending
@@ -157,10 +160,18 @@ class QueuedApprovalPrompt:
             with self._lock:
                 self._pending.pop(request.request_id, None)
 
-    def next_request(self) -> dict[str, Any] | None:
+    def next_request(self, request_id: str | None = None) -> dict[str, Any] | None:
         with self._lock:
             # Peek, never consume. A tray crash/IPC error must not lose a prompt.
-            pending = next((p for p in self._pending.values() if not p.future.done()), None)
+            pending = next(
+                (
+                    p
+                    for p in self._pending.values()
+                    if not p.future.done()
+                    and (request_id is None or p.request.request_id == request_id)
+                ),
+                None,
+            )
         if pending is None:
             return None
         value = dataclasses.asdict(pending.request)
@@ -181,10 +192,23 @@ class QueuedApprovalPrompt:
             if expected is None or not secrets.compare_digest(expected, token):
                 return False
             if decision == "review":
+                pending.review_requested = True
                 return True
             # Consume every button token together; duplicate activations cannot change a choice.
             pending.toast_tokens.clear()
         return self.respond(request_id, decision)
+
+    def consume_review_request(self) -> str | None:
+        with self._lock:
+            for pending in self._pending.values():
+                if (
+                    pending.review_requested
+                    and not pending.future.done()
+                    and pending.request.deadline_at > datetime.now(UTC)
+                ):
+                    pending.review_requested = False
+                    return pending.request.request_id
+        return None
 
     def is_pending(self, request_id: str) -> bool:
         with self._lock:

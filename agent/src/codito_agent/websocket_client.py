@@ -345,8 +345,10 @@ class DeviceWebSocketClient:
                 # The original coroutine survives transient socket loss and will
                 # publish its terminal result using the new connection fence.
                 return
-            if tool_name == "project_shell" and tool_input.get("action") == "start":
-                await self._terminalize_uncertain_shell(envelope)
+            if tool_name == "device_desktop" or (
+                tool_name == "project_shell" and tool_input.get("action") == "start"
+            ):
+                await self._terminalize_uncertain_action(envelope)
                 return
             self._start_dispatch(
                 envelope,
@@ -476,10 +478,10 @@ class DeviceWebSocketClient:
             terminal=True,
         )
 
-    async def _terminalize_uncertain_shell(self, envelope: TunnelEnvelope) -> None:
+    async def _terminalize_uncertain_action(self, envelope: TunnelEnvelope) -> None:
         error = AgentError(
             "outcome_unknown",
-            "A prior shell start may have executed; Codito never replays uncertain commands",
+            "A prior native action may have executed; Codito never replays uncertain actions",
             retryable=False,
         )
         payload = to_tool_failure(error, envelope.correlation_id).model_dump(

@@ -1,0 +1,40 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/device-desktop-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "const": "open_browser",
+      "default": "open_browser",
+      "title": "Action",
+      "type": "string"
+    },
+    "browser": {
+      "default": "default",
+      "enum": [
+        "default",
+        "firefox"
+      ],
+      "title": "Browser",
+      "type": "string"
+    },
+    "purpose": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "url",
+    "purpose"
+  ],
+  "title": "DeviceDesktopInput",
+  "type": "object"
+}

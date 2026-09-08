@@ -13,6 +13,7 @@ from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 
 from .authz import AuthorizationFailure, MCPPrincipal, authenticate_mcp
+from .diagnostics import emit
 from .dispatch import ToolDispatchError, dispatch_tool, error_tool_result, success_tool_result
 
 mcp = MCPServer(
@@ -41,11 +42,41 @@ def _principal(context: Context) -> MCPPrincipal:
 
 
 async def _run(context: Context, name: str, arguments: dict[str, Any]) -> CallToolResult:
+    principal: MCPPrincipal | None = None
+    meta: dict[str, Any] | None = None
     try:
-        receipt = await dispatch_tool(_principal(context), name, arguments)
+        principal = _principal(context)
+        receipt = await dispatch_tool(principal, name, arguments)
         result = success_tool_result(receipt)
     except ToolDispatchError as exc:
         result = error_tool_result(exc)
+        if exc.code == "insufficient_scope" and principal is not None:
+            # A tool error is HTTP 200, so the gateway's HTTP 401 challenge is
+            # never reached. ChatGPT needs this result-level challenge to relink
+            # the current connection instead of repeatedly using its old grant.
+            required = set(exc.details["required_scopes"])
+            allowed = set(settings.MCP_TOOL_SCOPES) | {"openid", "profile"}
+            scopes = " ".join(sorted((principal.scopes | required) & allowed))
+            metadata_url = (
+                f"{settings.PUBLIC_BASE_URL}/.well-known/oauth-protected-resource"
+                f"/mcp/d/{principal.link_id}"
+            )
+            meta = {
+                "mcp/www_authenticate": [
+                    f'Bearer resource_metadata="{metadata_url}", '
+                    'error="insufficient_scope", '
+                    'error_description="Reconnect this Codito connection to grant the '
+                    'requested permission", '
+                    f'scope="{scopes}"'
+                ]
+            }
+            emit(
+                "mcp.scope_challenge",
+                tool=name,
+                token_record_id=principal.access_token_id,
+                required_scopes=sorted(required),
+                missing_scopes=sorted(required - principal.scopes),
+            )
     return CallToolResult(
         content=[
             ImageContent(**item) if item["type"] == "image" else TextContent(**item)
@@ -53,6 +84,7 @@ async def _run(context: Context, name: str, arguments: dict[str, Any]) -> CallTo
         ],
         structuredContent=result["structuredContent"],
         isError=result["isError"],
+        meta=meta,
     )
 
 
@@ -253,13 +285,28 @@ async def device_read(
 async def device_screenshot(
     context: Context,
     purpose: str,
-    display: Literal["primary"] = "primary",
+    display: str = "primary",
     max_dimension: int = 1600,
+    action: Literal["capture", "list_displays"] = "capture",
 ) -> CallToolResult:
     return await _run(
         context,
         "device_screenshot",
-        {"purpose": purpose, "display": display, "max_dimension": max_dimension},
+        {"action": action, "purpose": purpose, "display": display, "max_dimension": max_dimension},
+    )
+
+
+async def device_desktop(
+    context: Context,
+    url: str,
+    purpose: str,
+    action: Literal["open_browser"] = "open_browser",
+    browser: Literal["default", "firefox"] = "default",
+) -> CallToolResult:
+    return await _run(
+        context,
+        "device_desktop",
+        {"action": action, "url": url, "purpose": purpose, "browser": browser},
     )
 
 
@@ -282,6 +329,7 @@ _register_tool("project_shell", project_shell)
 _register_tool("project_manage", project_manage)
 _register_tool("device_read", device_read)
 _register_tool("device_screenshot", device_screenshot)
+_register_tool("device_desktop", device_desktop)
 
 mcp_http_app = mcp.streamable_http_app(
     streamable_http_path="/",

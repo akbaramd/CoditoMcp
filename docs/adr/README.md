@@ -13,4 +13,5 @@ adds a new ADR that marks the prior one superseded.
 | [0006](0006-local-path-privacy.md) | Absolute paths remain on device | Accepted |
 | [0007](0007-locally-governed-project-management.md) | Locally governed project management | Accepted |
 | [0013](0013-native-project-approvals.md) | Native project routing, persistent shell grants and actionable approvals | Accepted |
-| [0014](0014-consented-screenshots.md) | Separate-consent primary-display screenshots | Accepted |
+| [0014](0014-consented-screenshots.md) | Separate-consent primary-display screenshots | Partially superseded by 0015 |
+| [0015](0015-selected-display-and-browser-consent.md) | Selected-display Always allow and bounded browser opening | Accepted |

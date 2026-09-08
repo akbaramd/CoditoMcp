@@ -42,6 +42,7 @@ async def sign_in(config: AgentConfig, *, reenroll: bool = False) -> EnrollmentR
     if reenroll and credentials.metadata_path.exists():
         database.revoke_read_permissions()
         database.revoke_shell_permissions()
+        database.revoke_screen_permissions()
         identity = credentials.rotate()
         database.rotate_project_ids()
     elif credentials.metadata_path.exists():
@@ -75,6 +76,7 @@ async def sign_out(config: AgentConfig) -> None:
     finally:
         database.revoke_read_permissions()
         database.revoke_shell_permissions()
+        database.revoke_screen_permissions()
         tokens.clear()
     if credentials.metadata_path.exists():
         credentials.rotate()

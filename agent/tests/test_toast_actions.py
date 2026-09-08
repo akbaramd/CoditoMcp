@@ -23,6 +23,8 @@ async def test_toast_buttons_are_bound_one_use_and_xml_escaped():
     document = ET.fromstring(toast_specification(pending)["xml"])  # noqa: S314 - generated test XML.
     buttons = document.findall("actions/action")
     assert [b.attrib["content"] for b in buttons] == ["Deny", "Allow", "Always allow"]
+    assert document.attrib["activationType"] == "foreground"
+    assert all(button.attrib["activationType"] == "foreground" for button in buttons)
     clicked = activation_request(buttons[2].attrib["arguments"])
     args = {k: v for k, v in clicked.items() if k != "action"}
     assert not queue.respond_toast(**{**args, "decision": "deny"})
@@ -44,3 +46,21 @@ async def test_toast_buttons_are_bound_one_use_and_xml_escaped():
 def test_bad_activation_never_reaches_ipc(uri):
     with pytest.raises(ValueError):
         activation_request(uri)
+
+
+@pytest.mark.asyncio
+async def test_screen_always_button_has_separate_one_use_decision():
+    queue = QueuedApprovalPrompt()
+    task = asyncio.create_task(queue(replace(request(), persistent_screen_eligible=True)))
+    await asyncio.sleep(0)
+    pending = queue.next_request()
+    document = ET.fromstring(toast_specification(pending)["xml"])  # noqa: S314 - generated XML.
+    button = document.findall("actions/action")[2]
+    assert button.attrib["content"] == "Always allow"
+    clicked = activation_request(button.attrib["arguments"])
+    assert clicked["decision"] == "allow_always_screen"
+    args = {k: v for k, v in clicked.items() if k != "action"}
+    assert not queue.respond_toast(**{**args, "decision": "allow_always_shell"})
+    assert queue.respond_toast(**args)
+    assert not queue.respond_toast(**args)
+    assert await task is ApprovalDecision.ALLOW_ALWAYS_SCREEN

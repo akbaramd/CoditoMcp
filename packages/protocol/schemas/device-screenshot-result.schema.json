@@ -1,55 +1,155 @@
 {
-  "$id": "https://codito.akbaramd.ir/schemas/v1/device-screenshot-result.schema.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
-  "properties": {
-    "captured_at": {
-      "format": "date-time",
-      "title": "Captured At",
-      "type": "string"
+  "$defs": {
+    "DeviceDisplaysResult": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "list_displays",
+          "default": "list_displays",
+          "title": "Action",
+          "type": "string"
+        },
+        "displays": {
+          "items": {
+            "$ref": "#/$defs/DisplayInfo"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Displays",
+          "type": "array"
+        },
+        "topology_id": {
+          "title": "Topology Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "displays",
+        "topology_id"
+      ],
+      "title": "DeviceDisplaysResult",
+      "type": "object"
     },
-    "display": {
-      "const": "primary",
-      "default": "primary",
-      "title": "Display",
-      "type": "string"
+    "DeviceScreenshotResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "display": {
+          "default": "primary",
+          "pattern": "^(primary|screen_[a-f0-9]{64})$",
+          "title": "Display",
+          "type": "string"
+        },
+        "height": {
+          "maximum": 2048,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "image_base64": {
+          "maxLength": 800000,
+          "minLength": 1,
+          "title": "Image Base64",
+          "type": "string"
+        },
+        "mime_type": {
+          "const": "image/png",
+          "default": "image/png",
+          "title": "Mime Type",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "width": {
+          "maximum": 2048,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "captured_at",
+        "sha256",
+        "image_base64"
+      ],
+      "title": "DeviceScreenshotResult",
+      "type": "object"
     },
-    "height": {
-      "maximum": 2048,
-      "minimum": 1,
-      "title": "Height",
-      "type": "integer"
-    },
-    "image_base64": {
-      "maxLength": 800000,
-      "minLength": 1,
-      "title": "Image Base64",
-      "type": "string"
-    },
-    "mime_type": {
-      "const": "image/png",
-      "default": "image/png",
-      "title": "Mime Type",
-      "type": "string"
-    },
-    "sha256": {
-      "title": "Sha256",
-      "type": "string"
-    },
-    "width": {
-      "maximum": 2048,
-      "minimum": 1,
-      "title": "Width",
-      "type": "integer"
+    "DisplayInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "maximum": 32768,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "id": {
+          "pattern": "^screen_[a-f0-9]{64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "identity": {
+          "title": "Identity",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "persistent_permission_supported": {
+          "title": "Persistent Permission Supported",
+          "type": "boolean"
+        },
+        "primary": {
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "scale_factor": {
+          "maximum": 8,
+          "minimum": 0.25,
+          "title": "Scale Factor",
+          "type": "number"
+        },
+        "width": {
+          "maximum": 32768,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "primary",
+        "width",
+        "height",
+        "scale_factor",
+        "identity",
+        "persistent_permission_supported"
+      ],
+      "title": "DisplayInfo",
+      "type": "object"
     }
   },
-  "required": [
-    "width",
-    "height",
-    "captured_at",
-    "sha256",
-    "image_base64"
-  ],
-  "title": "DeviceScreenshotResult",
-  "type": "object"
+  "$id": "https://codito.akbaramd.ir/schemas/v1/device-screenshot-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/DeviceScreenshotResult"
+    },
+    {
+      "$ref": "#/$defs/DeviceDisplaysResult"
+    }
+  ]
 }

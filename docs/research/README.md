@@ -1,6 +1,6 @@
 # Research index
 
-Last reviewed: **2026-09-08**.
+Last reviewed: **2026-09-09**.
 
 This bibliography captures the primary sources used for the MVP decisions. The
 documents describe the intended design; automated tests and deployment evidence
@@ -15,6 +15,7 @@ determine whether a control is actually active.
 | Build an MCP server | [OpenAI — Build your MCP server](https://developers.openai.com/plugins/build/mcp-server) | 2026-09-08 | Tool metadata and remote server expectations |
 | Tool names and descriptions | [OpenAI — Optimize metadata](https://developers.openai.com/plugins/guides/optimize-metadata) | 2026-09-08 | Focused action-oriented tool surface; ADR 0018 |
 | Invocation status titles | [OpenAI — Apps reference](https://developers.openai.com/plugins/reference) | 2026-09-08 | Human-readable title plus static invoking/invoked status, maximum 64 characters |
+| Structured tool results | [OpenAI — Apps reference](https://developers.openai.com/plugins/reference) | 2026-09-09 | Every tool returning `structuredContent` declares an exact `outputSchema` |
 | Python implementation | [Model Context Protocol — Python SDK](https://github.com/modelcontextprotocol/python-sdk) | 2026-09-08 | Official SDK v2 and Streamable HTTP transport |
 | Authorization | [MCP Authorization specification](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) | 2026-09-08 | OAuth discovery, resource indicators, and token audience validation |
 

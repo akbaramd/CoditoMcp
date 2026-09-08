@@ -13,7 +13,7 @@ from .device_read import DeviceReadInput, DeviceReadResult
 from .envelope import TunnelEnvelope
 from .errors import ToolError
 from .facade import FACADE_MODELS
-from .facade_contracts import FacadeToolResult
+from .facade_contracts import FACADE_OUTPUT_MODELS
 from .manage import ProjectManageInput, ProjectManageResult
 from .patch import ProjectApplyPatchInput, ProjectApplyPatchResult
 from .read import ProjectReadInput, ProjectReadResult
@@ -25,7 +25,10 @@ _ADAPTERS: dict[str, TypeAdapter[Any]] = {
         f"facade-{name.replace('_', '-')}-input": TypeAdapter(model)
         for name, model in FACADE_MODELS.items()
     },
-    "facade-tool-result": TypeAdapter(FacadeToolResult),
+    **{
+        f"facade-{name.replace('_', '-')}-output": TypeAdapter(model)
+        for name, model in FACADE_OUTPUT_MODELS.items()
+    },
     "device-desktop-input": TypeAdapter(DeviceDesktopInput),
     "device-desktop-result": TypeAdapter(DeviceDesktopResult),
     "device-screenshot-input": TypeAdapter(DeviceScreenshotInput),

@@ -2,18 +2,59 @@
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime
+from typing import Any, Literal
 
+from pydantic import Field
+
+from .desktop_action import DeviceDesktopResult
 from .errors import ToolError
-from .types import CoditoModel
+from .manage import ProjectRegistrationRequestResult, RemoveProjectResult, RenameProjectResult
+from .patch import ProjectApplyPatchResult
+from .read import ListDirectoryResult, ListProjectsResult, ReadFileResult, SearchTextResult
+from .screenshot import DeviceDisplaysResult, DisplaySelector
+from .shell import ShellCancelResult, ShellPollResult, ShellStartResult
+from .types import CoditoModel, Sha256
 
 
-class FacadeToolResult(CoditoModel):
+class FacadeToolResult[ResultT](CoditoModel):
+    """Common result envelope with a tool-specific structured payload."""
+
     ok: bool
     text: str
     operation_id: str | None = None
-    result: dict[str, Any] | None = None
+    result: ResultT | None = None
     error: ToolError | None = None
+
+
+class ScreenshotCaptureResult(CoditoModel):
+    """Model-visible screenshot metadata; PNG bytes travel as MCP ImageContent."""
+
+    mime_type: Literal["image/png"] = "image/png"
+    display: DisplaySelector = "primary"
+    width: int = Field(ge=1, le=2048)
+    height: int = Field(ge=1, le=2048)
+    captured_at: datetime
+    sha256: Sha256
+
+
+FACADE_OUTPUT_MODELS: dict[str, type[CoditoModel]] = {
+    "projects_list": FacadeToolResult[ListProjectsResult],
+    "project_add": FacadeToolResult[ProjectRegistrationRequestResult],
+    "project_rename": FacadeToolResult[RenameProjectResult],
+    "project_remove": FacadeToolResult[RemoveProjectResult],
+    "directory_list": FacadeToolResult[ListDirectoryResult],
+    "file_read": FacadeToolResult[ReadFileResult],
+    "text_search": FacadeToolResult[SearchTextResult],
+    "file_patch": FacadeToolResult[ProjectApplyPatchResult],
+    "file_delete": FacadeToolResult[ProjectApplyPatchResult],
+    "execute_shell": FacadeToolResult[ShellStartResult],
+    "shell_status": FacadeToolResult[ShellPollResult],
+    "shell_cancel": FacadeToolResult[ShellCancelResult],
+    "screen_list": FacadeToolResult[DeviceDisplaysResult],
+    "screenshot_capture": FacadeToolResult[ScreenshotCaptureResult],
+    "browser_open": FacadeToolResult[DeviceDesktopResult],
+}
 
 
 def _contract(

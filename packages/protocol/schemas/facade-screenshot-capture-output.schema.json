@@ -42,6 +42,53 @@
       "title": "ErrorCode",
       "type": "string"
     },
+    "ScreenshotCaptureResult": {
+      "additionalProperties": false,
+      "description": "Model-visible screenshot metadata; PNG bytes travel as MCP ImageContent.",
+      "properties": {
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "display": {
+          "default": "primary",
+          "pattern": "^(primary|screen_[a-f0-9]{64})$",
+          "title": "Display",
+          "type": "string"
+        },
+        "height": {
+          "maximum": 2048,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "mime_type": {
+          "const": "image/png",
+          "default": "image/png",
+          "title": "Mime Type",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "width": {
+          "maximum": 2048,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "captured_at",
+        "sha256"
+      ],
+      "title": "ScreenshotCaptureResult",
+      "type": "object"
+    },
     "ToolError": {
       "additionalProperties": false,
       "properties": {
@@ -85,7 +132,7 @@
       "type": "object"
     }
   },
-  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-tool-result.schema.json",
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-screenshot-capture-output.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -119,15 +166,13 @@
     "result": {
       "anyOf": [
         {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/$defs/ScreenshotCaptureResult"
         },
         {
           "type": "null"
         }
       ],
-      "default": null,
-      "title": "Result"
+      "default": null
     },
     "text": {
       "title": "Text",
@@ -138,6 +183,6 @@
     "ok",
     "text"
   ],
-  "title": "FacadeToolResult",
+  "title": "FacadeToolResult[ScreenshotCaptureResult]",
   "type": "object"
 }

@@ -11,6 +11,7 @@ from test_facade_http import assert_focused_facade_http
 from test_mcp_scope_challenge import assert_screen_scope_challenge_survives_http_sdk_serialization
 from test_screenshot_wire_image import assert_selected_screen_is_imagecontent_in_actual_sdk_response
 
+from codito_relay import __version__
 from codito_relay.asgi import application
 
 
@@ -63,6 +64,10 @@ def test_mcp_initialization_list_and_local_tool_call(
             },
         )
         assert initialized.status_code == 200, initialized.text
+        assert initialized.json()["result"]["serverInfo"] == {
+            "name": "Codito",
+            "version": __version__,
+        }
         negotiated = initialized.json()["result"]["protocolVersion"]
         versioned_headers = {**headers, "MCP-Protocol-Version": negotiated}
         tools = client.post(
@@ -90,15 +95,21 @@ def test_mcp_initialization_list_and_local_tool_call(
             "browser_open",
         ]
         assert all(tool.get("_meta", {}).get("securitySchemes") for tool in descriptors)
+        output_schema_titles: set[str] = set()
         for descriptor in descriptors:
             assert descriptor["title"]
             assert descriptor["outputSchema"]["properties"]["ok"]
+            result_schema = descriptor["outputSchema"]["properties"]["result"]
+            assert result_schema["anyOf"][0]["$ref"]
+            output_schema_titles.add(descriptor["outputSchema"]["title"])
             assert descriptor["inputSchema"]["additionalProperties"] is False
             assert not {"action", "operation", "approved", "trusted"}.intersection(
                 descriptor["inputSchema"]["properties"]
             )
             for status in ("invoking", "invoked"):
                 assert 1 <= len(descriptor["_meta"][f"openai/toolInvocation/{status}"]) <= 64
+        # file_patch and file_delete intentionally share the journaled patch result.
+        assert len(output_schema_titles) == len(descriptors) - 1
         called = client.post(
             endpoint,
             headers=versioned_headers,

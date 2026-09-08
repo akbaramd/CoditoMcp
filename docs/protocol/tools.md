@@ -1,6 +1,6 @@
 # MCP tool contracts
 
-Updated 2026-09-08. The public catalog now contains 15 focused tools. Existing
+Updated 2026-09-09. The public catalog contains 15 focused tools. Existing
 authenticated legacy names remain callable for cached clients but are not listed.
 See [ADR 0018](../adr/0018-focused-tools-and-local-access.md).
 
@@ -39,6 +39,14 @@ OAuth security schemes and static short invoking/invoked status strings.
 ChatGPT controls its own narrative and host approval UI. Metadata cannot force a
 custom sentence for every runtime argument. After a schema change, a client with
 cached tools may need a tool refresh; the old callable aliases remain available.
+
+Every public tool declares its own exact `outputSchema`, including its typed
+`result` payload and the common success/error envelope. For example, file reads
+advertise numbered text/hash/continuation fields, shell start advertises job state,
+and screenshots advertise image metadata while PNG bytes travel separately as MCP
+`ImageContent`. Returned `structuredContent` is validated by the protocol models.
+The MCP `initialize` response publishes the Codito release SemVer as
+`serverInfo.version`; a new release therefore exposes a new handshake version.
 
 ## Files
 

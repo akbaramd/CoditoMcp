@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from codito_protocol import TOOL_CONTRACTS
 from codito_protocol.facade import FACADE_MODELS, facade_wire_request
-from codito_protocol.facade_contracts import FACADE_CONTRACTS, FacadeToolResult
+from codito_protocol.facade_contracts import FACADE_CONTRACTS, FACADE_OUTPUT_MODELS
 from django.conf import settings
 from mcp.server.mcpserver import Context, MCPServer
 from mcp_types import (
@@ -21,6 +21,8 @@ from mcp_types import (
 from pydantic import ValidationError
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
+
+from codito_relay import __version__
 
 from .authz import AuthorizationFailure, MCPPrincipal, authenticate_mcp
 from .diagnostics import emit
@@ -37,7 +39,7 @@ class CoditoMCPServer(MCPServer[Any]):
                 title=contract["title"],
                 description=contract["description"],
                 input_schema=FACADE_MODELS[name].model_json_schema(),
-                output_schema=FacadeToolResult.model_json_schema(),
+                output_schema=FACADE_OUTPUT_MODELS[name].model_json_schema(),
                 annotations=ToolAnnotations(**contract["annotations"]),
                 meta={
                     "securitySchemes": contract["securitySchemes"],
@@ -61,6 +63,7 @@ class CoditoMCPServer(MCPServer[Any]):
 
 mcp = CoditoMCPServer(
     "Codito",
+    version=__version__,
     instructions=(
         "Use focused tools with opaque project IDs from projects_list. Each content/action call "
         "is authorized under that project's locally configured policy, not an ambient active "
@@ -144,6 +147,23 @@ async def _run(context: Context, name: str, arguments: dict[str, Any]) -> CallTo
                 token_record_id=principal.access_token_id,
                 required_scopes=sorted(required),
                 missing_scopes=sorted(required - principal.scopes),
+            )
+    if name in FACADE_OUTPUT_MODELS:
+        try:
+            validated_output = FACADE_OUTPUT_MODELS[name].model_validate(
+                result["structuredContent"]
+            )
+            result["structuredContent"] = validated_output.model_dump(
+                mode="json", exclude_none=True
+            )
+        except ValidationError:
+            emit("mcp.output_validation_failed", tool=name)
+            result = error_tool_result(
+                ToolDispatchError(
+                    "internal_error",
+                    "Tool result failed its declared output schema",
+                    retryable=False,
+                )
             )
     return CallToolResult(
         content=[

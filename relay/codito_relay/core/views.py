@@ -383,7 +383,7 @@ def oidc_discovery(request: HttpRequest) -> JsonResponse:
     data.update(
         {
             "subject_types_supported": ["public"],
-            "id_token_signing_alg_values_supported": ["RS256", "ES256"],
+            "id_token_signing_alg_values_supported": ["RS256"],
             "claims_supported": ["sub", "email"],
         }
     )

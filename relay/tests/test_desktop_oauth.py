@@ -4,7 +4,9 @@ import base64
 import hashlib
 import json
 import time
+from html.parser import HTMLParser
 from io import StringIO
+from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 from uuid import uuid4
 
@@ -23,6 +25,44 @@ def pkce_challenge(verifier: str) -> str:
     return (
         base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     )
+
+
+class HiddenConsentFields(HTMLParser):
+    """Submit the fields actually rendered to the browser, not an invented form."""
+
+    def __init__(self, html: str) -> None:
+        super().__init__()
+        self.fields: dict[str, str] = {}
+        self.feed(html)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        if tag == "input" and attributes.get("type") == "hidden" and attributes.get("name"):
+            self.fields[str(attributes["name"])] = attributes.get("value") or ""
+
+
+def assert_signed_oidc_response(
+    client: Client, body: dict[str, Any], client_id: str, subject: str, nonce: str
+) -> None:
+    keys = client.get("/.well-known/jwks.json", secure=True).json()["keys"]
+    verified = jwt.JWT(
+        jwt=body["id_token"],
+        key=jwk.JWK(**keys[0]),
+        algs=["RS256"],
+        check_claims={
+            "iss": settings.PUBLIC_BASE_URL,
+            "aud": client_id,
+            "sub": subject,
+            "nonce": nonce,
+            "exp": None,
+        },
+    )
+    assert json.loads(verified.header)["kid"] == keys[0]["kid"]
+    userinfo = client.get(
+        "/oidc/userinfo", secure=True, HTTP_AUTHORIZATION=f"Bearer {body['access_token']}"
+    )
+    assert userinfo.status_code == 200
+    assert userinfo.json()["sub"] == subject
 
 
 @pytest.mark.django_db(transaction=True)
@@ -164,7 +204,8 @@ def test_device_api_rejects_cookie_session(user) -> None:  # type: ignore[no-unt
 
 
 @pytest.mark.django_db(transaction=True)
-def test_mcp_pkce_exchange_creates_exact_resource_binding(user, link) -> None:  # type: ignore[no-untyped-def]
+@pytest.mark.parametrize("include_scope", [True, False])
+def test_mcp_pkce_exchange_creates_exact_resource_binding(user, link, include_scope: bool) -> None:  # type: ignore[no-untyped-def]
     redirect_uri = "https://chatgpt.com/aip/plugin/oauth/callback"
     application = Application.objects.create(
         client_id="https://chatgpt.com/.well-known/oauth-client/codito-test",
@@ -182,19 +223,22 @@ def test_mcp_pkce_exchange_creates_exact_resource_binding(user, link) -> None:  
         "client_id": application.client_id,
         "response_type": "code",
         "redirect_uri": redirect_uri,
-        "scope": "projects:read files:read",
+        "scope": "projects:read files:read openid profile",
         "resource": link.resource,
         "code_challenge": pkce_challenge(verifier),
         "code_challenge_method": "S256",
         "state": "mcp-state-0123456789",
+        "nonce": "mcp-oidc-nonce",
     }
+    if not include_scope:
+        del authorize["scope"]
     client = Client()
     client.force_login(user)
     consent = client.get(f"/o/authorize/?{urlencode(authorize)}", secure=True)
     assert consent.status_code == 200, consent.content.decode()
     approved = client.post(
         "/o/authorize/",
-        {**authorize, "allow": "Authorize"},
+        {**HiddenConsentFields(consent.content.decode()).fields, "allow": "Authorize"},
         secure=True,
     )
     assert approved.status_code == 302, approved.content.decode()
@@ -213,6 +257,12 @@ def test_mcp_pkce_exchange_creates_exact_resource_binding(user, link) -> None:  
         secure=True,
     )
     assert token_response.status_code == 200, token_response.content.decode()
+    if include_scope:
+        assert_signed_oidc_response(
+            client, token_response.json(), application.client_id, str(user.pk), authorize["nonce"]
+        )
+    else:
+        assert "id_token" not in token_response.json()
     raw_token = token_response.json()["access_token"]
     token = AccessToken.objects.get(token_checksum=hashlib.sha256(raw_token.encode()).hexdigest())
     binding = OAuthGrantBinding.objects.get(access_token=token)
@@ -221,7 +271,23 @@ def test_mcp_pkce_exchange_creates_exact_resource_binding(user, link) -> None:  
     assert binding.account_id == user.pk
     assert binding.device_link_id == link.pk
     assert binding.oauth_grant_id
-    assert frozenset(token.scope.split()) == frozenset({"projects:read", "files:read"})
+    expected_scopes = {"projects:read", "files:read"}
+    if include_scope:
+        expected_scopes.update({"openid", "profile"})
+    assert frozenset(token.scope.split()) == frozenset(expected_scopes)
+
+    # A previously issued ID token must be usable as a reauthorization hint;
+    # legacy CIMD rows have a blank algorithm in the database.
+    if include_scope:
+        hinted = client.get(
+            "/o/authorize/",
+            {
+                **authorize,
+                "id_token_hint": token_response.json()["id_token"],
+            },
+            secure=True,
+        )
+        assert hinted.status_code == 200
 
     original_grant_id = binding.oauth_grant_id
     refresh_response = client.post(
@@ -286,11 +352,12 @@ def test_chatgpt_private_key_jwt_exchange_and_replay_protection(  # type: ignore
         "client_id": application.client_id,
         "response_type": "code",
         "redirect_uri": redirect_uri,
-        "scope": "projects:read files:read",
+        "scope": " ".join([*settings.MCP_TOOL_SCOPES, "openid", "profile"]),
         "resource": link.resource,
         "code_challenge": pkce_challenge(verifier),
         "code_challenge_method": "S256",
         "state": "signed-state-0123456789",
+        "nonce": "signed-oidc-nonce",
     }
     client = Client()
     client.force_login(user)
@@ -298,7 +365,14 @@ def test_chatgpt_private_key_jwt_exchange_and_replay_protection(  # type: ignore
     def authorize_code() -> str:
         consent = client.get(f"/o/authorize/?{urlencode(authorize)}", secure=True)
         assert consent.status_code == 200, consent.content.decode()
-        approved = client.post("/o/authorize/", {**authorize, "allow": "Authorize"}, secure=True)
+        approved = client.post(
+            "/o/authorize/",
+            {
+                **HiddenConsentFields(consent.content.decode()).fields,
+                "allow": "Authorize",
+            },
+            secure=True,
+        )
         assert approved.status_code == 302, approved.content.decode()
         return parse_qs(urlparse(approved["Location"]).query)["code"][0]
 
@@ -325,6 +399,9 @@ def test_chatgpt_private_key_jwt_exchange_and_replay_protection(  # type: ignore
     }
     accepted = client.post("/o/token/", {**form, "code": authorize_code()}, secure=True)
     assert accepted.status_code == 200, accepted.content.decode()
+    assert_signed_oidc_response(
+        client, accepted.json(), client_id, str(user.pk), authorize["nonce"]
+    )
     token = AccessToken.objects.get(
         token_checksum=hashlib.sha256(accepted.json()["access_token"].encode()).hexdigest()
     )

@@ -86,7 +86,37 @@ class CoditoCIMDMetadataFetcher(SafeMetadataFetcher):  # type: ignore[misc]
 
 
 class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
-    """Keep desktop identity grants disjoint from per-device MCP grants."""
+    """Share OIDC identity scopes, never desktop and MCP capability scopes."""
+
+    def get_default_scopes(
+        self, client_id: str, request: Any, *args: Any, **kwargs: Any
+    ) -> list[str]:
+        # DOT's global default is every configured scope, which mixes desktop
+        # enrollment authority into an MCP request when scope is omitted.
+        client = getattr(request, "client", None)
+        if self._is_desktop(client):
+            return ["openid", "profile", "device:manage"]
+        if is_allowed_mcp_application(client):
+            # OIDC must be explicitly requested so oauthlib preserves its nonce.
+            return ["projects:read", "files:read"]
+        return []
+
+    def finalize_id_token(self, id_token: Any, token: Any, token_handler: Any, request: Any) -> str:
+        if is_allowed_mcp_application(getattr(request, "client", None)):
+            # DOT's CIMD registration leaves algorithm blank. Select the relay's
+            # configured asymmetric key for both existing and newly registered
+            # approved CIMD clients. Do not change client authentication (the
+            # incoming private_key_jwt uses ChatGPT's separate public JWKS).
+            # This is request-local policy, not a mutation of the client record.
+            request.client.algorithm = Application.RS256_ALGORITHM
+        return str(super().finalize_id_token(id_token, token, token_handler, request))
+
+    def _get_client_by_audience(self, audience: Any) -> Any:
+        client = super()._get_client_by_audience(audience)
+        # Apply the same signing policy when DOT verifies an id_token_hint.
+        if is_allowed_mcp_application(client):
+            client.algorithm = Application.RS256_ALGORITHM
+        return client
 
     @staticmethod
     def _is_desktop(client: Application | None) -> bool:
@@ -286,7 +316,7 @@ class CoditoOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
         if self._is_desktop(client):
             allowed = {"openid", "profile", "device:manage"}
         elif is_allowed_mcp_application(client):
-            allowed = set(settings.MCP_TOOL_SCOPES)
+            allowed = set(settings.MCP_TOOL_SCOPES) | {"openid", "profile"}
         else:
             allowed = set()
         valid = set(scopes).issubset(allowed)

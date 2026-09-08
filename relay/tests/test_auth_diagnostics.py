@@ -192,7 +192,7 @@ def test_real_authorize_scope_failure_has_safe_diagnostics(
         {
             "client_id": app.client_id,
             "redirect_uri": app.redirect_uris,
-            "scope": "projects:read openid profile",
+            "scope": "projects:read openid profile device:manage",
             "response_type": "code",
             "resource": link.resource,
             "code_challenge": "a" * 43,

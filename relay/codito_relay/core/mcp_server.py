@@ -273,7 +273,8 @@ class DeviceMCPGateway:
                 status_code=exc.status,
                 headers={
                     "WWW-Authenticate": (
-                        f'Bearer resource_metadata="{metadata_url}", error="{exc.code}"'
+                        f'Bearer resource_metadata="{metadata_url}", error="{exc.code}", '
+                        f'scope="{" ".join(settings.MCP_TOOL_SCOPES)}"'
                     )
                 },
             )

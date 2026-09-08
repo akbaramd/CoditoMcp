@@ -93,3 +93,51 @@ the user saw a native banner. Release/install evidence and user-confirmed button
 activation are recorded separately after verification. Never declare uninterrupted
 connectivity: power loss, sleep, network loss, explicit revocation, and host-side
 plugin availability remain outside a promise of continuous service.
+
+## Release and real acceptance evidence
+
+- Feature commit: `258c40e209abd0bf9370194883853260b606e9a1`.
+- Release: [v0.1.11](https://github.com/akbaramd/CoditoMcp/releases/tag/v0.1.11),
+  commit `9dd6f366e05e9155ef3d4ba455a3fd5e5ecd8d96`.
+- [CI 34238266054](https://github.com/akbaramd/CoditoMcp/actions/runs/34238266054)
+  passed all five jobs, including the PostgreSQL-backed relay tests. Release run
+  `34238266044` also succeeded.
+- Final local suite: 471 passed, one PostgreSQL-only case skipped locally and
+  covered by CI. Strict mypy passed 80 modules; broker tests: 15 passed.
+  Staged secret scan found no leaks. One upstream Starlette deprecation warning
+  remains; it is not a failing test or connectivity error.
+- ZIP: 140,396,973 bytes; SHA-256
+  `dca181b312dca3074e4f8e902b0e39854436861148e9f0b4504959176c96ef2e`.
+  Installer verified the release digest and started daemon/tray from `app/0.1.11`.
+- Relay image: `docker.wa-nezam.org/codito/relay:0.1.11-9dd6f366e05e`,
+  digest `sha256:84c05d60522a4f097196c4300959b2645c3d4fa5fc6fa69719771d88c94447a7`.
+  Cached base images and existing shared PostgreSQL/Redis were reused.
+- Database backup: `/data/backups/codito/daily/codito-20260908T143336Z.dump`.
+  Rollback configuration: `.env.pre-0.1.11` and `compose.yaml.pre-0.1.11` in the
+  existing deployment directory. No new migrations were required.
+- Public readiness reports version 0.1.11; database, Redis and signing-key checks
+  pass. Runtime OAuth settings verified: access 3600 seconds, refresh 7776000
+  seconds. Device reconnected automatically at epoch 136 and was online.
+- A real MCP file read returned project version 0.1.11, operation
+  `e4070824-c24f-4da8-90fa-69e8e59ceb70`.
+- Harmless diagnostic approval `approval_pPq6HQC84XtjBycHc5Po6-jUuszP2NOF`
+  produced `toast_submitted`, then `approval_corner_displayed`, then the user's
+  `allow_once` decision. The user confirmed seeing the notification. No real
+  capability was granted by this diagnostic.
+- The installed COM probe initially ran before the lazy listener was started and
+  reported class-not-registered. After the first toast started its owned listener,
+  the same out-of-process probe passed and rejected the foreign-app input. This
+  startup probe is not itself an approval or evidence of banner visibility.
+- Real screenshot approval `approval_lUXzLo6kt5S_vbcu3cN0Rg2NXPl4Lmce` recorded the
+  user's `allow_always_screen`, followed by `screen_captured`. Relay operation
+  `bbd0a568-fd67-4a51-99e5-40264d495da4` succeeded with no error. The user explicitly
+  confirmed that the resulting image appeared in ChatGPT.
+- A subsequent screenshot operation `df94a110-c766-43e8-ab94-cb197bcb5ceb` also
+  succeeded. Neither private pixels nor approval credentials were copied into
+  these records, the repository, or diagnostic output.
+
+Screenshot journals intentionally retain a non-replay placeholder rather than
+image bytes. The current local Activity view may show that placeholder's
+`outcome_unknown` next to a succeeded state; it is not the live capture result.
+The relay's authoritative status for both accepted captures above is `succeeded`
+with an empty error code. A clearer historical label is a follow-up UI improvement.

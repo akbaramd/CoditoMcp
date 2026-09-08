@@ -191,6 +191,11 @@ class RelayClient:
         self.token_store.save(resumed)
         return resumed
 
+    async def revoke_device(self, state: RelayTokenState, device_id: str) -> None:
+        value = await self._authorized_post(state, f"/api/devices/{device_id}/revoke/", {})
+        if value.get("revoked") is not True:
+            raise AgentError("relay_protocol_error", "Relay did not confirm device revocation")
+
     async def issue_websocket_ticket(self) -> WebSocketTicket:
         state = await self.ensure_access_token()
         if state.device_id is None or state.link_id is None:

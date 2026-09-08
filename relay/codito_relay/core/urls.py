@@ -15,6 +15,11 @@ urlpatterns = [
     path("api/devices/enroll/", views.enroll_device, name="enroll-device"),
     path("api/devices/", views.list_desktop_devices, name="list-desktop-devices"),
     path(
+        "api/devices/<uuid:device_id>/revoke/",
+        views.revoke_desktop_device,
+        name="revoke-desktop-device",
+    ),
+    path(
         "api/devices/<uuid:device_id>/tickets/",
         views.issue_device_ticket,
         name="issue-device-ticket",

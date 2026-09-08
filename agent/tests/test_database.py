@@ -41,6 +41,20 @@ def test_project_metadata_updates_validate_identity_and_title(
         database.set_project_enabled("missing-project", enabled=False)
 
 
+def test_reenrollment_rotates_device_scoped_project_ids(tmp_path: Path, project_root: Path) -> None:
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    previous = database.register_project("Example", project_root)
+
+    mapping = database.rotate_project_ids()
+
+    assert mapping.keys() == {previous.project_id}
+    current = database.list_projects()[0]
+    assert current.project_id == mapping[previous.project_id]
+    assert current.project_id != previous.project_id
+    assert current.title == previous.title
+    assert current.root == previous.root
+
+
 def test_operation_receipt_is_durable_and_conflicting_reuse_is_rejected(tmp_path: Path) -> None:
     database = AgentDatabase(tmp_path / "agent.sqlite3")
     values = {

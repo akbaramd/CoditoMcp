@@ -225,6 +225,39 @@ class AgentDatabase:
         if cursor.rowcount != 1:
             raise AgentError("project_not_found", "The requested project is not registered")
 
+    def rotate_project_ids(self) -> dict[str, str]:
+        """Give every local project a new device-scoped opaque identifier.
+
+        A revoked device can never reclaim its relay identity.  Re-enrollment
+        therefore creates a new device and must also rotate the project ids
+        advertised by that device.  Roots, titles, modes, and local operation
+        history are preserved; old idempotency grants are deliberately cleared.
+        """
+
+        with self._connect() as connection:
+            rows = connection.execute("SELECT project_id FROM projects").fetchall()
+            mapping = {str(row["project_id"]): str(uuid.uuid4()) for row in rows}
+            if not mapping:
+                return mapping
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("PRAGMA defer_foreign_keys=ON")
+            try:
+                for previous, current in mapping.items():
+                    connection.execute(
+                        "UPDATE operations SET project_id=? WHERE project_id=?",
+                        (current, previous),
+                    )
+                    connection.execute(
+                        "UPDATE projects SET project_id=?,updated_at=? WHERE project_id=?",
+                        (current, _now(), previous),
+                    )
+                connection.execute("DELETE FROM idempotency")
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return mapping
+
     def disable_project(self, project_id: str) -> None:
         self.set_project_enabled(project_id, enabled=False)
 

@@ -2,18 +2,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import platform
 import sys
 from pathlib import Path
 
+from .account import sign_in, sign_out
 from .config import AgentConfig
 from .credentials import DeviceCredentialStore
 from .daemon import CoditoDaemon
 from .db import AgentDatabase
 from .errors import AgentError
 from .models import ProjectMode
-from .oidc import DesktopOidcLogin
-from .relay_client import RelayClient, RelayTokenStore
 from .startup import disable_startup, enable_startup
 
 
@@ -22,7 +20,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, help="Path to agent TOML configuration")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="Create local data and a device signing key")
-    commands.add_parser("login", help="Sign in with the system browser and enroll this device")
+    login = commands.add_parser(
+        "login", help="Sign in with the system browser and enroll this device"
+    )
+    login.add_argument(
+        "--reenroll",
+        action="store_true",
+        help="Rotate a revoked device identity and its device-scoped project ids",
+    )
     commands.add_parser("daemon", help="Run the background agent")
 
     register = commands.add_parser("register-project", help="Register a fixed local directory")
@@ -48,29 +53,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     startup = commands.add_parser("startup", help="Manage per-user sign-in startup")
     startup.add_argument("state", choices=["enable", "disable"])
+    commands.add_parser("logout", help="Revoke this device and clear local OAuth tokens")
     return parser
 
 
-async def _login(config: AgentConfig) -> None:
-    config.ensure_directories()
-    credentials = DeviceCredentialStore(config.data_directory / "credentials")
-    if credentials.metadata_path.exists():
-        identity = credentials.load()
-    else:
-        identity = credentials.enroll()
-    token_store = RelayTokenStore(config.data_directory / "tokens.dpapi")
-    relay = RelayClient(config.relay_http_url, config.desktop_client_id, token_store, credentials)
-    login = DesktopOidcLogin(
-        f"{config.relay_http_url.rstrip('/')}/o/authorize/",
-        config.desktop_client_id,
-        f"{config.relay_http_url.rstrip('/')}/device-api",
-    )
-    authorization = await login.authorize()
-    state = await relay.exchange_code(authorization)
-    if identity.device_id.startswith("local_"):
-        enrolled = await relay.enroll_device(state, platform.node() or "Windows device")
-    else:
-        enrolled = await relay.resume_device(state, identity.device_id)
+async def _login(config: AgentConfig, *, reenroll: bool = False) -> None:
+    result = await sign_in(config, reenroll=reenroll)
+    identity = result.identity
+    enrolled = result.tokens
     print(f"Enrolled device {enrolled.device_id}.")
     print(f"ChatGPT MCP URL: {enrolled.mcp_url}")
     if identity.hardware_backed:
@@ -114,7 +104,7 @@ def main() -> None:
             )
             print(f"Local device key ready: {identity.key_id}")
         elif arguments.command == "login":
-            asyncio.run(_login(config))
+            asyncio.run(_login(config, reenroll=arguments.reenroll))
         elif arguments.command == "register-project":
             selected_mode = ProjectMode(arguments.mode)
             _require_trusted_ack(selected_mode, arguments.acknowledge_full_user_authority)
@@ -142,6 +132,9 @@ def main() -> None:
             else:
                 disable_startup()
                 print("Codito sign-in startup was removed.")
+        elif arguments.command == "logout":
+            asyncio.run(sign_out(config))
+            print("Device revoked and local OAuth tokens removed.")
         elif arguments.command == "daemon":
             asyncio.run(CoditoDaemon(config).run())
     except AgentError as exc:

@@ -17,4 +17,5 @@
 {% empty %}<section class="card"><p>No device is enrolled. Sign in from the Windows agent to add this computer.</p></section>{% endfor %}
 <h2>Recent audit history</h2>
 <section class="card"><ul>{% for event in audit_events %}<li>{{ event.occurred_at }} · {{ event.event_type }}</li>{% empty %}<li>No events yet.</li>{% endfor %}</ul></section>
+<p class="muted">Codito Relay v{{ relay_version }}</p>
 {% endblock %}

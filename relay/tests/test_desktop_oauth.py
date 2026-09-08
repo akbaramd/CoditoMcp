@@ -111,6 +111,44 @@ def test_desktop_pkce_token_userinfo_enrollment_and_ticket(user) -> None:  # typ
     assert ticket.json()["link_id"] == enrolled.json()["link_id"]
     assert ticket.json()["mcp_url"] == enrolled.json()["mcp_url"]
 
+    duplicate_name = client.post(
+        "/api/devices/enroll/",
+        data=json.dumps(
+            {
+                "name": "Windows test device",
+                "public_key_jwk": {"kty": "EC", "crv": "P-256", "x": "x2", "y": "y2"},
+                "key_thumbprint": "8" * 64,
+            }
+        ),
+        content_type="application/json",
+        secure=True,
+        **bearer,
+    )
+    assert duplicate_name.status_code == 409
+    assert duplicate_name.json()["error"] == "device_name_conflict"
+
+    revoked = client.post(f"/api/devices/{device_id}/revoke/", secure=True, **bearer)
+    assert revoked.status_code == 200
+    assert revoked.json()["revoked"] is True
+    assert (
+        client.post(f"/api/devices/{device_id}/tickets/", secure=True, **bearer).status_code == 404
+    )
+    reenrolled = client.post(
+        "/api/devices/enroll/",
+        data=json.dumps(
+            {
+                "name": "Windows test device",
+                "public_key_jwk": {"kty": "EC", "crv": "P-256", "x": "x2", "y": "y2"},
+                "key_thumbprint": "8" * 64,
+            }
+        ),
+        content_type="application/json",
+        secure=True,
+        **bearer,
+    )
+    assert reenrolled.status_code == 201
+    assert reenrolled.json()["device_id"] != device_id
+
 
 @pytest.mark.django_db
 def test_device_api_rejects_cookie_session(user) -> None:  # type: ignore[no-untyped-def]

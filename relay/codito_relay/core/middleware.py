@@ -39,6 +39,8 @@ def _rate_limit_category(path: str) -> str | None:
         return "password_reset"
     if re.fullmatch(r"/api/devices/[0-9a-fA-F-]+/tickets/", path):
         return "device_ticket"
+    if re.fullmatch(r"/api/devices/[0-9a-fA-F-]+/revoke/", path):
+        return "device_enroll"
     return None
 
 

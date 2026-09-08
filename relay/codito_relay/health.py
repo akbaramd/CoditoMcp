@@ -11,11 +11,12 @@ from redis.asyncio import from_url
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from . import __version__
 from .core.models import Device
 
 
 async def live(request: Request) -> JSONResponse:
-    return JSONResponse({"status": "live"})
+    return JSONResponse({"status": "live", "version": __version__})
 
 
 def _database_ready() -> None:
@@ -46,7 +47,12 @@ async def ready(request: Request) -> JSONResponse:
     )
     status = 200 if all(value == "ok" for value in checks.values()) else 503
     return JSONResponse(
-        {"status": "ready" if status == 200 else "not_ready", "checks": checks}, status_code=status
+        {
+            "status": "ready" if status == 200 else "not_ready",
+            "version": __version__,
+            "checks": checks,
+        },
+        status_code=status,
     )
 
 

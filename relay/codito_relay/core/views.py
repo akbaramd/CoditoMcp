@@ -8,13 +8,15 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import login_required
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 from oauth2_provider.models import AccessToken
+
+from codito_relay import __version__
 
 from .forms import AdminResetPasswordForm, InvitationRegistrationForm
 from .models import (
@@ -73,7 +75,9 @@ def dashboard(request: HttpRequest) -> HttpResponse:
         :50
     ]
     return render(
-        request, "core/dashboard.html", {"devices": devices, "audit_events": audit_events}
+        request,
+        "core/dashboard.html",
+        {"devices": devices, "audit_events": audit_events, "relay_version": __version__},
     )
 
 
@@ -208,27 +212,79 @@ def enroll_device(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": "invalid_request"}, status=400)
     if not name or len(name) > 120 or not isinstance(public_key_jwk, dict) or len(thumbprint) != 64:
         return JsonResponse({"error": "invalid_request"}, status=400)
-    with transaction.atomic():
-        device = Device.objects.create(
-            account=account,
-            name=name,
-            public_key_jwk=public_key_jwk,
-            key_thumbprint=thumbprint,
-            status=Device.Status.OFFLINE,
+    if Device.objects.filter(account=account, name=name, revoked_at__isnull=True).exists():
+        return JsonResponse(
+            {"error": "device_name_conflict", "message": "Choose a unique device name."},
+            status=409,
         )
-        link = DeviceLink.objects.create(account=account, device=device)
-        AuditEvent.objects.create(
-            account=account,
-            actor_type="desktop_oauth",
-            actor_id=str(account.pk),
-            event_type="device.enrolled",
-            device=device,
-            metadata={"key_thumbprint": thumbprint},
+    if Device.objects.filter(account=account, key_thumbprint=thumbprint).exists():
+        return JsonResponse(
+            {
+                "error": "device_key_conflict",
+                "message": "A revoked device key cannot be reused; rotate the local key.",
+            },
+            status=409,
+        )
+    try:
+        with transaction.atomic():
+            device = Device.objects.create(
+                account=account,
+                name=name,
+                public_key_jwk=public_key_jwk,
+                key_thumbprint=thumbprint,
+                status=Device.Status.OFFLINE,
+            )
+            link = DeviceLink.objects.create(account=account, device=device)
+            AuditEvent.objects.create(
+                account=account,
+                actor_type="desktop_oauth",
+                actor_id=str(account.pk),
+                event_type="device.enrolled",
+                device=device,
+                metadata={"key_thumbprint": thumbprint},
+            )
+    except IntegrityError:
+        return JsonResponse(
+            {"error": "device_conflict", "message": "Device name or key is already registered."},
+            status=409,
         )
     return JsonResponse(
         {"device_id": str(device.pk), "link_id": str(link.link_id), "mcp_url": link.resource},
         status=201,
     )
+
+
+@csrf_exempt
+@require_POST
+def revoke_desktop_device(request: HttpRequest, device_id: str) -> JsonResponse:
+    account = _desktop_user(request)
+    if account is None:
+        return _desktop_unauthorized()
+    with transaction.atomic():
+        device = get_object_or_404(
+            Device.objects.select_for_update(),
+            pk=device_id,
+            account=account,
+            revoked_at__isnull=True,
+        )
+        now = timezone.now()
+        device.status = Device.Status.REVOKED
+        device.revoked_at = now
+        device.connection_epoch += 1
+        device.save(update_fields=["status", "revoked_at", "connection_epoch"])
+        DeviceLink.objects.filter(device=device, revoked_at__isnull=True).update(revoked_at=now)
+        OAuthGrantBinding.objects.filter(
+            device_link__device=device, revoked_at__isnull=True
+        ).update(revoked_at=now)
+        AuditEvent.objects.create(
+            account=account,
+            actor_type="desktop_oauth",
+            actor_id=str(account.pk),
+            event_type="device.revoked",
+            device=device,
+            metadata={"source": "windows_agent"},
+        )
+    return JsonResponse({"revoked": True, "device_id": str(device.pk)})
 
 
 @csrf_exempt

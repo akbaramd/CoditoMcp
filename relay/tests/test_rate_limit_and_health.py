@@ -18,6 +18,7 @@ from codito_relay.health import _database_ready
         ("/o/token/", "oauth_token"),
         ("/o/revoke_token/", "oauth_token"),
         ("/api/devices/enroll/", "device_enroll"),
+        ("/api/devices/12345678-1234-1234-1234-123456789012/revoke/", "device_enroll"),
         ("/api/devices/12345678-1234-1234-1234-123456789012/tickets/", "device_ticket"),
         ("/health/live", None),
     ],

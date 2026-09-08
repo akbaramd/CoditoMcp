@@ -32,3 +32,16 @@ def test_software_device_key_is_protected_and_signs(tmp_path: Path) -> None:
     assert isinstance(public, ec.EllipticCurvePublicKey)
     public.verify(signature, b"payload", ec.ECDSA(hashes.SHA256()))
     assert json.loads((tmp_path / "device.json").read_text())["backend"] == "dpapi"
+
+
+def test_rotating_revoked_identity_archives_old_key(tmp_path: Path) -> None:
+    store = DeviceCredentialStore(tmp_path, protector=ReversibleProtector())
+    previous = store.enroll()
+
+    current = store.rotate()
+
+    assert current.device_id != previous.device_id
+    assert current.key_thumbprint != previous.key_thumbprint
+    assert store.load() == current
+    assert len(list(tmp_path.glob("device.json.revoked-*"))) == 1
+    assert len(list(tmp_path.glob("device-key.dpapi.revoked-*"))) == 1

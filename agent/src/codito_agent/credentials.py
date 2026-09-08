@@ -246,6 +246,25 @@ class DeviceCredentialStore:
         self.metadata_path.unlink(missing_ok=True)
         self.fallback_path.unlink(missing_ok=True)
 
+    def rotate(self) -> DeviceIdentity:
+        """Archive a revoked identity and create a fresh device signing key."""
+
+        suffix = uuid.uuid4().hex
+        archived: list[tuple[Path, Path]] = []
+        for source in (self.metadata_path, self.fallback_path):
+            if not source.exists():
+                continue
+            target = source.with_name(f"{source.name}.revoked-{suffix}")
+            os.replace(source, target)
+            archived.append((source, target))
+        try:
+            return self.enroll()
+        except Exception:
+            for source, target in reversed(archived):
+                if target.exists() and not source.exists():
+                    os.replace(target, source)
+            raise
+
     def bind_remote_device(self, device_id: str) -> DeviceIdentity:
         """Replace the provisional local id with the relay-issued opaque device id."""
 

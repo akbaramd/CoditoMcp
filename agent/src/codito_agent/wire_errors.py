@@ -22,6 +22,7 @@ LOCAL_ERROR_MAP: dict[str, ErrorCode] = {
     "credential_unavailable": ErrorCode.UNAUTHENTICATED,
     "deadline_exceeded": ErrorCode.DEADLINE_EXCEEDED,
     "enrollment_required": ErrorCode.UNAUTHENTICATED,
+    "reenrollment_required": ErrorCode.UNAUTHENTICATED,
     "file_too_large": ErrorCode.FILE_TOO_LARGE,
     "idempotency_conflict": ErrorCode.IDEMPOTENCY_CONFLICT,
     "internal_error": ErrorCode.INTERNAL_ERROR,

@@ -118,7 +118,9 @@ class Device(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["account", "name"], name="unique_device_name_per_account"
+                fields=["account", "name"],
+                condition=models.Q(revoked_at__isnull=True),
+                name="unique_active_device_name_per_account",
             ),
             models.UniqueConstraint(
                 fields=["account", "key_thumbprint"],

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -25,6 +28,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QStyle,
     QSystemTrayIcon,
@@ -35,6 +39,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__
+from .account import sign_in, sign_out
 from .config import AgentConfig
 from .errors import AgentError
 from .ipc import NamedPipeClient
@@ -268,6 +273,29 @@ class UpdateWorker(QThread):  # type: ignore[misc, unused-ignore]  # PySide whee
             self.failed.emit("The update operation failed unexpectedly")
 
 
+class AccountWorker(QThread):  # type: ignore[misc, unused-ignore]
+    completed = Signal(str, object)
+    failed = Signal(str)
+
+    def __init__(self, config: AgentConfig, action: str) -> None:
+        super().__init__()
+        self.config = config
+        self.action = action
+
+    def run(self) -> None:
+        try:
+            if self.action == "logout":
+                asyncio.run(sign_out(self.config))
+                result: object = None
+            else:
+                result = asyncio.run(sign_in(self.config, reenroll=self.action == "reenroll"))
+            self.completed.emit(self.action, result)
+        except AgentError as exc:
+            self.failed.emit(exc.message)
+        except Exception:
+            self.failed.emit("The account operation failed unexpectedly")
+
+
 class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PySide wheel varies.
     def __init__(
         self,
@@ -283,6 +311,7 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         self._projects: list[dict[str, Any]] = []
         self._rendered_project_signature: tuple[tuple[object, ...], ...] | None = None
         self._update_worker: UpdateWorker | None = None
+        self._account_worker: AccountWorker | None = None
         self._pending_update: ReleaseUpdate | None = None
         self._update_check_silent = False
         self._quitting = False
@@ -564,9 +593,46 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
 
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
-        layout = QVBoxLayout(page)
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(13)
+
+        account = QFrame()
+        account.setObjectName("Card")
+        account_layout = _card_layout(account)
+        account_header = QHBoxLayout()
+        account_header.addWidget(_label("Account and device enrollment", "SectionTitle"))
+        account_header.addStretch()
+        self.account_state = _label("Checking local agent…", "Muted")
+        account_header.addWidget(self.account_state)
+        account_layout.addLayout(account_header)
+        account_help = _label(
+            "Sign-in uses your system browser and OAuth PKCE. Re-enrollment rotates a revoked "
+            "device key, MCP link, and device-scoped project identifiers without deleting files.",
+            "Muted",
+        )
+        account_help.setWordWrap(True)
+        account_layout.addWidget(account_help)
+        account_actions = QHBoxLayout()
+        self.login_button = QPushButton("Sign in / refresh login")
+        self.login_button.setProperty("primary", True)
+        self.login_button.clicked.connect(lambda: self.begin_account_action("login"))
+        account_actions.addWidget(self.login_button)
+        self.reenroll_button = QPushButton("Re-enroll revoked device")
+        self.reenroll_button.clicked.connect(lambda: self.begin_account_action("reenroll"))
+        account_actions.addWidget(self.reenroll_button)
+        self.logout_button = QPushButton("Sign out and revoke")
+        self.logout_button.clicked.connect(lambda: self.begin_account_action("logout"))
+        account_actions.addWidget(self.logout_button)
+        account_actions.addStretch()
+        account_layout.addLayout(account_actions)
+        layout.addWidget(account)
 
         endpoint = QFrame()
         endpoint.setObjectName("Card")
@@ -640,6 +706,8 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             limits_layout.addWidget(item)
         layout.addWidget(limits)
         layout.addStretch()
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
         return page
 
     def _wire_tray(self) -> None:
@@ -716,6 +784,11 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         self.auto_update_checkbox.blockSignals(True)
         self.auto_update_checkbox.setChecked(bool(response.get("auto_update")))
         self.auto_update_checkbox.blockSignals(False)
+        self.account_state.setText(
+            f"Signed in · {_short_id(response.get('account_id'))}"
+            if response.get("account_id")
+            else "Not signed in"
+        )
         self._populate_projects()
         if self.pages.currentIndex() == 2:
             self.refresh_activity()
@@ -741,7 +814,94 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         self.approvals_metric.value.setText("—")
         self.mcp_url.clear()
         self.copy_button.setEnabled(False)
+        self.account_state.setText("Not connected to the local daemon")
         self._populate_projects()
+
+    def begin_account_action(self, action: str) -> None:
+        if self._account_worker is not None and self._account_worker.isRunning():
+            return
+        if action == "reenroll":
+            answer = QMessageBox.warning(
+                self,
+                "Re-enroll this device?",
+                "Use this only when the relay reports this device as revoked. A new device key "
+                "and MCP URL will be created. Local project folders and settings are preserved, "
+                "but the old ChatGPT connector must be replaced with the new URL.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        elif action == "logout":
+            answer = QMessageBox.question(
+                self,
+                "Sign out and revoke device?",
+                "This immediately revokes this device, its MCP link, and related OAuth grants. "
+                "Project files remain unchanged.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        self._set_account_buttons(False)
+        self.account_state.setText(
+            "Waiting for browser sign-in…" if action != "logout" else "Revoking device…"
+        )
+        self._request({"action": "shutdown"})
+        QTimer.singleShot(900, lambda selected=action: self._start_account_worker(selected))
+
+    def _start_account_worker(self, action: str) -> None:
+        worker = AccountWorker(self.config, action)
+        worker.completed.connect(self._account_completed)
+        worker.failed.connect(self._account_failed)
+        worker.finished.connect(lambda: self._set_account_buttons(True))
+        self._account_worker = worker
+        worker.start()
+
+    def _account_completed(self, action: str, result: object) -> None:
+        if action == "logout":
+            self.account_state.setText("Signed out · device revoked")
+            self._set_offline("Sign in to connect this device")
+            QMessageBox.information(
+                self, "Signed out", "The device, MCP link, and OAuth grants were revoked."
+            )
+            return
+        self._start_daemon_process()
+        tokens = getattr(result, "tokens", None)
+        mcp_url = str(getattr(tokens, "mcp_url", "") or "")
+        self.mcp_url.setText(mcp_url)
+        self.account_state.setText("Signed in · starting secure connection…")
+        QMessageBox.information(
+            self,
+            "Device enrolled" if action == "reenroll" else "Sign-in complete",
+            "Codito is starting the secure relay connection.\n\n"
+            + (f"New ChatGPT MCP URL:\n{mcp_url}" if mcp_url else ""),
+        )
+        QTimer.singleShot(1800, self.refresh)
+
+    def _account_failed(self, message: str) -> None:
+        self.account_state.setText("Account action failed")
+        QMessageBox.critical(self, "Codito account error", message)
+
+    def _set_account_buttons(self, enabled: bool) -> None:
+        self.login_button.setEnabled(enabled)
+        self.reenroll_button.setEnabled(enabled)
+        self.logout_button.setEnabled(enabled)
+
+    def _start_daemon_process(self) -> None:
+        if getattr(sys, "frozen", False):
+            executable = (
+                Path(sys.executable).resolve().parent.parent / "daemon" / "codito-agent-daemon.exe"
+            )
+            command = [str(executable)]
+        else:
+            command = [sys.executable, "-m", "codito_agent", "daemon"]
+        subprocess.Popen(  # noqa: S603 - fixed, local application entry point
+            command,
+            close_fds=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
 
     def _populate_projects(self) -> None:
         signature = tuple(

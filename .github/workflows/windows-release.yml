@@ -1,0 +1,57 @@
+name: Windows preview release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-test-and-publish:
+    runs-on: windows-2025
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: uv python install 3.12
+      - run: uv sync --frozen --all-packages --all-groups
+      - shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Release tag must be vX.Y.Z.' }
+          if ((uv run python -c "import codito_agent; print(codito_agent.__version__)") -ne $version) {
+            throw 'Git tag and codito_agent.__version__ do not match.'
+          }
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - name: Strict type checks
+        shell: pwsh
+        run: |
+          $env:MYPYPATH = 'packages/protocol/src;relay;agent/src'
+          uv run mypy -p codito_protocol -p codito_relay -p codito_agent
+      - run: uv run --package codito-agent pytest agent/tests -m "not e2e"
+      - run: dotnet test agent/broker/Codito.Broker.sln --configuration Release --maxcpucount:1
+      - shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          ./agent/packaging/scripts/Build-WindowsDevPackage.ps1 -Version $version
+      - name: Publish unsigned preview release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          gh release create '${{ github.ref_name }}' `
+            "installer-output/Codito-$version-win-x64-dev.zip" `
+            "installer-output/Codito-$version-win-x64-dev.zip.sha256" `
+            --verify-tag `
+            --prerelease `
+            --generate-notes `
+            --title "Codito $version preview"

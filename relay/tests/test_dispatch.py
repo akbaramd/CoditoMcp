@@ -29,7 +29,9 @@ def principal_for(device: Device, link) -> MCPPrincipal:  # type: ignore[no-unty
         device_link_id=link.pk,
         link_id=link.link_id,
         resource=link.resource,
-        scopes=frozenset({"projects:read", "files:read", "files:write", "shell:execute"}),
+        scopes=frozenset(
+            {"projects:read", "projects:write", "files:read", "files:write", "shell:execute"}
+        ),
     )
 
 
@@ -48,6 +50,13 @@ async def test_list_projects_is_local_and_contains_no_path(device, link) -> None
     assert receipt.operation_id == "local"
     assert receipt.result["projects"][0]["project_id"] == project.pk
     assert "path" not in receipt.result["projects"][0]
+
+    managed = await dispatch_tool(
+        principal_for(device, link), "project_manage", {"operation": "get_projects", "limit": 50}
+    )
+    assert managed.operation_id == "local"
+    assert managed.result["operation"] == "get_projects"
+    assert managed.result["projects"][0]["project_id"] == project.pk
 
 
 @pytest.mark.django_db(transaction=True)
@@ -129,6 +138,44 @@ async def test_scope_set_is_enforced(device, link) -> None:  # type: ignore[no-u
     with pytest.raises(ToolDispatchError) as caught:
         await dispatch_tool(limited, "project_read", {"operation": "list_projects"})
     assert caught.value.code == "insufficient_scope"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_project_registration_request_is_device_scoped_and_idempotent(device, link) -> None:  # type: ignore[no-untyped-def]
+    device.status = Device.Status.ONLINE
+    device.connection_epoch = 5
+    device.last_seen_at = timezone.now()
+    await sync_to_async(device.save)()
+    arguments = {
+        "operation": "request_add_project",
+        "title": "New project",
+        "idempotency_key": "register_0123456789abcdef",
+    }
+
+    async def handler(envelope):  # type: ignore[no-untyped-def]
+        assert envelope["bindings"].get("project_id") is None
+        return {
+            "ok": True,
+            "text": "Select a local folder.",
+            "result": {
+                "operation": "request_add_project",
+                "request_id": "project_request_0123456789abcdef",
+                "title": "New project",
+                "status": "pending_local_selection",
+            },
+        }
+
+    principal = principal_for(device, link)
+    first = await dispatch_tool(
+        principal, "project_manage", arguments, transport=InMemoryTransport(handler)
+    )
+    second = await dispatch_tool(
+        principal, "project_manage", arguments, transport=InMemoryTransport(handler)
+    )
+    assert second.operation_id == first.operation_id
+    assert second.result == first.result
+    assert await sync_to_async(Operation.objects.filter(kind="project_manage").count)() == 1
 
 
 def test_device_failure_becomes_mcp_tool_error() -> None:

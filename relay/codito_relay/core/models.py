@@ -298,6 +298,7 @@ class Operation(models.Model):
         READ = "project_read", "Project read"
         PATCH = "project_apply_patch", "Project apply patch"
         SHELL = "project_shell", "Project shell"
+        MANAGE = "project_manage", "Project management"
 
     class Status(models.TextChoices):
         ACCEPTED = "accepted", "Accepted"
@@ -350,7 +351,19 @@ class Operation(models.Model):
                 ],
                 condition=~models.Q(idempotency_key=""),
                 name="unique_operation_idempotency_scope",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=[
+                    "account",
+                    "oauth_grant_id",
+                    "device_link",
+                    "device",
+                    "kind",
+                    "idempotency_key",
+                ],
+                condition=models.Q(project__isnull=True) & ~models.Q(idempotency_key=""),
+                name="unique_device_operation_idempotency_scope",
+            ),
         ]
         indexes = [
             models.Index(fields=["device", "status", "created_at"]),

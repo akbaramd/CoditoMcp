@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import Field, TypeAdapter, field_validator, model_validator
 
 from .digest import compute_action_digest
+from .manage import ProjectManageInput
 from .patch import ProjectApplyPatchInput
 from .read import ProjectReadInput
 from .shell import ProjectShellInput
@@ -40,7 +41,7 @@ class TunnelBindings(CoditoModel):
 
 
 class OperationPayload(CoditoModel):
-    tool_name: Literal["project_read", "project_apply_patch", "project_shell"]
+    tool_name: Literal["project_read", "project_apply_patch", "project_shell", "project_manage"]
     input: dict[str, Any]
 
     @model_validator(mode="after")
@@ -49,6 +50,7 @@ class OperationPayload(CoditoModel):
             "project_read": TypeAdapter(ProjectReadInput),
             "project_apply_patch": TypeAdapter(ProjectApplyPatchInput),
             "project_shell": TypeAdapter(ProjectShellInput),
+            "project_manage": TypeAdapter(ProjectManageInput),
         }[self.tool_name]
         adapter.validate_python(self.input)
         return self

@@ -5,12 +5,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QSize, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QColor, QDesktopServices, QFont, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -33,8 +34,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import __version__
 from .config import AgentConfig
+from .errors import AgentError
 from .ipc import NamedPipeClient
+from .updates import GitHubUpdateService, ReleaseUpdate
 
 APP_STYLE = """
 QWidget {
@@ -241,6 +245,29 @@ class MetricCard(QFrame):
         layout.addWidget(self.detail)
 
 
+class UpdateWorker(QThread):
+    checked = Signal(object)
+    install_started = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, update: ReleaseUpdate | None = None) -> None:
+        super().__init__()
+        self.update = update
+
+    def run(self) -> None:
+        try:
+            service = GitHubUpdateService()
+            if self.update is None:
+                self.checked.emit(service.check())
+            else:
+                service.download_and_launch(self.update)
+                self.install_started.emit(self.update.latest_version)
+        except AgentError as exc:
+            self.failed.emit(exc.message)
+        except Exception:
+            self.failed.emit("The update operation failed unexpectedly")
+
+
 class CoditoMainWindow(QMainWindow):
     def __init__(
         self,
@@ -255,6 +282,9 @@ class CoditoMainWindow(QMainWindow):
         self._status: dict[str, Any] = {}
         self._projects: list[dict[str, Any]] = []
         self._rendered_project_signature: tuple[tuple[object, ...], ...] | None = None
+        self._update_worker: UpdateWorker | None = None
+        self._pending_update: ReleaseUpdate | None = None
+        self._update_check_silent = False
         self._quitting = False
         self.setWindowTitle("Codito — Device MCP")
         self.setMinimumSize(920, 620)
@@ -269,7 +299,11 @@ class CoditoMainWindow(QMainWindow):
         self.approval_timer = QTimer(self)
         self.approval_timer.timeout.connect(self.poll_approval)
         self.approval_timer.start(750)
+        self.project_request_timer = QTimer(self)
+        self.project_request_timer.timeout.connect(self.poll_project_request)
+        self.project_request_timer.start(1200)
         self.refresh()
+        QTimer.singleShot(5000, self._check_automatic_update)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -463,6 +497,12 @@ class CoditoMainWindow(QMainWindow):
         open_button = QPushButton("Open folder")
         open_button.clicked.connect(self.open_selected_project)
         toolbar.addWidget(open_button)
+        rename_button = QPushButton("Rename")
+        rename_button.clicked.connect(self.rename_selected_project)
+        toolbar.addWidget(rename_button)
+        self.availability_button = QPushButton("Remove from ChatGPT")
+        self.availability_button.clicked.connect(self.toggle_selected_project)
+        toolbar.addWidget(self.availability_button)
         add_button = QPushButton("Add project")
         add_button.setProperty("primary", True)
         add_button.clicked.connect(self.add_project)
@@ -485,6 +525,7 @@ class CoditoMainWindow(QMainWindow):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.projects_table.doubleClicked.connect(self.open_selected_project)
+        self.projects_table.itemSelectionChanged.connect(self._project_selection_changed)
         layout.addWidget(self.projects_table, 1)
         return page
 
@@ -543,9 +584,42 @@ class CoditoMainWindow(QMainWindow):
         copy_device = QPushButton("Copy device ID")
         copy_device.clicked.connect(self.copy_device_id)
         actions.addWidget(copy_device)
+        reconnect = QPushButton("Reconnect agent")
+        reconnect.clicked.connect(self.reconnect_agent)
+        actions.addWidget(reconnect)
+        stop = QPushButton("Stop agent")
+        stop.clicked.connect(self.stop_agent)
+        actions.addWidget(stop)
         actions.addStretch()
         endpoint_layout.addLayout(actions)
         layout.addWidget(endpoint)
+
+        updates = QFrame()
+        updates.setObjectName("Card")
+        updates_layout = _card_layout(updates)
+        update_header = QHBoxLayout()
+        update_header.addWidget(_label("Updates", "SectionTitle"))
+        update_header.addStretch()
+        self.update_status = _label(f"Version {__version__}", "Muted")
+        update_header.addWidget(self.update_status)
+        updates_layout.addLayout(update_header)
+        updates_layout.addWidget(
+            _label(
+                "Stable releases are retrieved from GitHub and verified with their published "
+                "SHA-256 digest before installation.",
+                "Muted",
+            )
+        )
+        update_actions = QHBoxLayout()
+        self.auto_update_checkbox = QCheckBox("Automatically check for stable updates")
+        self.auto_update_checkbox.toggled.connect(self.set_auto_update)
+        update_actions.addWidget(self.auto_update_checkbox)
+        update_actions.addStretch()
+        self.update_button = QPushButton("Check for updates")
+        self.update_button.clicked.connect(lambda: self.check_for_updates(silent=False))
+        update_actions.addWidget(self.update_button)
+        updates_layout.addLayout(update_actions)
+        layout.addWidget(updates)
 
         limits = QFrame()
         limits.setObjectName("Card")
@@ -636,6 +710,9 @@ class CoditoMainWindow(QMainWindow):
         self.device_value.setText(_short_id(response.get("device_id")))
         self.account_value.setText(_short_id(response.get("account_id")))
         self.epoch_value.setText(str(response.get("connection_epoch") or "—"))
+        self.auto_update_checkbox.blockSignals(True)
+        self.auto_update_checkbox.setChecked(bool(response.get("auto_update")))
+        self.auto_update_checkbox.blockSignals(False)
         self._populate_projects()
         if self.pages.currentIndex() == 2:
             self.refresh_activity()
@@ -794,6 +871,186 @@ class CoditoMainWindow(QMainWindow):
         self._rendered_project_signature = None
         self.statusBar().showMessage(f"Execution policy changed to {MODE_LABELS[mode]}", 3000)
 
+    def _selected_project(self) -> dict[str, Any] | None:
+        selected = self.projects_table.selectedItems()
+        if not selected:
+            return None
+        project_id = str(selected[0].data(Qt.ItemDataRole.UserRole) or "")
+        return next(
+            (item for item in self._projects if str(item.get("project_id")) == project_id), None
+        )
+
+    def _project_selection_changed(self) -> None:
+        project = self._selected_project()
+        enabled = bool(project.get("enabled", True)) if project else True
+        self.availability_button.setText("Remove from ChatGPT" if enabled else "Restore to ChatGPT")
+
+    def rename_selected_project(self) -> None:
+        project = self._selected_project()
+        if project is None:
+            self.statusBar().showMessage("Select a project first", 2500)
+            return
+        title, accepted = QInputDialog.getText(
+            self,
+            "Rename project",
+            "Name shown to ChatGPT:",
+            text=str(project.get("title") or ""),
+        )
+        if not accepted:
+            return
+        response = self._request(
+            {
+                "action": "project.rename",
+                "project_id": project.get("project_id"),
+                "title": title.strip(),
+            }
+        )
+        if not response or not response.get("ok"):
+            self._show_error(response, "The project could not be renamed.")
+            return
+        self._rendered_project_signature = None
+        self.refresh()
+        self.statusBar().showMessage("Project renamed and synchronized", 3000)
+
+    def toggle_selected_project(self) -> None:
+        project = self._selected_project()
+        if project is None:
+            self.statusBar().showMessage("Select a project first", 2500)
+            return
+        currently_enabled = bool(project.get("enabled", True))
+        if currently_enabled:
+            answer = QMessageBox.question(
+                self,
+                "Remove project from ChatGPT?",
+                "This unregisters the project from Codito and cancels its local approvals. "
+                "No source files or folders will be deleted.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        response = self._request(
+            {
+                "action": "project.enabled",
+                "project_id": project.get("project_id"),
+                "enabled": not currently_enabled,
+            }
+        )
+        if not response or not response.get("ok"):
+            self._show_error(response, "The project availability could not be changed.")
+            return
+        self._rendered_project_signature = None
+        self.refresh()
+        state = "restored" if currently_enabled is False else "removed"
+        self.statusBar().showMessage(f"Project {state}; local files were not changed", 3500)
+
+    def reconnect_agent(self) -> None:
+        response = self._request({"action": "connection.reconnect"})
+        if not response or not response.get("ok"):
+            self._show_error(response, "The agent connection could not be restarted.")
+            return
+        self.statusBar().showMessage("A fresh secure connection was requested", 3500)
+
+    def stop_agent(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Stop Codito agent?",
+            "ChatGPT will lose access until the daemon starts again. Running shell jobs and "
+            "pending approvals will be cancelled.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        response = self._request({"action": "shutdown"})
+        if not response or not response.get("ok"):
+            self._show_error(response, "The agent could not be stopped.")
+            return
+        self.statusBar().showMessage("Codito agent is stopping", 3500)
+
+    def set_auto_update(self, enabled: bool) -> None:
+        response = self._request({"action": "setting.auto_update", "enabled": enabled})
+        if not response or not response.get("ok"):
+            self.auto_update_checkbox.blockSignals(True)
+            self.auto_update_checkbox.setChecked(not enabled)
+            self.auto_update_checkbox.blockSignals(False)
+            self._show_error(response, "The update preference could not be saved.")
+            return
+        self.statusBar().showMessage(
+            "Automatic update checks enabled" if enabled else "Automatic update checks disabled",
+            3000,
+        )
+
+    def _check_automatic_update(self) -> None:
+        if bool(self._status.get("auto_update")):
+            self.check_for_updates(silent=True)
+
+    def check_for_updates(self, *, silent: bool) -> None:
+        if self._update_worker is not None and self._update_worker.isRunning():
+            return
+        self._update_check_silent = silent
+        self.update_button.setEnabled(False)
+        self.update_status.setText("Checking GitHub…")
+        worker = UpdateWorker()
+        worker.checked.connect(self._update_checked)
+        worker.failed.connect(self._update_failed)
+        worker.finished.connect(self._update_finished)
+        self._update_worker = worker
+        worker.start()
+
+    def _update_checked(self, value: object) -> None:
+        if not isinstance(value, ReleaseUpdate):
+            self._update_failed("GitHub returned an invalid update response")
+            return
+        if not value.available:
+            self.update_status.setText(f"Version {__version__} · Up to date")
+            if not self._update_check_silent:
+                QMessageBox.information(self, "Codito updates", "Codito is up to date.")
+            return
+        self.update_status.setText(f"Version {value.latest_version} available")
+        answer = QMessageBox.question(
+            self,
+            "Install Codito update?",
+            f"Codito {value.latest_version} is available. The {value.asset_size / 1_048_576:.1f} "
+            "MiB package will be verified, installed for this Windows user, and the agent will "
+            "restart.\n\nDownload and install now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self._pending_update = value
+
+    def _start_update_install(self, update: ReleaseUpdate) -> None:
+        self._update_check_silent = False
+        self.update_button.setEnabled(False)
+        self.update_status.setText(f"Downloading {update.latest_version}…")
+        worker = UpdateWorker(update)
+        worker.install_started.connect(self._update_install_started)
+        worker.failed.connect(self._update_failed)
+        worker.finished.connect(self._update_finished)
+        self._update_worker = worker
+        worker.start()
+
+    def _update_install_started(self, version: str) -> None:
+        self.update_status.setText(f"Installing {version}…")
+        self.statusBar().showMessage("Verified update launched; Codito will restart", 5000)
+
+    def _update_failed(self, message: str) -> None:
+        self.update_status.setText(f"Version {__version__} · Check failed")
+        if not self._update_check_silent:
+            QMessageBox.warning(self, "Codito updates", message)
+
+    def _update_finished(self) -> None:
+        worker = self._update_worker
+        pending = self._pending_update if worker is not None and worker.update is None else None
+        self._pending_update = None
+        self._update_worker = None
+        self.update_button.setEnabled(True)
+        if worker is not None:
+            worker.deleteLater()
+        if pending is not None:
+            QTimer.singleShot(0, lambda: self._start_update_install(pending))
+
     def open_selected_project(self, *_: object) -> None:
         selected = self.projects_table.selectedItems()
         if not selected:
@@ -881,6 +1138,56 @@ class CoditoMainWindow(QMainWindow):
             }
         )
         self.refresh()
+
+    def poll_project_request(self) -> None:
+        response = self._request({"action": "project.request.next"})
+        request = response.get("request") if response else None
+        if not isinstance(request, dict):
+            return
+        self.tray.showMessage(
+            "ChatGPT requested a project",
+            f"Select the local folder for {request.get('title', 'New project')}",
+            QSystemTrayIcon.MessageIcon.Information,
+            10_000,
+        )
+        self.show_window()
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Information)
+        dialog.setWindowTitle("Add a project requested by ChatGPT")
+        dialog.setText(str(request.get("title") or "New project"))
+        dialog.setInformativeText(
+            "ChatGPT can suggest a display name, but only you can select a local folder. "
+            "The absolute path will stay on this device."
+        )
+        dismiss = dialog.addButton("Dismiss", QMessageBox.ButtonRole.RejectRole)
+        select = dialog.addButton("Select local folder…", QMessageBox.ButtonRole.AcceptRole)
+        dialog.exec()
+        request_id = str(request.get("request_id") or "")
+        if dialog.clickedButton() is dismiss:
+            self._request({"action": "project.request.dismiss", "request_id": request_id})
+            return
+        if dialog.clickedButton() is not select:
+            return
+        directory = QFileDialog.getExistingDirectory(
+            self, "Select a fixed local project directory", str(Path.home())
+        )
+        if not directory:
+            self._request({"action": "project.request.dismiss", "request_id": request_id})
+            return
+        completed = self._request(
+            {
+                "action": "project.request.complete",
+                "request_id": request_id,
+                "path": directory,
+            }
+        )
+        if not completed or not completed.get("ok"):
+            self._show_error(completed, "The requested project could not be registered.")
+            return
+        self._rendered_project_signature = None
+        self._show_page(1)
+        self.refresh()
+        self.statusBar().showMessage("Project registered and synchronized with ChatGPT", 4000)
 
     def _show_error(self, response: dict[str, Any] | None, fallback: str) -> None:
         message = str(response.get("message") or fallback) if response else fallback

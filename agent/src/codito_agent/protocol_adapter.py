@@ -7,9 +7,11 @@ from typing import Any
 from codito_protocol import (
     ListProjectsInput,
     ProjectApplyPatchResult,
+    ProjectManageResult,
     ProjectReadResult,
     ProjectShellResult,
     validate_project_apply_patch,
+    validate_project_manage,
     validate_project_read,
     validate_project_shell,
 )
@@ -19,6 +21,7 @@ from .approvals import ApprovalManager, ApprovalRisk, action_digest
 from .db import AgentDatabase
 from .errors import AgentError
 from .patching import PatchService
+from .project_management import ProjectManagementService
 from .read_tools import ProjectReadService, ToolResponse, _decode_cursor, _encode_cursor
 from .shell import ShellManager
 
@@ -32,6 +35,7 @@ class AgentProtocolAdapter:
         reads: ProjectReadService,
         patches: PatchService,
         shells: ShellManager,
+        management: ProjectManagementService | None = None,
         *,
         device_id: str,
         account_id: str,
@@ -42,6 +46,7 @@ class AgentProtocolAdapter:
         self.reads = reads
         self.patches = patches
         self.shells = shells
+        self.management = management
         self.device_id = device_id
         self.account_id = account_id
         self.approvals = approvals
@@ -49,6 +54,7 @@ class AgentProtocolAdapter:
         self._read_semaphore = asyncio.Semaphore(read_concurrency)
         self._read_result: TypeAdapter[Any] = TypeAdapter(ProjectReadResult)
         self._shell_result: TypeAdapter[Any] = TypeAdapter(ProjectShellResult)
+        self._manage_result: TypeAdapter[Any] = TypeAdapter(ProjectManageResult)
 
     async def execute(
         self,
@@ -129,6 +135,18 @@ class AgentProtocolAdapter:
                     deadline_at=deadline_at,
                 )
                 validated = self._shell_result.validate_python(response.structured)
+            elif tool_name == "project_manage":
+                if self.management is None:
+                    raise AgentError("invalid_request", "Project management is unavailable")
+                manage_request = validate_project_manage(payload)
+                response = await self.management.execute(
+                    manage_request,
+                    grant_id=grant_id,
+                    link_id=link_id,
+                    connection_epoch=connection_epoch,
+                    deadline_at=deadline_at,
+                )
+                validated = self._manage_result.validate_python(response.structured)
             else:
                 raise AgentError("invalid_request", "Unknown Codito tool")
         except ValidationError as exc:

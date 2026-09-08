@@ -72,6 +72,7 @@ class DeviceWebSocketClient:
         self.max_pending = max_pending
         self.connection_callback = connection_callback or (lambda connected: None)
         self._stop = asyncio.Event()
+        self._reconnect = asyncio.Event()
         self._socket: Any = None
         self._send_lock = asyncio.Lock()
         self._out_sequence = 0
@@ -146,16 +147,29 @@ class DeviceWebSocketClient:
                 if self._long_disconnect_task is None or self._long_disconnect_task.done():
                     self._long_disconnect_task = asyncio.create_task(self._long_disconnect())
             if not self._stop.is_set():
-                await asyncio.sleep(_JITTER.uniform(0.0, min(backoff, 60.0)))
+                delay = _JITTER.uniform(0.0, min(backoff, 60.0))
+                try:
+                    await asyncio.wait_for(self._reconnect.wait(), timeout=delay)
+                except TimeoutError:
+                    pass
+                self._reconnect.clear()
                 backoff = min(backoff * 2, 60.0)
 
     async def stop(self) -> None:
         self._stop.set()
+        self._reconnect.set()
         if self._socket is not None:
             await self._socket.close(code=1000, reason="agent shutdown")
         for task in self._pending:
             task.cancel()
         await asyncio.gather(*self._pending, return_exceptions=True)
+
+    async def reconnect(self) -> None:
+        """Interrupt the active socket/backoff so the run loop obtains a fresh fence."""
+
+        self._reconnect.set()
+        if self._socket is not None:
+            await self._socket.close(code=1012, reason="local reconnect requested")
 
     async def _hello(self) -> None:
         assert self._ticket is not None

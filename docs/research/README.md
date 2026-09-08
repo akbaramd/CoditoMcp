@@ -55,6 +55,9 @@ determine whether a control is actually active.
 | Compose | [Docker Compose production guidance](https://docs.docker.com/compose/how-tos/production/) | 2026-09-08 | Health checks, restart policy, and immutable images |
 | OpenTelemetry | [OpenTelemetry Python](https://opentelemetry.io/docs/languages/python/) | 2026-09-08 | Trace and metric export |
 | Prometheus exposition | [Prometheus exposition formats](https://prometheus.io/docs/instrumenting/exposition_formats/) | 2026-09-08 | `/metrics` endpoint |
+| GitHub release API | [GitHub — Get the latest release](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) | 2026-09-08 | Stable release discovery and GitHub-published asset digest |
+| Build supply chain | [GitHub — Secure your build system](https://docs.github.com/en/code-security/tutorials/implement-supply-chain-best-practices/securing-builds) | 2026-09-08 | Narrow release permissions and separate unsigned previews |
+| Bootstrap reference | [MateMCP bootstrap-windows.ps1](https://github.com/vrassouli/MateMCP/blob/main/scripts/bootstrap-windows.ps1) | 2026-09-08 | User-supplied reference for one-command per-user installation; Codito adds release-digest verification |
 
 ## Research conclusions
 

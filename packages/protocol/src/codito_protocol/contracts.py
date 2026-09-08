@@ -63,4 +63,24 @@ TOOL_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
             "openWorldHint": True,
         },
     },
+    "project_manage": {
+        "title": "Manage registered projects",
+        "description": (
+            "List, request local registration, rename, or unregister a project. Local paths are "
+            "never accepted; registration and destructive metadata changes require Windows UI."
+        ),
+        "required_scopes_by_operation": {
+            "get_projects": ["projects:read"],
+            "request_add_project": ["projects:read", "projects:write"],
+            "rename_project": ["projects:read", "projects:write"],
+            "remove_project": ["projects:read", "projects:write"],
+        },
+        "securitySchemes": [_oauth_scheme("projects:read", "projects:write")],
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    },
 }

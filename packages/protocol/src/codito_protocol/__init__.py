@@ -4,6 +4,18 @@ from .contracts import TOOL_CONTRACTS
 from .digest import canonical_action_bytes, compute_action_digest
 from .envelope import MessageKind, OperationPayload, TunnelBindings, TunnelEnvelope
 from .errors import ErrorCode, ToolError, ToolFailure
+from .manage import (
+    GetProjectsInput,
+    GetProjectsResult,
+    ProjectManageInput,
+    ProjectManageResult,
+    ProjectRegistrationRequestResult,
+    RemoveProjectInput,
+    RemoveProjectResult,
+    RenameProjectInput,
+    RenameProjectResult,
+    RequestAddProjectInput,
+)
 from .patch import (
     PatchConflict,
     PatchedFile,
@@ -30,6 +42,7 @@ from .schemas import (
     export_schemas,
     schema_for,
     validate_project_apply_patch,
+    validate_project_manage,
     validate_project_read,
     validate_project_shell,
 )
@@ -56,6 +69,8 @@ __all__ = [
     "Continuation",
     "DirectoryEntry",
     "ErrorCode",
+    "GetProjectsInput",
+    "GetProjectsResult",
     "ListDirectoryInput",
     "ListDirectoryResult",
     "ListProjectsInput",
@@ -67,14 +82,22 @@ __all__ = [
     "PatchedFile",
     "ProjectApplyPatchInput",
     "ProjectApplyPatchResult",
+    "ProjectManageInput",
+    "ProjectManageResult",
     "ProjectReadInput",
     "ProjectReadResult",
+    "ProjectRegistrationRequestResult",
     "ProjectShellInput",
     "ProjectShellResult",
     "ProjectSummary",
     "ReadFileInput",
     "ReadFileResult",
     "RelativePath",
+    "RemoveProjectInput",
+    "RemoveProjectResult",
+    "RenameProjectInput",
+    "RenameProjectResult",
+    "RequestAddProjectInput",
     "ScriptCommand",
     "SearchMatch",
     "SearchTextInput",
@@ -98,6 +121,7 @@ __all__ = [
     "export_schemas",
     "schema_for",
     "validate_project_apply_patch",
+    "validate_project_manage",
     "validate_project_read",
     "validate_project_shell",
 ]

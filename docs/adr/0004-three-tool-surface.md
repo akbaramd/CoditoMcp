@@ -1,6 +1,6 @@
 # ADR 0004: Exactly three MCP tools
 
-- Status: Accepted
+- Status: Superseded by ADR 0007
 - Date: 2026-09-08
 
 ## Context

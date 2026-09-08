@@ -21,6 +21,9 @@ class FakeSocket:
     async def send(self, value: str) -> None:
         self.sent.append(value)
 
+    async def close(self, *, code: int, reason: str) -> None:
+        self.closed = (code, reason)
+
 
 @pytest.mark.asyncio
 async def test_project_metadata_can_be_resynchronized_without_reconnect(tmp_path: Path) -> None:
@@ -61,6 +64,10 @@ async def test_project_metadata_can_be_resynchronized_without_reconnect(tmp_path
     envelope = TunnelEnvelope.model_validate_json(socket.sent[0])
     assert envelope.kind is MessageKind.HELLO
     assert envelope.payload == {"projects": project_metadata}
+
+    await client.reconnect()
+    assert socket.closed == (1012, "local reconnect requested")
+    assert client._reconnect.is_set()
 
 
 @pytest.mark.asyncio

@@ -18,8 +18,32 @@ deploy/             Immutable container and Compose deployment assets
 docs/               Decisions, research, threat model, and runbooks
 ```
 
-The remote surface contains exactly three MCP tools: `project_read`,
-`project_apply_patch`, and `project_shell`. See the [tool contract](docs/protocol/tools.md).
+The remote surface contains four bounded MCP tools: `project_read`,
+`project_apply_patch`, `project_shell`, and locally governed `project_manage`. See
+the [tool contract](docs/protocol/tools.md).
+
+## Install on Windows 11 x64
+
+After the first signed stable GitHub release is published, inspect and run the
+per-user bootstrap from PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/akbaramd/CoditoMcp/main/scripts/bootstrap-windows.ps1 | iex
+```
+
+The bootstrap resolves the latest stable release through GitHub's API and refuses
+an archive without the expected GitHub-published SHA-256 digest. It installs under
+`%LOCALAPPDATA%\Codito\app\<version>`, registers the daemon and desktop dashboard
+for the current user's sign-in, and keeps credentials/project paths in the separate
+local data directory. No administrator rights or system Python installation is
+required.
+
+Preview builds are intentionally excluded from the default bootstrap. Test a named
+unsigned preview only when you accept the Windows trust warning:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/akbaramd/CoditoMcp/main/scripts/bootstrap-windows.ps1))) -VersionTag v0.1.0 -AllowPrerelease
+```
 
 ## Developer setup
 

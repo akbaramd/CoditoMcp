@@ -27,11 +27,11 @@ git status --short
 
 ## Protocol and MCP surface
 
-- [x] Shared Pydantic models define exactly `project_read`,
-  `project_apply_patch`, and `project_shell`; unknown fields and basic unsafe paths
+- [x] Shared Pydantic models define `project_read`, `project_apply_patch`,
+  `project_shell`, and locally governed `project_manage`; unknown fields and basic unsafe paths
   are rejected; deterministic JSON Schemas can be exported.
 - [ ] Runtime tool schemas/annotations/security schemes byte-for-byte match the
-  shared contracts and MCP Inspector sees exactly three tools.
+  shared contracts and MCP Inspector sees exactly four tools.
 - [ ] Structured success + concise text and every typed error/retry rule are tested.
 - [ ] Continuation tokens are signed, binding-preserving, expiring, and bounded.
 - [ ] Cross-version and malformed/oversized envelope corpus fails closed.

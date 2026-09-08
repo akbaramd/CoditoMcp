@@ -1,6 +1,6 @@
 # MCP tool contracts
 
-The public MCP endpoint exposes exactly three tools. JSON Schema snapshots live in
+The public MCP endpoint exposes four bounded tools. JSON Schema snapshots live in
 [`packages/protocol/schemas`](../../packages/protocol/schemas) and are generated
 from the Pydantic models in `codito_protocol`. Unknown fields are rejected.
 
@@ -134,6 +134,23 @@ code, and truncation. Output chunks distinguish stdout/stderr/system.
 No PTY, stdin, elevation, detachment, breakaway, or GUI execution exists. A start
 that may have crossed the network boundary but lacks a durable start acknowledgment
 returns `outcome_unknown`; it is never automatically retried.
+
+## `project_manage`
+
+Required scopes: `projects:read`; mutating operations also require `projects:write`.
+Annotations: state-changing, destructive, idempotent, closed-world.
+
+| Operation | Local behavior |
+|---|---|
+| `get_projects` | Returns opaque IDs and relay-safe metadata; never local roots |
+| `request_add_project` | Queues a 15-minute Windows request; the user alone chooses the folder |
+| `rename_project` | Requires one-shot local approval before changing the display title |
+| `remove_project` | Requires one-shot local approval and unregisters metadata only |
+
+`request_add_project` accepts a display title and idempotency key but deliberately
+has no path field. The desktop app opens the native folder picker and registers the
+root only after a local choice. `remove_project` never deletes the project folder or
+its contents. Re-enabling a removed registration remains a local desktop action.
 
 ## Scope and annotation source of truth
 

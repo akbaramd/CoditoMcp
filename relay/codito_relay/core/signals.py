@@ -12,7 +12,9 @@ from oauth2_provider.signals import app_authorized
 from .models import DeviceLink, OAuthGrantBinding, OAuthGrantFamily
 from .oauth import is_allowed_mcp_application
 
-MCP_SCOPES = frozenset({"projects:read", "files:read", "files:write", "shell:execute"})
+MCP_SCOPES = frozenset(
+    {"projects:read", "projects:write", "files:read", "files:write", "shell:execute"}
+)
 
 
 def _request_value(request: Any, name: str) -> str:

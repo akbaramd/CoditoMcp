@@ -12,10 +12,12 @@ from typing import Any, Protocol
 from asgiref.sync import sync_to_async
 from codito_protocol import (
     ProjectApplyPatchResult,
+    ProjectManageResult,
     ProjectReadResult,
     ProjectShellResult,
     compute_action_digest,
     validate_project_apply_patch,
+    validate_project_manage,
     validate_project_read,
     validate_project_shell,
 )
@@ -219,6 +221,8 @@ def _validate_device_result(tool_name: str, payload: dict[str, Any]) -> dict[str
             )
         elif tool_name == "project_shell":
             validated_result = TypeAdapter(ProjectShellResult).validate_python(payload["result"])
+        elif tool_name == "project_manage":
+            validated_result = TypeAdapter(ProjectManageResult).validate_python(payload["result"])
         else:
             raise KeyError(tool_name)
     except (ImportError, KeyError, ValidationError) as exc:
@@ -241,6 +245,12 @@ def _required_scopes(tool_name: str, operation: str) -> frozenset[str]:
         return frozenset({"projects:read", "files:read", "files:write"})
     if tool_name == "project_shell":
         return frozenset({"projects:read", "shell:execute"})
+    if tool_name == "project_manage":
+        return (
+            frozenset({"projects:read"})
+            if operation == "get_projects"
+            else frozenset({"projects:read", "projects:write"})
+        )
     raise ToolDispatchError("unknown_tool", f"Unknown tool {tool_name}")
 
 
@@ -264,6 +274,8 @@ def _validate_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, 
             return validate_project_apply_patch(arguments).model_dump(
                 mode="json", exclude_none=True
             )
+        if tool_name == "project_manage":
+            return validate_project_manage(arguments).model_dump(mode="json", exclude_none=True)
     except (ValueError, TypeError) as exc:
         raise ToolDispatchError("invalid_request", str(exc)) from exc
     if tool_name == "project_read" and "operation" not in arguments:
@@ -283,7 +295,9 @@ def _lookup_route(
     except Device.DoesNotExist as exc:
         raise ToolDispatchError("device_not_found", "The bound device no longer exists") from exc
     operation = str(arguments.get("operation", ""))
-    if tool_name == "project_read" and operation == "list_projects":
+    if (tool_name == "project_read" and operation == "list_projects") or (
+        tool_name == "project_manage" and operation in {"get_projects", "request_add_project"}
+    ):
         return device, None
     project_id = arguments.get("project_id")
     if not project_id:
@@ -321,6 +335,12 @@ def _list_projects(principal: MCPPrincipal) -> dict[str, Any]:
             for project in projects
         ],
     }
+
+
+def _list_managed_projects(principal: MCPPrincipal) -> dict[str, Any]:
+    result = _list_projects(principal)
+    result["operation"] = "get_projects"
+    return result
 
 
 def _create_operation(
@@ -462,6 +482,9 @@ async def dispatch_tool(
     )
     if tool_name == "project_read" and operation_name == "list_projects":
         result = await sync_to_async(_list_projects, thread_sensitive=True)(principal)
+        return DispatchReceipt(operation_id="local", result=result)
+    if tool_name == "project_manage" and operation_name == "get_projects":
+        result = await sync_to_async(_list_managed_projects, thread_sensitive=True)(principal)
         return DispatchReceipt(operation_id="local", result=result)
     now = timezone.now()
     if (

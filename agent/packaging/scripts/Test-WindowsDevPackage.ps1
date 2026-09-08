@@ -90,6 +90,7 @@ try {
             'daemon/codito-agent-daemon.exe',
             'tray/codito-agent-tray.exe',
             'broker/Codito.Broker.exe',
+            'install-windows.ps1',
             'SHA256SUMS'
         )) {
             if (-not $entryByRelativePath.ContainsKey($requiredPath)) {

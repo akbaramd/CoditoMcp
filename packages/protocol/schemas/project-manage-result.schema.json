@@ -1,0 +1,224 @@
+{
+  "$defs": {
+    "Continuation": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "title": "Cursor",
+          "type": "string"
+        },
+        "remaining_estimate": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remaining Estimate"
+        }
+      },
+      "required": [
+        "cursor"
+      ],
+      "title": "Continuation",
+      "type": "object"
+    },
+    "GetProjectsResult": {
+      "additionalProperties": false,
+      "properties": {
+        "continuation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Continuation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "operation": {
+          "const": "get_projects",
+          "default": "get_projects",
+          "title": "Operation",
+          "type": "string"
+        },
+        "projects": {
+          "items": {
+            "$ref": "#/$defs/ProjectSummary"
+          },
+          "title": "Projects",
+          "type": "array"
+        }
+      },
+      "required": [
+        "projects"
+      ],
+      "title": "GetProjectsResult",
+      "type": "object"
+    },
+    "ProjectRegistrationRequestResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "request_add_project",
+          "default": "request_add_project",
+          "title": "Operation",
+          "type": "string"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "status": {
+          "const": "pending_local_selection",
+          "default": "pending_local_selection",
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "title"
+      ],
+      "title": "ProjectRegistrationRequestResult",
+      "type": "object"
+    },
+    "ProjectSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "isolated",
+            "native_approval",
+            "native_trusted"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "online": {
+          "title": "Online",
+          "type": "boolean"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "title",
+        "device_id",
+        "mode",
+        "online"
+      ],
+      "title": "ProjectSummary",
+      "type": "object"
+    },
+    "RemoveProjectResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "remove_project",
+          "default": "remove_project",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "status": {
+          "const": "removed",
+          "default": "removed",
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "title"
+      ],
+      "title": "RemoveProjectResult",
+      "type": "object"
+    },
+    "RenameProjectResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "rename_project",
+          "default": "rename_project",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "status": {
+          "const": "renamed",
+          "default": "renamed",
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "title"
+      ],
+      "title": "RenameProjectResult",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/project-manage-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "get_projects": "#/$defs/GetProjectsResult",
+      "remove_project": "#/$defs/RemoveProjectResult",
+      "rename_project": "#/$defs/RenameProjectResult",
+      "request_add_project": "#/$defs/ProjectRegistrationRequestResult"
+    },
+    "propertyName": "operation"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/GetProjectsResult"
+    },
+    {
+      "$ref": "#/$defs/ProjectRegistrationRequestResult"
+    },
+    {
+      "$ref": "#/$defs/RenameProjectResult"
+    },
+    {
+      "$ref": "#/$defs/RemoveProjectResult"
+    }
+  ]
+}

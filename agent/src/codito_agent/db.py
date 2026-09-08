@@ -6,7 +6,7 @@ import threading
 import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -99,6 +99,23 @@ class AgentDatabase:
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS project_registration_requests (
+                    request_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    grant_id TEXT NOT NULL,
+                    link_id TEXT NOT NULL,
+                    device_id TEXT NOT NULL,
+                    connection_epoch INTEGER NOT NULL,
+                    status TEXT NOT NULL CHECK(
+                        status IN ('pending','completed','dismissed','expired')
+                    ),
+                    expires_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS project_registration_pending_idx
+                    ON project_registration_requests(status, created_at);
                 """
             )
             columns = {
@@ -187,14 +204,129 @@ class AgentDatabase:
         if cursor.rowcount != 1:
             raise AgentError("project_not_found", "The requested project is not registered")
 
-    def disable_project(self, project_id: str) -> None:
+    def set_project_title(self, project_id: str, title: str) -> None:
+        title = title.strip()
+        if not title or len(title) > 120:
+            raise AgentError("invalid_project", "Project title must contain 1 to 120 characters")
         with self._connect() as connection:
             cursor = connection.execute(
-                "UPDATE projects SET enabled=0,updated_at=? WHERE project_id=?",
-                (_now(), project_id),
+                "UPDATE projects SET title=?,updated_at=? WHERE project_id=?",
+                (title, _now(), project_id),
             )
         if cursor.rowcount != 1:
             raise AgentError("project_not_found", "The requested project is not registered")
+
+    def set_project_enabled(self, project_id: str, *, enabled: bool) -> None:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE projects SET enabled=?,updated_at=? WHERE project_id=?",
+                (int(enabled), _now(), project_id),
+            )
+        if cursor.rowcount != 1:
+            raise AgentError("project_not_found", "The requested project is not registered")
+
+    def disable_project(self, project_id: str) -> None:
+        self.set_project_enabled(project_id, enabled=False)
+
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        return str(row["value"]) if row is not None else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        if not key or len(key) > 100 or len(value) > 4096:
+            raise AgentError("invalid_setting", "Setting key or value is outside its limit")
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO settings(key,value) VALUES (?,?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+                (key, value),
+            )
+
+    def create_project_registration_request(
+        self,
+        *,
+        title: str,
+        account_id: str,
+        grant_id: str,
+        link_id: str,
+        device_id: str,
+        connection_epoch: int,
+    ) -> str:
+        title = title.strip()
+        if not title or len(title) > 120:
+            raise AgentError("invalid_project", "Project title must contain 1 to 120 characters")
+        request_id = f"project_request_{uuid.uuid4().hex}"
+        now = datetime.now(UTC)
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO project_registration_requests
+                   (request_id,title,account_id,grant_id,link_id,device_id,connection_epoch,
+                    status,expires_at,created_at,updated_at)
+                   VALUES (?,?,?,?,?,?,?,'pending',?,?,?)""",
+                (
+                    request_id,
+                    title,
+                    account_id,
+                    grant_id,
+                    link_id,
+                    device_id,
+                    connection_epoch,
+                    (now + timedelta(minutes=15)).isoformat(),
+                    now.isoformat(),
+                    now.isoformat(),
+                ),
+            )
+        return request_id
+
+    def next_project_registration_request(self) -> dict[str, Any] | None:
+        now = _now()
+        with self._connect() as connection:
+            connection.execute(
+                """UPDATE project_registration_requests SET status='expired',updated_at=?
+                   WHERE status='pending' AND expires_at<=?""",
+                (now, now),
+            )
+            row = connection.execute(
+                """SELECT request_id,title,account_id,device_id,expires_at
+                   FROM project_registration_requests WHERE status='pending'
+                   ORDER BY created_at LIMIT 1"""
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def complete_project_registration_request(self, request_id: str, root: Path) -> Project:
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT title,expires_at FROM project_registration_requests
+                   WHERE request_id=? AND status='pending'""",
+                (request_id,),
+            ).fetchone()
+        if row is None:
+            raise AgentError("request_not_found", "Project registration request is unavailable")
+        if str(row["expires_at"]) <= _now():
+            self.dismiss_project_registration_request(request_id, expired=True)
+            raise AgentError("request_expired", "Project registration request has expired")
+        project = self.register_project(str(row["title"]), root)
+        with self._connect() as connection:
+            connection.execute(
+                """UPDATE project_registration_requests SET status='completed',updated_at=?
+                   WHERE request_id=? AND status='pending'""",
+                (_now(), request_id),
+            )
+        return project
+
+    def dismiss_project_registration_request(
+        self, request_id: str, *, expired: bool = False
+    ) -> None:
+        status = "expired" if expired else "dismissed"
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """UPDATE project_registration_requests SET status=?,updated_at=?
+                   WHERE request_id=? AND status='pending'""",
+                (status, _now(), request_id),
+            )
+        if cursor.rowcount != 1:
+            raise AgentError("request_not_found", "Project registration request is unavailable")
 
     @staticmethod
     def _project_from_row(row: sqlite3.Row) -> Project:

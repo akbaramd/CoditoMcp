@@ -187,7 +187,13 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 
 CHATGPT_CLIENT_METADATA_HOSTS = env_list("CHATGPT_CLIENT_METADATA_HOSTS", "chatgpt.com,openai.com")
-MCP_TOOL_SCOPES = ("projects:read", "files:read", "files:write", "shell:execute")
+MCP_TOOL_SCOPES = (
+    "projects:read",
+    "projects:write",
+    "files:read",
+    "files:write",
+    "shell:execute",
+)
 
 OAUTH2_PROVIDER = {
     "OAUTH2_VALIDATOR_CLASS": "codito_relay.core.oauth.CoditoOAuth2Validator",
@@ -201,6 +207,7 @@ OAUTH2_PROVIDER = {
         "openid": "Authenticate the signed-in account",
         "profile": "Read the signed-in account profile",
         "projects:read": "List projects and project metadata",
+        "projects:write": "Request, rename, or unregister projects with local confirmation",
         "files:read": "Read files in registered projects",
         "files:write": "Apply anchored file patches in registered projects",
         "shell:execute": "Run bounded commands in registered projects",

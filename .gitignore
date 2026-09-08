@@ -14,6 +14,7 @@ pytest-cache-files-*/
 test-work/
 .test-work/
 .ruff_cache/
+.codebase-memory/
 .coverage
 coverage.xml
 htmlcov/

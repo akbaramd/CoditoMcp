@@ -35,6 +35,8 @@ LOCAL_ERROR_MAP: dict[str, ErrorCode] = {
     "invalid_project": ErrorCode.INVALID_REQUEST,
     "invalid_project_root": ErrorCode.PATH_INVALID,
     "invalid_request": ErrorCode.INVALID_REQUEST,
+    "invalid_release": ErrorCode.INTERNAL_ERROR,
+    "invalid_setting": ErrorCode.INTERNAL_ERROR,
     "invalid_state": ErrorCode.INTERNAL_ERROR,
     "ipc_unavailable": ErrorCode.INTERNAL_ERROR,
     "job_not_found": ErrorCode.SHELL_NOT_FOUND,
@@ -59,9 +61,12 @@ LOCAL_ERROR_MAP: dict[str, ErrorCode] = {
     "queue_full": ErrorCode.QUEUE_FULL,
     "read_failed": ErrorCode.INTERNAL_ERROR,
     "recovery_failed": ErrorCode.INTERNAL_ERROR,
+    "release_unavailable": ErrorCode.INTERNAL_ERROR,
     "relay_protocol_error": ErrorCode.INTERNAL_ERROR,
     "relay_rejected": ErrorCode.UNAUTHORIZED,
     "result_limit": ErrorCode.OUTPUT_LIMIT_EXCEEDED,
+    "request_expired": ErrorCode.INVALID_REQUEST,
+    "request_not_found": ErrorCode.INVALID_REQUEST,
     "sandbox_policy_denied": ErrorCode.UNAUTHORIZED,
     "sandbox_unavailable": ErrorCode.SANDBOX_UNAVAILABLE,
     "search_timeout": ErrorCode.DEADLINE_EXCEEDED,
@@ -72,6 +77,9 @@ LOCAL_ERROR_MAP: dict[str, ErrorCode] = {
     "unsafe_path": ErrorCode.PATH_OUTSIDE_PROJECT,
     "unsupported_encoding": ErrorCode.ENCODING_UNSUPPORTED,
     "unsupported_platform": ErrorCode.INTERNAL_ERROR,
+    "update_check_failed": ErrorCode.INTERNAL_ERROR,
+    "update_launch_failed": ErrorCode.INTERNAL_ERROR,
+    "update_not_required": ErrorCode.INVALID_REQUEST,
 }
 
 _ABSOLUTE_WINDOWS_PATH = re.compile(r"(?:^|\s)[A-Za-z]:[\\/]")

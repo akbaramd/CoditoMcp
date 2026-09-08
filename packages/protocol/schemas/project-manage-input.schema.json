@@ -1,0 +1,147 @@
+{
+  "$defs": {
+    "GetProjectsInput": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "get_projects",
+          "default": "get_projects",
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "title": "GetProjectsInput",
+      "type": "object"
+    },
+    "RemoveProjectInput": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "operation": {
+          "const": "remove_project",
+          "default": "remove_project",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "idempotency_key"
+      ],
+      "title": "RemoveProjectInput",
+      "type": "object"
+    },
+    "RenameProjectInput": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "operation": {
+          "const": "rename_project",
+          "default": "rename_project",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "title",
+        "idempotency_key"
+      ],
+      "title": "RenameProjectInput",
+      "type": "object"
+    },
+    "RequestAddProjectInput": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "operation": {
+          "const": "request_add_project",
+          "default": "request_add_project",
+          "title": "Operation",
+          "type": "string"
+        },
+        "title": {
+          "description": "Suggested display title; the Windows user must select the local folder.",
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "idempotency_key"
+      ],
+      "title": "RequestAddProjectInput",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/project-manage-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "get_projects": "#/$defs/GetProjectsInput",
+      "remove_project": "#/$defs/RemoveProjectInput",
+      "rename_project": "#/$defs/RenameProjectInput",
+      "request_add_project": "#/$defs/RequestAddProjectInput"
+    },
+    "propertyName": "operation"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/GetProjectsInput"
+    },
+    {
+      "$ref": "#/$defs/RequestAddProjectInput"
+    },
+    {
+      "$ref": "#/$defs/RenameProjectInput"
+    },
+    {
+      "$ref": "#/$defs/RemoveProjectInput"
+    }
+  ]
+}

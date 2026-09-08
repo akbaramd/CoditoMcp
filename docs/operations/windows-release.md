@@ -45,6 +45,40 @@ sets `SOURCE_DATE_EPOCH` and `PYTHONHASHSEED`; identical source and locked tools
 are therefore the reproducibility boundary. Always compare the published outer
 hash and the inner manifest instead of trusting a filename.
 
+## GitHub preview release and bootstrap
+
+Pushing an exact `vX.Y.Z` tag runs `.github/workflows/windows-release.yml` on a
+GitHub-hosted Windows runner. The workflow repeats formatting, lint, strict type,
+agent, and broker tests, builds the ZIP, and publishes it as an explicitly unsigned
+prerelease. A preview can then be installed for the current user with:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/akbaramd/CoditoMcp/main/scripts/bootstrap-windows.ps1))) -VersionTag v0.1.0 -AllowPrerelease
+```
+
+The bootstrap accepts only an HTTPS asset hosted by GitHub whose exact filename
+matches the release type and whose GitHub release metadata contains a SHA-256
+digest. The package installer verifies the inner `SHA256SUMS`, stages a versioned
+copy below `%LOCALAPPDATA%\Codito\app`, and changes only the current user's startup
+entries. The package includes Python and .NET; it requests neither elevation nor a
+system-wide runtime installation.
+
+## In-app update checks
+
+The desktop Update Center checks only the latest stable GitHub release. Automatic
+checks are opt-in and use the same validation path as a manual check. The updater:
+
+1. accepts only exact stable `vX.Y.Z` releases and `Codito-X.Y.Z-win-x64.zip`;
+2. verifies the asset host, size, GitHub-published digest, downloaded SHA-256, ZIP
+   paths, link attributes, entry count, expanded size, and compression ratio;
+3. extracts into a fresh temporary directory and invokes the package's fixed-name
+   installer through the System32 Windows PowerShell executable.
+
+The updater never executes a release note, alternate asset name, redirect-selected
+script, or model-provided command. Until production signing is configured, only
+the explicit preview bootstrap is expected to work; stable automatic update must
+not be enabled for unsigned test packages.
+
 ## Per-user MSI
 
 After the authorized WiX/OSMF review:

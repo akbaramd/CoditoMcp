@@ -33,6 +33,7 @@ def main() -> None:
     window = CoditoMainWindow(config, client, tray)
     window.refresh_timer.stop()
     window.approval_timer.stop()
+    window.project_request_timer.stop()
     window._show_page(("overview", "projects", "activity", "settings").index(arguments.page))
     window.show()
     app.processEvents()

@@ -60,7 +60,7 @@ def oauth_token(user, link):  # type: ignore[no-untyped-def]
         user=user,
         application=application,
         expires=timezone.now() + timezone.timedelta(minutes=15),
-        scope="projects:read files:read files:write shell:execute",
+        scope="projects:read projects:write files:read files:write shell:execute",
         resource=[link.resource],
     )
     set_token_value(token, raw)

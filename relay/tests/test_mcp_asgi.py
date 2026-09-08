@@ -71,6 +71,7 @@ def test_mcp_initialization_list_and_local_tool_call(oauth_token, link) -> None:
             "project_read",
             "project_apply_patch",
             "project_shell",
+            "project_manage",
         ]
         assert all(tool.get("_meta", {}).get("securitySchemes") for tool in descriptors)
         called = client.post(

@@ -51,6 +51,7 @@ def test_desktop_dashboard_renders_live_device_state(tmp_path: Path) -> None:
     window = CoditoMainWindow(config, FakeIpcClient(), tray)  # type: ignore[arg-type]
     window.refresh_timer.stop()
     window.approval_timer.stop()
+    window.project_request_timer.stop()
 
     assert window.status_pill.text() == "●  ONLINE"
     assert window.mcp_url.text() == "https://codito.example/mcp/d/link-123"

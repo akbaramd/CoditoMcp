@@ -173,6 +173,43 @@ async def project_shell(
     return await _run(context, "project_shell", arguments)
 
 
+async def project_manage(
+    context: Context,
+    operation: Literal["get_projects", "request_add_project", "rename_project", "remove_project"],
+    project_id: str | None = None,
+    title: str | None = None,
+    idempotency_key: str | None = None,
+    cursor: str | None = None,
+    limit: int = 50,
+) -> CallToolResult:
+    if operation == "get_projects":
+        arguments = {"operation": operation, "cursor": cursor, "limit": limit}
+    elif operation == "request_add_project":
+        arguments = {
+            "operation": operation,
+            "title": title,
+            "idempotency_key": idempotency_key,
+        }
+    elif operation == "rename_project":
+        arguments = {
+            "operation": operation,
+            "project_id": project_id,
+            "title": title,
+            "idempotency_key": idempotency_key,
+        }
+    else:
+        arguments = {
+            "operation": operation,
+            "project_id": project_id,
+            "idempotency_key": idempotency_key,
+        }
+    return await _run(
+        context,
+        "project_manage",
+        {key: value for key, value in arguments.items() if value is not None},
+    )
+
+
 def _register_tool(name: str, function: Any) -> None:
     contract = TOOL_CONTRACTS[name]
     annotations = ToolAnnotations(**contract["annotations"])
@@ -189,6 +226,7 @@ def _register_tool(name: str, function: Any) -> None:
 _register_tool("project_read", project_read)
 _register_tool("project_apply_patch", project_apply_patch)
 _register_tool("project_shell", project_shell)
+_register_tool("project_manage", project_manage)
 
 mcp_http_app = mcp.streamable_http_app(
     streamable_http_path="/",

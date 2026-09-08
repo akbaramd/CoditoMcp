@@ -3,7 +3,8 @@ param(
     [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$Version = '0.1.0',
     [string]$OutputDirectory,
-    [long]$SourceDateEpoch = 946684800
+    [long]$SourceDateEpoch = 946684800,
+    [switch]$Release
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,7 +63,9 @@ if ($LASTEXITCODE -ne 0 -or $pyInstallerVersion -ne '6.22.2') {
 
 $buildRoot = Join-Path $outputRoot 'build'
 $distRoot = Join-Path $outputRoot 'dist'
-$packageName = "Codito-$Version-win-x64-dev"
+$packageName = if ($Release) { "Codito-$Version-win-x64" } else {
+    "Codito-$Version-win-x64-dev"
+}
 $stageRoot = Join-Path (Join-Path $outputRoot 'staging') $packageName
 Reset-RepositoryDirectory -Path $buildRoot
 Reset-RepositoryDirectory -Path $distRoot
@@ -155,6 +158,8 @@ Copy-Item -LiteralPath (Join-Path $repositoryRoot 'agent\packaging\config.exampl
     -Destination (Join-Path $stageRoot 'config.example.toml')
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'agent\packaging\DEV-README.txt') `
     -Destination (Join-Path $stageRoot 'README.txt')
+Copy-Item -LiteralPath (Join-Path $repositoryRoot 'agent\packaging\scripts\Install-WindowsDevPackage.ps1') `
+    -Destination (Join-Path $stageRoot 'install-windows.ps1')
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination $stageRoot
 [System.IO.File]::WriteAllText(
     (Join-Path $stageRoot 'VERSION'),

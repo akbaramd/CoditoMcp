@@ -51,6 +51,7 @@ validates state, closes, and exchanges the code using the exact redirect URI.
 ## Required scopes
 
 - `projects:read`
+- `projects:write`
 - `files:read`
 - `files:write`
 - `shell:execute`

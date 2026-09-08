@@ -17,6 +17,7 @@ from .models import ProjectMode
 from .operation_gate import ProjectOperationGate
 from .patching import PatchService
 from .paths import ProjectPathResolver
+from .project_management import ProjectManagementService
 from .protocol_adapter import AgentProtocolAdapter
 from .read_tools import ProjectReadService, ToolResponse
 from .relay_client import RelayClient, RelayTokenStore
@@ -62,11 +63,19 @@ class CoditoDaemon:
             device_id=state.device_id,
             operation_gate=self.operation_gate,
         )
+        self.management = ProjectManagementService(
+            self.database,
+            self.approvals,
+            device_id=state.device_id,
+            account_id=state.account_id,
+            metadata_changed=self._project_metadata_changed,
+        )
         self.adapter = AgentProtocolAdapter(
             self.database,
             self.reads,
             self.patches,
             self.shells,
+            self.management,
             device_id=state.device_id,
             account_id=state.account_id,
             approvals=self.approvals,
@@ -188,6 +197,7 @@ class CoditoDaemon:
                 "connection_epoch": self.websocket.connection_epoch,
                 "last_disconnect_reason": self.websocket.last_disconnect_reason,
                 "pending_approvals": self.approval_queue.pending_count,
+                "auto_update": self.database.get_setting("auto_update", "false") == "true",
                 "projects": [
                     {**project.public_dict(), "root": str(project.root)}
                     for project in self.database.list_projects(enabled_only=False)
@@ -198,6 +208,20 @@ class CoditoDaemon:
         if action == "activity.list":
             limit = int(request.get("limit", 50))
             return {"ok": True, "activity": self.database.list_recent_operations(limit)}
+        if action == "project.request.next":
+            return {
+                "ok": True,
+                "request": self.database.next_project_registration_request(),
+            }
+        if action == "project.request.complete":
+            project = self.database.complete_project_registration_request(
+                str(request.get("request_id", "")), Path(str(request.get("path", "")))
+            )
+            self._project_metadata_changed()
+            return {"ok": True, "project": {**project.public_dict(), "root": str(project.root)}}
+        if action == "project.request.dismiss":
+            self.database.dismiss_project_registration_request(str(request.get("request_id", "")))
+            return {"ok": True}
         if action == "approval.respond":
             accepted = self.approval_queue.respond(
                 str(request.get("request_id", "")), str(request.get("decision", ""))
@@ -222,6 +246,27 @@ class CoditoDaemon:
             self.database.set_project_mode(str(request.get("project_id", "")), mode)
             self.approvals.clear("trust_change")
             self._project_metadata_changed()
+            return {"ok": True}
+        if action == "project.rename":
+            self.database.set_project_title(
+                str(request.get("project_id", "")), str(request.get("title", ""))
+            )
+            self._project_metadata_changed()
+            return {"ok": True}
+        if action == "project.enabled":
+            self.database.set_project_enabled(
+                str(request.get("project_id", "")), enabled=request.get("enabled") is True
+            )
+            self.approvals.clear("project_availability_change")
+            self._project_metadata_changed()
+            return {"ok": True}
+        if action == "connection.reconnect" and self._loop is not None:
+            asyncio.run_coroutine_threadsafe(self.websocket.reconnect(), self._loop)
+            return {"ok": True}
+        if action == "setting.auto_update":
+            self.database.set_setting(
+                "auto_update", "true" if request.get("enabled") is True else "false"
+            )
             return {"ok": True}
         if action == "shutdown" and self._loop is not None:
             self._loop.call_soon_threadsafe(self._stop.set)

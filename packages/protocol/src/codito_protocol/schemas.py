@@ -10,6 +10,7 @@ from pydantic import TypeAdapter
 
 from .envelope import TunnelEnvelope
 from .errors import ToolError
+from .manage import ProjectManageInput, ProjectManageResult
 from .patch import ProjectApplyPatchInput, ProjectApplyPatchResult
 from .read import ProjectReadInput, ProjectReadResult
 from .shell import ProjectShellInput, ProjectShellResult
@@ -21,6 +22,8 @@ _ADAPTERS: dict[str, TypeAdapter[Any]] = {
     "project-apply-patch-result": TypeAdapter(ProjectApplyPatchResult),
     "project-shell-input": TypeAdapter(ProjectShellInput),
     "project-shell-result": TypeAdapter(ProjectShellResult),
+    "project-manage-input": TypeAdapter(ProjectManageInput),
+    "project-manage-result": TypeAdapter(ProjectManageResult),
     "tunnel-envelope": TypeAdapter(TunnelEnvelope),
     "tool-error": TypeAdapter(ToolError),
 }
@@ -61,3 +64,7 @@ def validate_project_apply_patch(value: Any) -> ProjectApplyPatchInput:
 
 def validate_project_shell(value: Any) -> ProjectShellInput:
     return TypeAdapter(ProjectShellInput).validate_python(value)
+
+
+def validate_project_manage(value: Any) -> ProjectManageInput:
+    return TypeAdapter(ProjectManageInput).validate_python(value)

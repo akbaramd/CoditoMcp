@@ -12,6 +12,7 @@ from codito_protocol import (
     TunnelEnvelope,
     compute_action_digest,
     schema_for,
+    validate_project_manage,
     validate_project_read,
     validate_project_shell,
 )
@@ -27,11 +28,12 @@ IDEMPOTENCY_KEY = "idemkey_01J123456789ABCDEF"
 HASH = "0" * 64
 
 
-def test_exactly_three_tools_are_public() -> None:
+def test_exactly_four_tools_are_public() -> None:
     assert set(TOOL_CONTRACTS) == {
         "project_read",
         "project_apply_patch",
         "project_shell",
+        "project_manage",
     }
     assert TOOL_CONTRACTS["project_read"]["securitySchemes"][0]["scopes"] == [
         "projects:read",
@@ -46,6 +48,30 @@ def test_exactly_three_tools_are_public() -> None:
         "projects:read",
         "shell:execute",
     ]
+    assert TOOL_CONTRACTS["project_manage"]["securitySchemes"][0]["scopes"] == [
+        "projects:read",
+        "projects:write",
+    ]
+
+
+def test_project_management_never_accepts_a_local_path_or_approval() -> None:
+    request = validate_project_manage(
+        {
+            "operation": "request_add_project",
+            "title": "Example",
+            "idempotency_key": IDEMPOTENCY_KEY,
+        }
+    )
+    assert request.operation == "request_add_project"
+    with pytest.raises(ValidationError):
+        validate_project_manage(
+            {
+                "operation": "request_add_project",
+                "title": "Example",
+                "idempotency_key": IDEMPOTENCY_KEY,
+                "absolute_path": r"C:\source",
+            }
+        )
 
 
 def test_read_discriminator_and_unknown_fields() -> None:

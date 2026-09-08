@@ -49,3 +49,6 @@ def test_release_scripts_include_archive_verification_and_serial_broker_publish(
     )
     assert "Test-WindowsDevPackage.ps1" in build_script
     assert "--maxcpucount:1" in build_script
+    tray_spec = (PACKAGING / "pyinstaller" / "codito-agent-tray.spec").read_text(encoding="utf-8")
+    assert 'Path(entry[0]).name.lower() != "icuuc.dll"' in tray_spec
+    assert 'startswith("icudt")' in tray_spec

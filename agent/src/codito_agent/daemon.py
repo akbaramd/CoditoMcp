@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import platform
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -87,6 +88,7 @@ class CoditoDaemon:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stop = asyncio.Event()
         self._grant_clear_task: asyncio.Task[None] | None = None
+        self._metadata_sync_task: asyncio.Task[None] | None = None
         ipc_key = IpcSecretStore(config.data_directory / "ipc-key.dpapi").load_or_create()
         self.ipc = NamedPipeServer(default_pipe_name(), ipc_key, self._handle_ipc)
 
@@ -101,7 +103,11 @@ class CoditoDaemon:
         finally:
             await self.websocket.stop()
             websocket_task.cancel()
-            await asyncio.gather(websocket_task, return_exceptions=True)
+            tasks = [websocket_task]
+            if self._metadata_sync_task is not None:
+                self._metadata_sync_task.cancel()
+                tasks.append(self._metadata_sync_task)
+            await asyncio.gather(*tasks, return_exceptions=True)
             self.approval_queue.deny_all()
             self.approvals.clear("shutdown")
             self.ipc.close()
@@ -155,6 +161,18 @@ class CoditoDaemon:
         except asyncio.CancelledError:
             return
 
+    def _project_metadata_changed(self) -> None:
+        if self._loop is None or not self._online:
+            return
+
+        def schedule() -> None:
+            if self._metadata_sync_task is None or self._metadata_sync_task.done():
+                self._metadata_sync_task = asyncio.create_task(
+                    self.websocket.sync_projects(), name="codito-project-sync"
+                )
+
+        self._loop.call_soon_threadsafe(schedule)
+
     def _handle_ipc(self, request: dict[str, Any]) -> dict[str, Any]:
         action = request.get("action")
         if action == "status":
@@ -162,9 +180,14 @@ class CoditoDaemon:
             return {
                 "ok": True,
                 "online": self._online,
+                "account_id": state.account_id,
+                "device_name": platform.node() or "Windows device",
                 "device_id": state.device_id,
                 "link_id": state.link_id,
                 "mcp_url": state.mcp_url,
+                "connection_epoch": self.websocket.connection_epoch,
+                "last_disconnect_reason": self.websocket.last_disconnect_reason,
+                "pending_approvals": self.approval_queue.pending_count,
                 "projects": [
                     {**project.public_dict(), "root": str(project.root)}
                     for project in self.database.list_projects(enabled_only=False)
@@ -172,6 +195,9 @@ class CoditoDaemon:
             }
         if action == "approval.next":
             return {"ok": True, "approval": self.approval_queue.next_request()}
+        if action == "activity.list":
+            limit = int(request.get("limit", 50))
+            return {"ok": True, "activity": self.database.list_recent_operations(limit)}
         if action == "approval.respond":
             accepted = self.approval_queue.respond(
                 str(request.get("request_id", "")), str(request.get("decision", ""))
@@ -181,6 +207,7 @@ class CoditoDaemon:
             project = self.database.register_project(
                 str(request.get("title", "")), Path(str(request.get("path", "")))
             )
+            self._project_metadata_changed()
             return {"ok": True, "project": {**project.public_dict(), "root": str(project.root)}}
         if action == "project.mode":
             mode = ProjectMode(str(request.get("mode", "")))
@@ -194,6 +221,7 @@ class CoditoDaemon:
                 )
             self.database.set_project_mode(str(request.get("project_id", "")), mode)
             self.approvals.clear("trust_change")
+            self._project_metadata_changed()
             return {"ok": True}
         if action == "shutdown" and self._loop is not None:
             self._loop.call_soon_threadsafe(self._stop.set)

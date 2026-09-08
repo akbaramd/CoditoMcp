@@ -382,6 +382,46 @@ class AgentDatabase:
             values.append(value)
         return values
 
+    def list_recent_operations(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Return a bounded, display-safe activity feed for the local desktop UI."""
+
+        if not 1 <= limit <= 200:
+            raise AgentError("invalid_request", "Activity limit must be between 1 and 200")
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT operations.operation_id,operations.project_id,
+                          projects.title AS project_title,operations.capability,
+                          operations.state,operations.result_json,
+                          operations.terminal_acked,operations.received_at,
+                          operations.updated_at
+                     FROM operations
+                     LEFT JOIN projects ON projects.project_id=operations.project_id
+                    ORDER BY operations.updated_at DESC,operations.operation_id DESC
+                    LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        activity: list[dict[str, Any]] = []
+        for row in rows:
+            result = json.loads(row["result_json"]) if row["result_json"] else None
+            error_code = None
+            if isinstance(result, dict) and isinstance(result.get("error"), dict):
+                code = result["error"].get("code")
+                error_code = str(code) if code else None
+            activity.append(
+                {
+                    "operation_id": str(row["operation_id"]),
+                    "project_id": str(row["project_id"]) if row["project_id"] else None,
+                    "project_title": str(row["project_title"] or "Device"),
+                    "capability": str(row["capability"]),
+                    "state": str(row["state"]),
+                    "error_code": error_code,
+                    "terminal_acked": bool(row["terminal_acked"]),
+                    "received_at": str(row["received_at"]),
+                    "updated_at": str(row["updated_at"]),
+                }
+            )
+        return activity
+
     def acknowledge_terminal(
         self,
         *,

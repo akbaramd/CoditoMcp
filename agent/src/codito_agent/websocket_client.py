@@ -82,6 +82,15 @@ class DeviceWebSocketClient:
         self._terminal_pending: dict[str, TunnelEnvelope] = {}
         self._envelope_adapter = TypeAdapter(TunnelEnvelope)
         self._long_disconnect_task: asyncio.Task[None] | None = None
+        self._last_disconnect_reason: str | None = None
+
+    @property
+    def connection_epoch(self) -> int:
+        return self._epoch
+
+    @property
+    def last_disconnect_reason(self) -> str | None:
+        return self._last_disconnect_reason
 
     async def run(self) -> None:
         import websockets
@@ -111,6 +120,7 @@ class DeviceWebSocketClient:
                     await self._receive_welcome(socket)
                     self.database.set_connection_epoch(self._epoch)
                     self._out_sequence = 0
+                    self._last_disconnect_reason = None
                     self.connection_callback(True)
                     if self._long_disconnect_task is not None:
                         self._long_disconnect_task.cancel()
@@ -128,6 +138,7 @@ class DeviceWebSocketClient:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                self._last_disconnect_reason = type(exc).__name__
                 logger.warning("device WebSocket disconnected (%s)", type(exc).__name__)
             finally:
                 self._socket = None
@@ -152,6 +163,13 @@ class DeviceWebSocketClient:
             MessageKind.HELLO,
             payload={"projects": self.project_metadata()},
         )
+
+    async def sync_projects(self) -> None:
+        """Publish current local project metadata on an already fenced connection."""
+
+        if self._socket is None or self._ticket is None:
+            return
+        await self._hello()
 
     async def _receive_welcome(self, socket: Any) -> None:
         """Accept the relay-authoritative fence before sending any agent data."""

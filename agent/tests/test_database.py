@@ -64,3 +64,26 @@ def test_operation_receipt_is_durable_and_conflicting_reuse_is_rejected(tmp_path
         database.record_received(**{**values, "request_digest": "c" * 64})
     with pytest.raises(AgentError, match="bindings"):
         database.record_received(**{**values, "account_id": "account_different000"})
+
+    activity = database.list_recent_operations(10)
+    assert activity == [
+        {
+            "operation_id": values["operation_id"],
+            "project_id": None,
+            "project_title": "Device",
+            "capability": "project_read",
+            "state": "succeeded",
+            "error_code": None,
+            "terminal_acked": True,
+            "received_at": activity[0]["received_at"],
+            "updated_at": activity[0]["updated_at"],
+        }
+    ]
+
+
+def test_activity_feed_is_bounded(tmp_path: Path) -> None:
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    with pytest.raises(AgentError, match="between 1 and 200"):
+        database.list_recent_operations(0)
+    with pytest.raises(AgentError, match="between 1 and 200"):
+        database.list_recent_operations(201)

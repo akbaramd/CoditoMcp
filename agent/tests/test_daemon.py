@@ -53,3 +53,13 @@ def test_daemon_construction_wires_dynamic_link_without_stale_constructor_argume
     daemon = daemon_module.CoditoDaemon(AgentConfig(data_directory=tmp_path))
     assert daemon.shells.account_id == state.account_id
     assert daemon.adapter.device_id == state.device_id
+    status = daemon._handle_ipc({"action": "status"})
+    assert status["account_id"] == state.account_id
+    assert status["device_id"] == state.device_id
+    assert status["mcp_url"] == state.mcp_url
+    assert status["connection_epoch"] == 0
+    assert status["pending_approvals"] == 0
+    assert daemon._handle_ipc({"action": "activity.list", "limit": 20}) == {
+        "ok": True,
+        "activity": [],
+    }

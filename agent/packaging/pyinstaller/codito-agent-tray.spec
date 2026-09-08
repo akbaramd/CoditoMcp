@@ -36,6 +36,16 @@ a = Analysis(
     noarchive=False,
     optimize=1,
 )
+# Qt intentionally links to the Windows system ICU shim (`System32\\icuuc.dll`).
+# A developer PATH can contain an unrelated Poppler ICU DLL with the same generic
+# name; bundling that DLL causes QtCore to fail with ERROR_PROC_NOT_FOUND. Keep
+# environment-provided ICU binaries out of the deterministic desktop package.
+a.binaries = [
+    entry
+    for entry in a.binaries
+    if Path(entry[0]).name.lower() != "icuuc.dll"
+    and not Path(entry[0]).name.lower().startswith("icudt")
+]
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,

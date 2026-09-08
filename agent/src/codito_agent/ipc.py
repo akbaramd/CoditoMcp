@@ -86,6 +86,12 @@ class NamedPipeServer:
                     if not isinstance(request, dict):
                         raise ValueError("request must be an object")
                     response = self.handler(request)
+                except AgentError as exc:
+                    response = {
+                        "ok": False,
+                        "error": exc.code,
+                        "message": exc.message,
+                    }
                 except Exception:
                     response = {"ok": False, "error": "invalid_ipc_request"}
                 connection.send_bytes(
@@ -153,6 +159,11 @@ class QueuedApprovalPrompt:
         value = dataclasses.asdict(pending.request)
         value["risk"] = pending.request.risk.value
         return value
+
+    @property
+    def pending_count(self) -> int:
+        with self._lock:
+            return len(self._pending)
 
     def respond(self, request_id: str, decision: str) -> bool:
         try:

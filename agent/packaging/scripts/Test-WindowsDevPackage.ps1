@@ -69,14 +69,16 @@ try {
                 $segments -contains '..' -or $segments -contains '.') {
                 throw "Unsafe ZIP entry path: $($entry.FullName)"
             }
-            if ($entry.LastWriteTime.UtcDateTime -ne [datetime]::new(
+            # ZIP stores a timezone-free DOS timestamp. Comparing UtcDateTime would
+            # shift the value on hosts outside UTC (for example Asia/Tehran).
+            if ($entry.LastWriteTime.DateTime -ne [datetime]::new(
                 1980,
                 1,
                 1,
                 0,
                 0,
                 0,
-                [System.DateTimeKind]::Utc
+                [System.DateTimeKind]::Unspecified
             )) {
                 throw "Non-deterministic ZIP timestamp: $($entry.FullName)"
             }

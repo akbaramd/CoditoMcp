@@ -99,7 +99,7 @@ def _startup_arguments(config_path: Path | None) -> tuple[list[str], list[str]]:
     if config_path is not None:
         common.extend(["--config", str(config_path)])
         ui.extend(["--config", str(config_path)])
-    return [*common, "daemon"], ui
+    return [*common, "daemon"], [*ui, "--minimized"]
 
 
 def main() -> None:

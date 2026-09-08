@@ -1,6 +1,9 @@
 # Codito Windows agent
 
-The agent is a per-user Windows 11 daemon with an optional PySide6 tray companion.
+The agent is a per-user Windows 11 daemon with a PySide6 desktop dashboard and
+notification-area companion. The dashboard shows the current device, revocable
+MCP endpoint, relay state, project policies, recent operation journal, and local
+approval dialogs without sending absolute project paths to the relay.
 It keeps absolute project paths and device credentials local, journals every remote
 operation before acknowledging it, and maintains one outbound authenticated WSS
 connection to the Codito relay.

@@ -23,6 +23,47 @@ class FakeSocket:
 
 
 @pytest.mark.asyncio
+async def test_project_metadata_can_be_resynchronized_without_reconnect(tmp_path: Path) -> None:
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    ticket = WebSocketTicket(
+        "ticket_abcdefghijkl",
+        "account_abcdefghijkl",
+        "device_abcdefghijkl",
+        "link_abcdefghijklmnop",
+        "challenge_abcdefgh",
+        datetime.now(UTC) + timedelta(minutes=1),
+    )
+
+    async def tickets() -> WebSocketTicket:
+        return ticket
+
+    async def operation(*_: Any) -> ToolResponse:
+        raise AssertionError("No operation should be dispatched")
+
+    project_metadata = [{"project_id": "project_abcdefghijkl", "title": "Example"}]
+    client = DeviceWebSocketClient(
+        url="wss://example.test/ws/device",
+        database=database,
+        credentials=object(),  # type: ignore[arg-type]
+        ticket_provider=tickets,
+        operation_handler=operation,  # type: ignore[arg-type]
+        project_metadata=lambda: project_metadata,
+    )
+    socket = FakeSocket()
+    client._socket = socket
+    client._ticket = ticket
+    client._epoch = 4
+
+    assert client.connection_epoch == 4
+    assert client.last_disconnect_reason is None
+    await client.sync_projects()
+
+    envelope = TunnelEnvelope.model_validate_json(socket.sent[0])
+    assert envelope.kind is MessageKind.HELLO
+    assert envelope.payload == {"projects": project_metadata}
+
+
+@pytest.mark.asyncio
 async def test_operation_responses_echo_correlation_not_message_id(tmp_path: Path) -> None:
     database = AgentDatabase(tmp_path / "agent.sqlite3")
     ticket = WebSocketTicket(

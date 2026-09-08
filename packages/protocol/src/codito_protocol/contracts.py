@@ -10,11 +10,34 @@ def _oauth_scheme(*scopes: str) -> dict[str, Any]:
 
 
 TOOL_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
+    "device_read": {
+        "title": "Request Windows read access outside projects",
+        "description": (
+            "When the user asks to inspect a local directory or drive outside registered "
+            "projects, use this tool to request Windows approval instead of refusing or "
+            "registering the whole drive. Supply scope_path (e.g. C:/), a relative path, "
+            "and purpose. Windows offers Deny, Allow once, or Always allow reading this "
+            "directory and descendants for this connection identity. Only the local user "
+            "can approve. Saved consent never permits edits or shell execution. Reads are "
+            "bounded; directories are non-recursive. Permission-denied and reparse paths "
+            "remain blocked. Choose the narrowest directory the user requested."
+        ),
+        "required_scopes": ["files:read"],
+        "securitySchemes": [_oauth_scheme("files:read")],
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    },
     "project_read": {
         "title": "Read registered projects",
         "description": (
             "List registered projects, list a project-relative directory, read a bounded "
-            "range of a file, or search text. Absolute local paths are never accepted or returned."
+            "range of a file, or search text. This tool accepts only project-relative paths. "
+            "For user-requested reads outside registered projects, use device_read, which "
+            "requests Windows consent."
         ),
         "required_scopes_by_operation": {
             "list_projects": ["projects:read"],
@@ -52,7 +75,12 @@ TOOL_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
         "title": "Run or manage a bounded project command",
         "description": (
             "Start, poll, or cancel a non-interactive command in a registered project. "
-            "Execution mode and local approval are controlled only by device policy."
+            "For installed Windows tools (uv, dotnet, git, etc.) or access outside the "
+            "project, set execution=native_approval to request one-shot Windows consent "
+            "for full logged-in-user authority and the host tool PATH. A script may change "
+            "directory after approval. Never claim that a working directory confines native "
+            "commands. Missing tools or failed isolation never silently bypass consent. "
+            "Default project_policy keeps locally selected isolation/trust settings."
         ),
         "required_scopes": ["projects:read", "shell:execute"],
         "securitySchemes": [_oauth_scheme("projects:read", "shell:execute")],

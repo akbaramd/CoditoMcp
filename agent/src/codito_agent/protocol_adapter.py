@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from codito_protocol import (
+    DeviceReadInput,
+    DeviceReadResult,
     ListProjectsInput,
     ProjectApplyPatchResult,
     ProjectManageResult,
@@ -19,6 +21,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from .approvals import ApprovalManager, ApprovalRisk, action_digest
 from .db import AgentDatabase
+from .device_read import DeviceReadService
 from .errors import AgentError
 from .patching import PatchService
 from .project_management import ProjectManagementService
@@ -55,6 +58,7 @@ class AgentProtocolAdapter:
         self._read_result: TypeAdapter[Any] = TypeAdapter(ProjectReadResult)
         self._shell_result: TypeAdapter[Any] = TypeAdapter(ProjectShellResult)
         self._manage_result: TypeAdapter[Any] = TypeAdapter(ProjectManageResult)
+        self.device_reads = DeviceReadService(approvals, account_id=account_id, device_id=device_id)
 
     async def execute(
         self,
@@ -68,7 +72,19 @@ class AgentProtocolAdapter:
         reconcile_duplicate: bool = False,
     ) -> ToolResponse:
         try:
-            if tool_name == "project_read":
+            validated: Any
+            if tool_name == "device_read":
+                device_request = DeviceReadInput.model_validate(payload)
+                async with self._read_semaphore:
+                    response = await self.device_reads.execute(
+                        device_request,
+                        grant_id=grant_id,
+                        link_id=link_id,
+                        connection_epoch=connection_epoch,
+                        deadline_at=deadline_at,
+                    )
+                validated = DeviceReadResult.model_validate(response.structured)
+            elif tool_name == "project_read":
                 read_request = validate_project_read(payload)
                 async with self._read_semaphore:
                     response = await asyncio.to_thread(self._read, read_request)

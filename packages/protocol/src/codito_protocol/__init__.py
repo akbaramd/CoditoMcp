@@ -1,6 +1,7 @@
 """Public Codito protocol API."""
 
 from .contracts import TOOL_CONTRACTS
+from .device_read import DeviceReadInput, DeviceReadResult
 from .digest import canonical_action_bytes, compute_action_digest
 from .envelope import MessageKind, OperationPayload, TunnelBindings, TunnelEnvelope
 from .errors import ErrorCode, ToolError, ToolFailure
@@ -67,6 +68,8 @@ __all__ = [
     "TOOL_CONTRACTS",
     "CoditoModel",
     "Continuation",
+    "DeviceReadInput",
+    "DeviceReadResult",
     "DirectoryEntry",
     "ErrorCode",
     "GetProjectsInput",

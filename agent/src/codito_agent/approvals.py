@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
+from .db import AgentDatabase
 from .errors import AgentError
 from .models import ProjectMode
 
@@ -19,6 +20,7 @@ class ApprovalDecision(StrEnum):
     DENY = "deny"
     ALLOW_ONCE = "allow_once"
     ALLOW_SESSION = "allow_session"
+    ALLOW_ALWAYS_READ = "allow_always_read"
 
 
 class ApprovalRisk(StrEnum):
@@ -51,6 +53,7 @@ class ApprovalRequest:
     requested_network: bool = False
     requested_external_paths: tuple[str, ...] = ()
     session_eligible: bool = False
+    persistent_read_eligible: bool = False
 
 
 @dataclass(slots=True)
@@ -86,20 +89,56 @@ class ApprovalManager:
     SESSION_MAX = timedelta(minutes=30)
     SESSION_IDLE = timedelta(minutes=10)
 
-    def __init__(self, prompt: Prompt) -> None:
+    def __init__(self, prompt: Prompt, database: AgentDatabase | None = None) -> None:
         self._prompt = prompt
+        self._database = database
         self._grants: list[_SessionGrant] = []
         self._lock = threading.Lock()
         self._security_generation = 0
 
-    async def request(self, request: ApprovalRequest, *, session_eligible: bool) -> None:
+    async def request(
+        self,
+        request: ApprovalRequest,
+        *,
+        session_eligible: bool,
+        read_scope: tuple[str, str] | None = None,
+    ) -> None:
         self._ensure_before_deadline(request)
+        permission_key = ""
+        if read_scope is not None:
+            if (
+                request.capability != "device:read"
+                or request.risk is not ApprovalRisk.READ
+                or request.requested_network
+                or request.command is not None
+                or request.patch is not None
+                or session_eligible
+                or request.requested_external_paths != (read_scope[0],)
+                or self._database is None
+            ):
+                raise AgentError("invalid_approval", "Persistent permission is read-only")
+            permission_key = action_digest(
+                [
+                    request.account_id,
+                    request.grant_id,
+                    request.link_id,
+                    request.device_id,
+                    "device:read",
+                    read_scope[0],
+                ]
+            )
+            with self._lock:
+                if self._database.has_read_permission(permission_key, read_scope[1]):
+                    return
         if self._has_session_grant(request):
             return
-        if request.session_eligible != session_eligible:
-            from dataclasses import replace
+        from dataclasses import replace
 
-            request = replace(request, session_eligible=session_eligible)
+        request = replace(
+            request,
+            session_eligible=session_eligible,
+            persistent_read_eligible=read_scope is not None,
+        )
         with self._lock:
             security_generation = self._security_generation
         remaining = (request.deadline_at - datetime.now(UTC)).total_seconds()
@@ -118,6 +157,13 @@ class ApprovalManager:
                     "approval_expired",
                     "The approval was invalidated by a security or connection change",
                 )
+            if decision is ApprovalDecision.ALLOW_ALWAYS_READ:
+                if read_scope is None or self._database is None:
+                    raise AgentError("invalid_approval", "Always allow is unavailable here")
+                self._database.save_read_permission(
+                    permission_key, *read_scope, request.account_id, request.link_id
+                )
+                return
         if decision is ApprovalDecision.DENY:
             raise AgentError("approval_denied", "The local user denied this operation")
         if decision is ApprovalDecision.ALLOW_SESSION:
@@ -226,6 +272,21 @@ class ApprovalManager:
         del reason
         with self._lock:
             self._security_generation += 1
+
+    @property
+    def generation(self) -> int:
+        with self._lock:
+            return self._security_generation
+
+    def ensure_current(self, generation: int, deadline: datetime) -> None:
+        with self._lock:
+            if generation != self._security_generation or deadline <= datetime.now(UTC):
+                raise AgentError("approval_expired", "Read permission or deadline changed")
+
+    def revoke_read_permissions(self) -> int:
+        with self._lock:
+            self._security_generation += 1
+            return self._database.revoke_read_permissions() if self._database else 0
 
     @staticmethod
     def _ensure_before_deadline(request: ApprovalRequest) -> None:

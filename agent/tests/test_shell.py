@@ -13,7 +13,83 @@ from codito_agent.db import AgentDatabase
 from codito_agent.errors import AgentError
 from codito_agent.models import ProjectMode
 from codito_agent.paths import ProjectPathResolver
-from codito_agent.shell import ShellManager, _safe_environment
+from codito_agent.shell import ShellManager, _native_environment, _safe_environment
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "decision",
+    [ApprovalDecision.ALLOW_ONCE, ApprovalDecision.DENY, ApprovalDecision.ALLOW_ALWAYS_READ],
+)
+async def test_isolated_project_can_request_native_but_never_bypass_consent(
+    tmp_path: Path, project_root: Path, decision: ApprovalDecision
+) -> None:
+    database = AgentDatabase(tmp_path / "db.sqlite3")
+    project = database.register_project("Example", project_root, ProjectMode.ISOLATED)
+    prompted = []
+    started = []
+
+    async def prompt(request):
+        assert request.requested_network
+        assert request.requested_external_paths
+        assert not request.persistent_read_eligible
+        prompted.append(request)
+        return decision
+
+    async def start(specification, isolated):
+        assert not isolated
+        started.append(specification)
+        return FakeProcess()
+
+    manager = ShellManager(
+        database,
+        ProjectPathResolver(),
+        FakeBroker(),
+        ApprovalManager(prompt),
+        tmp_path,
+        account_id="account",
+        device_id="device",
+        process_starter=start,
+    )
+    request = {
+        "project_id": project.project_id,
+        "execution": "native_approval",
+        "purpose": "Build with installed tools",
+        "idempotency_key": "native_key_abcdefghijkl",
+        "command": {"kind": "exec", "executable": "dotnet", "arguments": ["--version"]},
+    }
+    binding = dict(
+        grant_id="grant",
+        link_id="link",
+        connection_epoch=1,
+        deadline_at=datetime.now(UTC) + timedelta(seconds=30),
+    )
+    if decision is ApprovalDecision.ALLOW_ONCE:
+        result = await manager.start(request, **binding)
+        await manager._jobs[result.structured["job_id"]].task
+        assert len(started) == 1
+        # No project trust setting is changed by an approved native request.
+        assert database.get_project(project.project_id).mode is ProjectMode.ISOLATED
+    else:
+        with pytest.raises(AgentError):
+            await manager.start(request, **binding)
+        assert started == []
+    assert len(prompted) == 1
+
+
+def test_native_environment_keeps_tools_but_not_process_secrets(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("CODITO_SECRET_KEY", "not-for-child")
+    monkeypatch.setenv("OPENAI_API_KEY", "not-for-child")
+    environment = _native_environment({}, tmp_path)
+    assert environment["USERPROFILE"] == str(tmp_path)
+    assert "CODITO_SECRET_KEY" not in environment
+    assert "OPENAI_API_KEY" not in environment
+    assert environment["PATH"]
+    with pytest.raises(AgentError):
+        _native_environment({"PATH": "attacker"}, tmp_path)
 
 
 class FakeBroker:

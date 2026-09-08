@@ -99,6 +99,14 @@ class AgentDatabase:
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS read_permissions (
+                    permission_key TEXT PRIMARY KEY,
+                    scope_path TEXT NOT NULL,
+                    root_identity TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    link_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS project_registration_requests (
                     request_id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
@@ -265,6 +273,43 @@ class AgentDatabase:
         with self._connect() as connection:
             row = connection.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
         return str(row["value"]) if row is not None else default
+
+    def has_read_permission(self, permission_key: str, root_identity: str) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM read_permissions WHERE permission_key=? AND root_identity=?",
+                (permission_key, root_identity),
+            ).fetchone()
+        return row is not None
+
+    def save_read_permission(
+        self,
+        permission_key: str,
+        scope_path: str,
+        root_identity: str,
+        account_id: str,
+        link_id: str,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT OR REPLACE INTO read_permissions
+                   (permission_key,scope_path,root_identity,account_id,link_id,created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (permission_key, scope_path, root_identity, account_id, link_id, _now()),
+            )
+
+    def list_read_permissions(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT scope_path,account_id,link_id,created_at FROM read_permissions "
+                "ORDER BY created_at DESC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def revoke_read_permissions(self) -> int:
+        with self._connect() as connection:
+            cursor = connection.execute("DELETE FROM read_permissions")
+        return cursor.rowcount
 
     def set_setting(self, key: str, value: str) -> None:
         if not key or len(key) > 100 or len(value) > 4096:

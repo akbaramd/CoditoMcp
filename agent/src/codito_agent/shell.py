@@ -133,6 +133,65 @@ def _safe_environment(explicit: dict[str, str], data_directory: Path) -> dict[st
     return environment
 
 
+def _native_environment(explicit: dict[str, str], data_directory: Path) -> dict[str, str]:
+    """Standard user tool environment, not the Codito process's secrets/packager variables."""
+    environment = _safe_environment(explicit, data_directory)
+    standard = {
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMDATA",
+        "PROGRAMFILES",
+        "PROGRAMFILES(X86)",
+        "PROGRAMW6432",
+        "COMMONPROGRAMFILES",
+        "DOTNET_ROOT",
+        "DOTNET_ROOT_X64",
+        "CARGO_HOME",
+        "RUSTUP_HOME",
+        "JAVA_HOME",
+        "GOPATH",
+        "GOBIN",
+        "NVM_HOME",
+        "NVM_SYMLINK",
+    }
+    for name, value in os.environ.items():
+        if name.upper() in standard and name.upper() not in {key.upper() for key in explicit}:
+            environment[name] = value
+    path = os.environ.get("PATH", "")
+    if os.name == "nt":
+        import winreg
+
+        # Read current installation paths, including tools installed after daemon start.
+        paths: list[str] = []
+        for hive, key in (
+            (
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+            ),
+            (winreg.HKEY_CURRENT_USER, r"Environment"),
+        ):
+            try:
+                with winreg.OpenKey(hive, key) as handle:
+                    value, _ = winreg.QueryValueEx(handle, "Path")
+                    if isinstance(value, str):
+                        paths.append(os.path.expandvars(value))
+            except FileNotFoundError:
+                continue
+        if paths:
+            path = os.pathsep.join(paths)
+    # Do not implicitly search cwd, relative directories, or packager internals.
+    directories = [
+        part.strip('"')
+        for part in path.split(os.pathsep)
+        if part and Path(part.strip('"')).is_absolute()
+    ]
+    environment["PATH"] = os.pathsep.join(dict.fromkeys([environment["PATH"], *directories]))
+    return environment
+
+
 class ShellManager:
     def __init__(
         self,
@@ -235,15 +294,25 @@ class ShellManager:
         project = self.database.get_project(project_id)
         if not project.enabled:
             raise AgentError("project_disabled", "The requested project is disabled")
+        execution = request.get("execution", "project_policy")
+        if execution not in {"project_policy", "native_approval"}:
+            raise AgentError("invalid_request", "Unknown execution policy request")
+        mode = ProjectMode.NATIVE_APPROVAL if execution == "native_approval" else project.mode
         prior = self.database.get_idempotency(project_id, "project_shell", key, **binding)
         if prior is not None:
             return self._existing_start(prior, digest)
         working_relative = str(request.get("working_directory", ".")) or "."
         working = self.resolver.resolve(project, working_relative, directory=True, allow_root=True)
         specification = self._build_specification(
-            project, working.absolute, command, timeout, output_limit
+            project,
+            working.absolute,
+            command,
+            timeout,
+            output_limit,
+            native=mode is not ProjectMode.ISOLATED,
         )
         capabilities = await self.broker.probe()
+        approval_generation = self.approvals.generation
         approval = ApprovalManager.build_request(
             account_id=self.account_id,
             grant_id=grant_id,
@@ -258,7 +327,7 @@ class ShellManager:
             risk=ApprovalRisk.NATIVE_EXECUTION,
             summary=(
                 purpose
-                if project.mode is ProjectMode.ISOLATED
+                if mode is ProjectMode.ISOLATED
                 else purpose
                 + "\nNative execution has the logged-in user's full filesystem and network "
                 "authority; the working directory is not a security boundary."
@@ -266,15 +335,15 @@ class ShellManager:
             command=command,
             working_directory=str(working.absolute),
             environment_differences=specification["environment"],
-            requested_network=project.mode is not ProjectMode.ISOLATED,
+            requested_network=mode is not ProjectMode.ISOLATED,
             requested_external_paths=(
                 ("logged-in user's accessible filesystem",)
-                if project.mode is not ProjectMode.ISOLATED
+                if mode is not ProjectMode.ISOLATED
                 else ()
             ),
         )
         await self.approvals.authorize_shell(
-            mode=project.mode,
+            mode=mode,
             sandbox_proven=capabilities.isolation_proven,
             request=approval,
         )
@@ -282,6 +351,7 @@ class ShellManager:
             raise AgentError("deadline_exceeded", "Operation deadline elapsed before command start")
 
         async with self._guard:
+            self.approvals.ensure_current(approval_generation, deadline_at)
             if deadline_at <= datetime.now(UTC):
                 raise AgentError(
                     "deadline_exceeded", "Operation deadline elapsed before command start"
@@ -328,7 +398,7 @@ class ShellManager:
                 )
                 journal_created = True
                 job.task = asyncio.create_task(
-                    self._run_job(job, specification, project.mode is ProjectMode.ISOLATED),
+                    self._run_job(job, specification, mode is ProjectMode.ISOLATED),
                     name=f"codito-shell-{job.job_id}",
                 )
             except Exception:
@@ -362,12 +432,18 @@ class ShellManager:
         command: dict[str, Any],
         timeout: int,
         output_limit: int,
+        *,
+        native: bool = False,
     ) -> dict[str, Any]:
         kind = command.get("kind")
         explicit_environment = command.get("environment", {})
         if not isinstance(explicit_environment, dict):
             raise AgentError("invalid_request", "command environment must be an object")
-        environment = _safe_environment(explicit_environment, self.data_directory)
+        environment = (
+            _native_environment(explicit_environment, self.data_directory)
+            if native
+            else _safe_environment(explicit_environment, self.data_directory)
+        )
         (self.data_directory / "temp").mkdir(parents=True, exist_ok=True)
         if kind == "exec":
             executable = command.get("executable")

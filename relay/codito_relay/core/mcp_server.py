@@ -147,11 +147,13 @@ async def project_shell(
     sequence_cursor: int = 0,
     wait_milliseconds: int = 0,
     reason: str = "cancelled by caller",
+    execution: Literal["project_policy", "native_approval"] = "project_policy",
 ) -> CallToolResult:
     if action == "start":
         arguments = {
             "action": action,
             "project_id": project_id,
+            "execution": execution,
             "working_directory": working_directory,
             "purpose": purpose,
             "timeout_seconds": timeout_seconds,
@@ -210,6 +212,35 @@ async def project_manage(
     )
 
 
+async def device_read(
+    context: Context,
+    operation: Literal["list_directory", "read_file"],
+    scope_path: str,
+    purpose: str,
+    path: str = "",
+    offset: int = 0,
+    limit: int = 100,
+    start_line: int = 1,
+    max_lines: int = 200,
+    max_bytes: int = 65536,
+) -> CallToolResult:
+    return await _run(
+        context,
+        "device_read",
+        {
+            "operation": operation,
+            "scope_path": scope_path,
+            "purpose": purpose,
+            "path": path,
+            "offset": offset,
+            "limit": limit,
+            "start_line": start_line,
+            "max_lines": max_lines,
+            "max_bytes": max_bytes,
+        },
+    )
+
+
 def _register_tool(name: str, function: Any) -> None:
     contract = TOOL_CONTRACTS[name]
     annotations = ToolAnnotations(**contract["annotations"])
@@ -227,6 +258,7 @@ _register_tool("project_read", project_read)
 _register_tool("project_apply_patch", project_apply_patch)
 _register_tool("project_shell", project_shell)
 _register_tool("project_manage", project_manage)
+_register_tool("device_read", device_read)
 
 mcp_http_app = mcp.streamable_http_app(
     streamable_http_path="/",

@@ -315,6 +315,7 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         self._pending_update: ReleaseUpdate | None = None
         self._update_check_silent = False
         self._quitting = False
+        self._approval_dialog_active = False
         self.setWindowTitle("Codito — Device MCP")
         self.setMinimumSize(920, 620)
         self.resize(1120, 740)
@@ -448,7 +449,13 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         copy.addWidget(hero_text)
         hero_layout.addLayout(copy, 1)
         tools = QVBoxLayout()
-        for name in ("project_read", "project_apply_patch", "project_shell"):
+        for name in (
+            "project_read",
+            "project_apply_patch",
+            "project_shell",
+            "project_manage",
+            "device_read",
+        ):
             badge = _label(name, "HeroBadge")
             badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             tools.addWidget(badge)
@@ -633,6 +640,22 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         account_actions.addStretch()
         account_layout.addLayout(account_actions)
         layout.addWidget(account)
+
+        permissions = QFrame()
+        permissions.setObjectName("Card")
+        permissions_layout = _card_layout(permissions)
+        permissions_layout.addWidget(_label("Saved device read permissions", "SectionTitle"))
+        permissions_help = _label(
+            "Always allow permits reading the selected folder and descendants for the approved "
+            "account/link only. It never permits file edits or Windows commands.",
+            "Muted",
+        )
+        permissions_help.setWordWrap(True)
+        permissions_layout.addWidget(permissions_help)
+        permissions_button = QPushButton("Review / revoke saved read permissions")
+        permissions_button.clicked.connect(self.review_read_permissions)
+        permissions_layout.addWidget(permissions_button)
+        layout.addWidget(permissions)
 
         endpoint = QFrame()
         endpoint.setObjectName("Card")
@@ -1246,10 +1269,19 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         QDesktopServices.openUrl(QUrl(self.config.relay_http_url))
 
     def poll_approval(self) -> None:
+        if self._approval_dialog_active:
+            return
         response = self._request({"action": "approval.next"})
         approval = response.get("approval") if response else None
         if not isinstance(approval, dict):
             return
+        self._approval_dialog_active = True
+        try:
+            self._show_approval(approval)
+        finally:
+            self._approval_dialog_active = False
+
+    def _show_approval(self, approval: dict[str, Any]) -> None:
         self.tray.showMessage(
             "Codito approval required",
             f"{approval.get('project_title')}: {approval.get('summary')}",
@@ -1260,15 +1292,24 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         dialog = QMessageBox(self)
         dialog.setIcon(QMessageBox.Icon.Warning)
         dialog.setWindowTitle("Codito local approval")
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
         dialog.setText(str(approval.get("summary", "Remote operation")))
         dialog.setInformativeText(
             f"Project: {approval.get('project_title')}\n"
             f"Capability: {approval.get('capability')}\n"
             f"Risk: {approval.get('risk')}\n\n"
             "Review the exact operation details before allowing it."
+            + (
+                "\n\nAlways allow saves READ access to the shown directory and all descendants. "
+                "Private files and secrets there could be sent to the requesting client. "
+                "It does NOT permit edits or shell execution. Revoke in Settings."
+                if approval.get("persistent_read_eligible")
+                else ""
+            )
         )
         details = {
             "account": approval.get("account_id"),
+            "oauth_grant": approval.get("grant_id"),
             "link": approval.get("link_id"),
             "device": approval.get("device_id"),
             "project": approval.get("project_title"),
@@ -1284,8 +1325,15 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             "action_digest": approval.get("action_digest"),
         }
         dialog.setDetailedText(json.dumps(details, indent=2, ensure_ascii=False))
-        dialog.addButton("Deny", QMessageBox.ButtonRole.RejectRole)
+        deny = dialog.addButton("Deny", QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(deny)
+        dialog.setEscapeButton(deny)
         once = dialog.addButton("Allow once", QMessageBox.ButtonRole.AcceptRole)
+        always_read = None
+        if approval.get("persistent_read_eligible"):
+            always_read = dialog.addButton(
+                "Always allow reading this folder", QMessageBox.ButtonRole.YesRole
+            )
         session = None
         if approval.get("session_eligible"):
             session = dialog.addButton(
@@ -1293,9 +1341,13 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             )
         dialog.exec()
         clicked = dialog.clickedButton()
-        decision = (
-            "allow_session" if clicked is session else "allow_once" if clicked is once else "deny"
-        )
+        decision = "deny"
+        if clicked is once:
+            decision = "allow_once"
+        elif session is not None and clicked is session:
+            decision = "allow_session"
+        elif always_read is not None and clicked is always_read:
+            decision = "allow_always_read"
         self._request(
             {
                 "action": "approval.respond",
@@ -1304,6 +1356,28 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
             }
         )
         self.refresh()
+
+    def review_read_permissions(self) -> None:
+        response = self._request({"action": "read_permissions.list"})
+        if not response:
+            return
+        permissions = response.get("permissions", [])
+        dialog = QMessageBox(self)
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.setWindowTitle("Codito saved read permissions")
+        dialog.setText(f"{len(permissions)} saved read permission(s)")
+        dialog.setInformativeText(
+            "\n".join(str(item.get("scope_path", "")) for item in permissions)
+            or "No persistent read permissions."
+        )
+        dialog.setDetailedText(json.dumps(permissions, indent=2, ensure_ascii=False))
+        dialog.addButton("Close", QMessageBox.ButtonRole.RejectRole)
+        revoke = dialog.addButton(
+            "Revoke all read permissions", QMessageBox.ButtonRole.DestructiveRole
+        )
+        dialog.exec()
+        if dialog.clickedButton() is revoke:
+            self._request({"action": "read_permissions.revoke_all"})
 
     def poll_project_request(self) -> None:
         response = self._request({"action": "project.request.next"})

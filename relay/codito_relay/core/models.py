@@ -301,6 +301,7 @@ class Operation(models.Model):
         PATCH = "project_apply_patch", "Project apply patch"
         SHELL = "project_shell", "Project shell"
         MANAGE = "project_manage", "Project management"
+        DEVICE_READ = "device_read", "Approved device read"
 
     class Status(models.TextChoices):
         ACCEPTED = "accepted", "Accepted"

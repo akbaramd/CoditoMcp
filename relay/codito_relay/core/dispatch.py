@@ -11,6 +11,8 @@ from typing import Any, Protocol
 
 from asgiref.sync import sync_to_async
 from codito_protocol import (
+    DeviceReadInput,
+    DeviceReadResult,
     ProjectApplyPatchResult,
     ProjectManageResult,
     ProjectReadResult,
@@ -213,7 +215,9 @@ def _validate_device_result(tool_name: str, payload: dict[str, Any]) -> dict[str
         raise ToolDispatchError("protocol_error", "Device result omitted ok/result fields")
     try:
         validated_result: Any
-        if tool_name == "project_read":
+        if tool_name == "device_read":
+            validated_result = DeviceReadResult.model_validate(payload["result"])
+        elif tool_name == "project_read":
             validated_result = TypeAdapter(ProjectReadResult).validate_python(payload["result"])
         elif tool_name == "project_apply_patch":
             validated_result = TypeAdapter(ProjectApplyPatchResult).validate_python(
@@ -235,6 +239,8 @@ def _validate_device_result(tool_name: str, payload: dict[str, Any]) -> dict[str
 
 
 def _required_scopes(tool_name: str, operation: str) -> frozenset[str]:
+    if tool_name == "device_read":
+        return frozenset({"files:read"})
     if tool_name == "project_read":
         return (
             frozenset({"projects:read"})
@@ -264,6 +270,8 @@ def _validate_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, 
             details={"fields": sorted(supplied)},
         )
     try:
+        if tool_name == "device_read":
+            return DeviceReadInput.model_validate(arguments).model_dump(mode="json")
         if tool_name == "project_read":
             validated = validate_project_read(arguments)
             return validated.model_dump(mode="json", exclude_none=True)
@@ -295,6 +303,8 @@ def _lookup_route(
     except Device.DoesNotExist as exc:
         raise ToolDispatchError("device_not_found", "The bound device no longer exists") from exc
     operation = str(arguments.get("operation", ""))
+    if tool_name == "device_read":
+        return device, None
     if (tool_name == "project_read" and operation == "list_projects") or (
         tool_name == "project_manage" and operation in {"get_projects", "request_add_project"}
     ):

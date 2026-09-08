@@ -37,6 +37,42 @@ def principal_for(device: Device, link) -> MCPPrincipal:  # type: ignore[no-unty
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_device_read_routes_without_project_but_requires_read_scope(device, link):
+    device.status = Device.Status.ONLINE
+    device.connection_epoch = 3
+    device.last_seen_at = timezone.now()
+    await sync_to_async(device.save)()
+
+    async def handler(raw):
+        envelope = TunnelEnvelope.model_validate(raw)
+        assert envelope.bindings.project_id is None
+        assert envelope.bindings.device_id == str(device.pk)
+        assert envelope.bindings.account_id == f"account_{device.account_id:016x}"
+        assert envelope.payload["tool_name"] == "device_read"
+        return {
+            "ok": True,
+            "text": "Read",
+            "result": {
+                "operation": "list_directory",
+                "scope_path": "C:/",
+                "path": "",
+                "entries": [],
+            },
+        }
+
+    args = {"operation": "list_directory", "scope_path": "C:/", "purpose": "Inspect"}
+    receipt = await dispatch_tool(
+        principal_for(device, link), "device_read", args, transport=InMemoryTransport(handler)
+    )
+    assert receipt.result["ok"]
+    limited = replace(principal_for(device, link), scopes=frozenset({"projects:read"}))
+    with pytest.raises(ToolDispatchError) as error:
+        await dispatch_tool(limited, "device_read", args, transport=InMemoryTransport(handler))
+    assert error.value.code == "insufficient_scope"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_list_projects_is_local_and_contains_no_path(device, link) -> None:  # type: ignore[no-untyped-def]
     project = await sync_to_async(Project.objects.create)(
         account=device.account,

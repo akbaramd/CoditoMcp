@@ -72,6 +72,14 @@ type ShellCommand = Annotated[StructuredCommand | ScriptCommand, Field(discrimin
 class ShellStartInput(CoditoModel):
     action: Literal["start"] = Field(default="start", description="Start a new bounded shell job.")
     project_id: OpaqueId = Field(description="Opaque ID from list_projects; never a local path.")
+    execution: Literal["project_policy", "native_approval"] = Field(
+        default="project_policy",
+        description=(
+            "Use native_approval to request one-shot Windows approval for installed "
+            "host tools and full logged-in-user filesystem/network access. It is a "
+            "request, never proof of approval. project_policy keeps the local mode."
+        ),
+    )
     working_directory: RelativePath = Field(
         default="", description="Project-relative working directory; empty means root."
     )

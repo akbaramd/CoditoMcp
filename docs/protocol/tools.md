@@ -1,6 +1,6 @@
 # MCP tool contracts
 
-The public MCP endpoint exposes four bounded tools. JSON Schema snapshots live in
+The public MCP endpoint exposes five bounded tools. JSON Schema snapshots live in
 [`packages/protocol/schemas`](../../packages/protocol/schemas) and are generated
 from the Pydantic models in `codito_protocol`. Unknown fields are rejected.
 
@@ -12,14 +12,33 @@ carry the standards-required challenge metadata.
 ## Common invariants
 
 - `project_id`, `job_id`, and `idempotency_key` are opaque URL-safe identifiers.
-- Paths use `/`, are relative to the selected project, and use `""` for root.
-- Inputs cannot name a device, account, absolute root, execution mode, approval, or
-  trust flag. Those come from the OAuth/link context and local project policy.
+- Project paths use `/`, are relative to the selected project, and use `""` for root.
+- Inputs cannot choose device/account or assert approval/trust. Those come from
+  OAuth/link context and local Windows consent. `device_read.scope_path` explicitly
+  requests an absolute directory; it does not register a project or grant access.
+- `project_shell.execution=native_approval` requests one-shot native consent;
+  `project_policy` uses the existing locally selected mode.
 - All counts, byte sizes, timeouts, pages, and outputs have schema-enforced limits.
 - The relay authorizes before dispatch; the agent independently checks the bound
   account/device/project/action digest and its local policy.
 - Tunnel operations wrap input as `{"tool_name": ..., "input": ...}` and the action
   digest covers that complete wrapper, not only the inner input.
+
+## `device_read`
+
+Annotations: read-only, non-destructive, idempotent, open-world. Requires `files:read`
+and local Windows consent. No `project_id` is needed: the authenticated device link
+routes the request. `operation` is `list_directory` or `read_file`; `scope_path` is
+the requested absolute local directory and `path` is relative to it. `purpose` is
+mandatory. Listings are non-recursive, with `offset`/`limit` bounded by 10,000 scanned
+entries and 500 returned entries. Files are at most 16 MiB, text-only; `start_line`,
+`max_lines`, `max_bytes` bound the response. Results include names/types or numbered
+text, encoding, newline style, size, SHA-256 and continuation/truncation fields.
+
+An Always allow decision permits only reads with the same scope and local
+account/grant/link/device/root identity. It cannot authorize patch or shell tools.
+Unrequested directories are not silently registered. Reparse paths, placeholders,
+hardlinks and protected Windows ACLs remain blocked. See ADR 0012.
 
 ## `project_read`
 

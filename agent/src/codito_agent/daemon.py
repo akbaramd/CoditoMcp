@@ -42,7 +42,7 @@ class CoditoDaemon:
             self.credentials,
         )
         self.approval_queue = QueuedApprovalPrompt()
-        self.approvals = ApprovalManager(self.approval_queue)
+        self.approvals = ApprovalManager(self.approval_queue, self.database)
         self.resolver = ProjectPathResolver()
         self.operation_gate = ProjectOperationGate()
         self.broker = BrokerClient(config.broker_path)
@@ -205,6 +205,12 @@ class CoditoDaemon:
             }
         if action == "approval.next":
             return {"ok": True, "approval": self.approval_queue.next_request()}
+        if action == "read_permissions.list":
+            return {"ok": True, "permissions": self.database.list_read_permissions()}
+        if action == "read_permissions.revoke_all":
+            count = self.approvals.revoke_read_permissions()
+            self.approval_queue.deny_all()
+            return {"ok": True, "revoked": count}
         if action == "activity.list":
             limit = int(request.get("limit", 50))
             return {"ok": True, "activity": self.database.list_recent_operations(limit)}

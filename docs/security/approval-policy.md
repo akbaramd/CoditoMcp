@@ -12,7 +12,9 @@ may execute under the selected local mode.
 | `native_approval` | Logged-in user token | One-shot for each shell/native-sensitive action | Full user authority for the approved process |
 | `native_trusted` | Logged-in user token | None after explicit local opt-in warning | Full user filesystem/network authority; escape cannot be reliably detected |
 
-Sandbox failure always returns `sandbox_unavailable`; it never prompts to fall back.
+Sandbox failure always returns `sandbox_unavailable`; it never silently falls back.
+A caller can explicitly request `project_shell.execution=native_approval` for a
+one-shot native run using installed Windows tools. This does not change project mode.
 
 ## Decision matrix
 
@@ -25,7 +27,8 @@ Sandbox failure always returns `sandbox_unavailable`; it never prompts to fall b
 | Delete/move-overwrite | One-shot | One-shot | Local configured behavior | **No** |
 | Isolated shell without network | Allow only after broker self-test | N/A | N/A | At most narrowly similar isolated action |
 | Native shell | N/A | One-shot | Allow | **No** |
-| External path/write | Deny in v1 | Deny in v1 | Possible only as consequence of trusted command | **No** |
+| External read via `device_read` | Windows consent independent of project mode | Same | Same | Separate persistent **read-only** folder grant available |
+| External write | Not via isolated tools | Possible through explicitly approved native command | Possible through trusted command | **No** |
 | Network capability | Deny in isolated v1 | Consequence of one-shot native command | Consequence of trusted command | **No** |
 | Elevation/GUI/PTY/detach | Deny | Deny | Deny through Codito API | **No** |
 
@@ -44,6 +47,13 @@ toast buttons cannot approve. The dialog shows:
 
 Buttons are `Deny`, `Allow once`, and—only when policy marks it eligible—`Allow
 similar access for this session`. Closing, timeout, lock, or IPC failure denies.
+
+For `device_read` only, Windows also offers `Always allow reading this folder`.
+It covers the displayed directory and descendants, including private data the
+Windows user can access. It is bound to account/grant/link/device/root identity,
+survives restart/reconnect, and can be revoked under Settings. It does not grant
+editing, deletion, execution, network operations, or elevation. Sign-out and
+re-enrollment remove saved permissions. See ADR 0012 for the changed path contract.
 
 ## Signed decision binding
 

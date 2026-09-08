@@ -1,8 +1,10 @@
 # Codito
 
 Codito is a self-hosted, OAuth-protected bridge that lets ChatGPT work with
-explicitly registered projects on a user's Windows device. The relay never learns
-local absolute paths and the device maintains an outbound-only WebSocket tunnel.
+registered projects on a user's Windows device, with Windows-approved access
+outside projects when requested. Registered roots stay local; explicitly requested
+device-read scopes/results pass through the relay. The device uses an outbound
+WebSocket tunnel.
 
 > **MVP status:** active development. Do not expose this build to untrusted users
 > until every release-blocking item in [`docs/mvp-checklist.md`](docs/mvp-checklist.md)
@@ -18,8 +20,9 @@ deploy/             Immutable container and Compose deployment assets
 docs/               Decisions, research, threat model, and runbooks
 ```
 
-The remote surface contains four bounded MCP tools: `project_read`,
-`project_apply_patch`, `project_shell`, and locally governed `project_manage`. See
+The remote surface contains five bounded MCP tools: `project_read`,
+`project_apply_patch`, `project_shell`, locally governed `project_manage`, and
+Windows-approved `device_read`. See
 the [tool contract](docs/protocol/tools.md).
 
 ## Install on Windows 11 x64
@@ -69,3 +72,20 @@ the server and must never enter Git.
   Windows user and must be enabled locally with a prominent warning.
 
 Report vulnerabilities according to [`SECURITY.md`](SECURITY.md).
+# Approved access to Windows outside projects
+
+Use `device_read` to request a drive/directory read without registering it as a
+project. For example: `operation=list_directory`, `scope_path=C:/`, `path=""`,
+`purpose="Inspect the requested drive"`. Windows asks **Deny**, **Allow once**, or
+**Always allow reading this folder**. Always allow is local, revocable in Settings,
+and read-only. Broad scopes can expose private files to the requesting client.
+
+For installed Windows tools such as `uv`, `dotnet`, or `git`, use
+`project_shell` with `execution=native_approval`. This requests one-shot Windows
+approval, uses the installed tool PATH, and grants the resulting command the
+logged-in user's full filesystem/network authority. Native scripts can change
+directories after approval. Project cwd is not an isolation boundary. Existing
+isolated mode remains fail-closed; it does not silently fall back to native.
+
+Both relay and desktop must be updated for these capabilities. Refresh the
+ChatGPT connector tool list after updating.

@@ -1,0 +1,74 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/device-read-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "limit": {
+      "default": 100,
+      "maximum": 500,
+      "minimum": 1,
+      "title": "Limit",
+      "type": "integer"
+    },
+    "max_bytes": {
+      "default": 65536,
+      "maximum": 262144,
+      "minimum": 256,
+      "title": "Max Bytes",
+      "type": "integer"
+    },
+    "max_lines": {
+      "default": 200,
+      "maximum": 2000,
+      "minimum": 1,
+      "title": "Max Lines",
+      "type": "integer"
+    },
+    "offset": {
+      "default": 0,
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Offset",
+      "type": "integer"
+    },
+    "operation": {
+      "enum": [
+        "list_directory",
+        "read_file"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "path": {
+      "default": "",
+      "description": "Path relative to scope_path",
+      "title": "Path",
+      "type": "string"
+    },
+    "purpose": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "scope_path": {
+      "description": "Directory to request read access to, e.g. C:/",
+      "title": "Scope Path",
+      "type": "string"
+    },
+    "start_line": {
+      "default": 1,
+      "maximum": 1000000,
+      "minimum": 1,
+      "title": "Start Line",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "operation",
+    "scope_path",
+    "purpose"
+  ],
+  "title": "DeviceReadInput",
+  "type": "object"
+}

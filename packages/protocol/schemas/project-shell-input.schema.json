@@ -143,6 +143,16 @@
           "$ref": "#/$defs/ShellCommand",
           "description": "Structured argv or an explicit PowerShell/cmd script."
         },
+        "execution": {
+          "default": "project_policy",
+          "description": "Use native_approval to request one-shot Windows approval for installed host tools and full logged-in-user filesystem/network access. It is a request, never proof of approval. project_policy keeps the local mode.",
+          "enum": [
+            "project_policy",
+            "native_approval"
+          ],
+          "title": "Execution",
+          "type": "string"
+        },
         "idempotency_key": {
           "description": "Detect duplicate submission; never authorizes automatic uncertain replay.",
           "title": "Idempotency Key",

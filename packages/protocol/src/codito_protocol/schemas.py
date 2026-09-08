@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
+from .device_read import DeviceReadInput, DeviceReadResult
 from .envelope import TunnelEnvelope
 from .errors import ToolError
 from .manage import ProjectManageInput, ProjectManageResult
@@ -16,6 +17,8 @@ from .read import ProjectReadInput, ProjectReadResult
 from .shell import ProjectShellInput, ProjectShellResult
 
 _ADAPTERS: dict[str, TypeAdapter[Any]] = {
+    "device-read-input": TypeAdapter(DeviceReadInput),
+    "device-read-result": TypeAdapter(DeviceReadResult),
     "project-read-input": TypeAdapter(ProjectReadInput),
     "project-read-result": TypeAdapter(ProjectReadResult),
     "project-apply-patch-input": TypeAdapter(ProjectApplyPatchInput),

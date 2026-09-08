@@ -174,12 +174,18 @@ class QueuedApprovalPrompt:
             pending = self._pending.get(request_id)
         if pending is None or pending.future.done():
             return False
-        pending.loop.call_soon_threadsafe(pending.future.set_result, parsed)
+        pending.loop.call_soon_threadsafe(self._resolve, pending, parsed)
         return True
+
+    @staticmethod
+    def _resolve(pending: _PendingApproval, decision: ApprovalDecision) -> None:
+        # Expiry, disconnect and a UI click can race before the event-loop callback.
+        if not pending.future.done():
+            pending.future.set_result(decision)
 
     def deny_all(self) -> None:
         with self._lock:
             values = list(self._pending.values())
         for pending in values:
             if not pending.future.done():
-                pending.loop.call_soon_threadsafe(pending.future.set_result, ApprovalDecision.DENY)
+                pending.loop.call_soon_threadsafe(self._resolve, pending, ApprovalDecision.DENY)

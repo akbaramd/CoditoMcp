@@ -1,6 +1,6 @@
 {
   "name": "@codito/vite-plugin-inspector",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "packageManager": "pnpm@11.22.0",
   "description": "Development-only source metadata for Codito managed frontend inspection",
   "type": "module",

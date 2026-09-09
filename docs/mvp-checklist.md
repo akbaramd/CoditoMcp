@@ -116,7 +116,8 @@ uv run --package codito-agent pytest agent/tests -m windows
 - [ ] Snapshot returns a viewport PNG plus no more than 500 semantic elements;
   durable relay state omits pixels and console/network fields pass redaction/caps.
 - [ ] Element IDs fail across the wrong session/snapshot, action, HMR, navigation,
-  connection epoch, grant/link/project/root, revocation and expiry.
+  grant/link/project/root, revocation and expiry; older-epoch transport requests fail,
+  while the same stable owner can rebind an established session after reconnect.
 - [ ] Inspect returns real CDP DOM/box/computed/matched/a11y evidence and coordinate
   targeting never escapes the current viewport.
 - [ ] Act covers click/hover/focus/fill/allowlisted press/bounded scroll/select and

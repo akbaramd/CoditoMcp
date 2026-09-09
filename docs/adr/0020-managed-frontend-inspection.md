@@ -57,6 +57,13 @@ Playwright Python package and shipped in the Windows payload; runtime downloads 
 forbidden. The browser is visible so the local user can perform authentication
 without sending credentials through MCP.
 
+A transient transport reconnect preserves an established session for
+the same account/device/project/grant/link owner. Connection epochs remain monotonic
+request fences rather than session identity; older-epoch work is rejected, while a
+newer epoch may recover the session. Revocation, ownership changes, expiry, long
+disconnect, and shutdown still dispose it, and owner-bound stop remains available as
+a cleanup-only operation after authority invalidation.
+
 ### Sessions, snapshots, and element identity
 
 Version 1 permits one active browser session per project. Session authority is

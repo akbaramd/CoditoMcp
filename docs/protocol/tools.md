@@ -264,9 +264,12 @@ and empty. Matched/computed CSS values are still available through
 `frontend_inspect`, while stylesheet/token source maps remain future work. Source
 lookup requires `files:read` in addition to frontend read scopes.
 
-`frontend_session_stop` is idempotent. All target calls are bound to account, grant,
-link, device, project/root, connection epoch, and local security generation. Session
-expiry, HMR/navigation staleness, revocation, disconnect and shutdown fail closed.
+`frontend_session_stop` is idempotent. Session ownership is bound to account, grant,
+link, device, project/root, and local security generation. The connection epoch fences
+stale transport requests but may advance for the same stable owner after a transient
+reconnect. Session expiry, HMR/navigation staleness, revocation, a long disconnect,
+and shutdown fail closed; stop may always perform owner-bound cleanup on a current
+transport even after session authority expires.
 See [ADR 0020](../adr/0020-managed-frontend-inspection.md) and the
 [operations guide](../operations/frontend-inspection.md).
 

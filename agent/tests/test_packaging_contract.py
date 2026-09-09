@@ -109,6 +109,8 @@ def test_release_workflow_separates_verification_from_native_publish() -> None:
     assert "actions/download-artifact@" in publish_job
     assert "release-metadata.json" in workflow
     assert "git push --atomic" in publish_job
+    assert '"${tagRef}:${tagRef}"' in publish_job
+    assert '"refs/tags/$env:CODITO_RELEASE_TAG:refs/tags/' not in publish_job
 
 
 def test_release_retry_is_bound_to_exact_tag_tree_and_verified_assets() -> None:

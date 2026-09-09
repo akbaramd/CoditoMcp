@@ -513,8 +513,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw 'Unable to configure authenticated Git transport.'
           }
+          $tagRef = "refs/tags/$env:CODITO_RELEASE_TAG"
           git push --atomic origin 'HEAD:refs/heads/main' `
-            "refs/tags/$env:CODITO_RELEASE_TAG:refs/tags/$env:CODITO_RELEASE_TAG"
+            "${tagRef}:${tagRef}"
           if ($LASTEXITCODE -ne 0) {
             throw 'Atomic release ref publication failed.'
           }

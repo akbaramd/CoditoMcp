@@ -1,6 +1,6 @@
 [project]
 name = "codito-relay"
-version = "0.2.1"
+version = "0.2.2"
 description = "Codito OAuth, MCP, and Windows device relay"
 requires-python = ">=3.12,<3.13"
 dependencies = [

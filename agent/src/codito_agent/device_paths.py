@@ -15,6 +15,9 @@ from codito_protocol.device_read import normalize_read_scope
 from .errors import AgentError
 from .paths import _assert_fixed_drive, _assert_supported_filesystem, validate_relative_path
 
+ERROR_FILE_NOT_FOUND = 2
+ERROR_PATH_NOT_FOUND = 3
+
 
 class _FileInfo(ctypes.Structure):
     _fields_ = [
@@ -126,6 +129,9 @@ class WindowsReadScope:
             None,
         )
         if handle in (None, ctypes.c_void_p(-1).value):
+            error = ctypes.get_last_error()
+            if error in {ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND}:
+                raise AgentError("path_not_found", "The requested project path does not exist")
             raise AgentError("read_failed", "Windows denied access or the path is unavailable")
         self._handles.append(handle)
         info = _FileInfo()

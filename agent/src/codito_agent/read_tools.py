@@ -381,20 +381,29 @@ class ProjectReadService:
 
         project = target_project or self.database.get_project(project_id)
         result_offset = _decode_cursor(cursor)
-        base = self.resolver.resolve(project, path, directory=True, allow_root=True).absolute
+        target = self.resolver.resolve(project, path, directory=None, allow_root=True).absolute
         candidates: list[Path] = []
-        for current, directories, files in os.walk(base, followlinks=False):
-            current_path = Path(current)
-            directories[:] = [name for name in directories if not _is_reparse(current_path / name)]
-            for name in files:
-                candidate = current_path / name
-                if _is_reparse(candidate):
-                    continue
-                relative = candidate.relative_to(project.root).as_posix()
-                if any(_glob_matches(relative, pattern) for pattern in patterns):
-                    candidates.append(candidate)
-                    if len(candidates) > MAX_SEARCH_FILES:
-                        raise AgentError("result_limit", "Project has too many search candidates")
+        if target.is_file():
+            relative = target.relative_to(project.root).as_posix()
+            if any(_glob_matches(relative, pattern) for pattern in patterns):
+                candidates.append(target)
+        else:
+            for current, directories, files in os.walk(target, followlinks=False):
+                current_path = Path(current)
+                directories[:] = [
+                    name for name in directories if not _is_reparse(current_path / name)
+                ]
+                for name in files:
+                    candidate = current_path / name
+                    if _is_reparse(candidate):
+                        continue
+                    relative = candidate.relative_to(project.root).as_posix()
+                    if any(_glob_matches(relative, pattern) for pattern in patterns):
+                        candidates.append(candidate)
+                        if len(candidates) > MAX_SEARCH_FILES:
+                            raise AgentError(
+                                "result_limit", "Project has too many search candidates"
+                            )
         candidates.sort(key=lambda value: value.relative_to(project.root).as_posix().casefold())
 
         needle = query if case_sensitive else query.casefold()

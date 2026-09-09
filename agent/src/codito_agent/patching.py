@@ -596,15 +596,16 @@ class PatchService:
             if expected_hash is None or old_hash != expected_hash:
                 raise AgentError(
                     "patch_conflict",
-                    "Base hash does not match the current file",
+                    "The file changed after it was read; read it again and rebuild the patch",
                     {
+                        "resolution": "reread_and_rebase",
                         "conflicts": [
                             {
                                 "path": section.path,
                                 "reason": "base_hash_mismatch",
                                 "actual_sha256": old_hash,
                             }
-                        ]
+                        ],
                     },
                 )
             preflight.validated[section.path] = validated
@@ -773,8 +774,8 @@ class PatchService:
         if conflicts:
             raise AgentError(
                 "patch_conflict",
-                "A patch target changed after preflight",
-                {"conflicts": conflicts},
+                "A patch target changed after preflight; read it again and rebuild the patch",
+                {"resolution": "reread_and_rebase", "conflicts": conflicts},
             )
 
     @staticmethod

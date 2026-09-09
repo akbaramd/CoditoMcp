@@ -91,7 +91,11 @@ class SearchTextInput(ScopedReadInput):
     project_id: OpaqueId = Field(description="Opaque ID from list_projects; never a local path.")
     query: str = Field(min_length=1, max_length=4096, description="Literal text or regex to find.")
     path: RelativePath = Field(
-        default="", description="Project-relative subtree to search; empty means root."
+        default="",
+        description=(
+            "Project-relative file or directory to search; a directory is searched recursively "
+            "and empty means the project root."
+        ),
     )
     glob: ProjectGlob = Field(
         default="**/*", description="Project-relative file glob within the selected subtree."

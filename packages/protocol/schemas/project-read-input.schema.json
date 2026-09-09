@@ -293,7 +293,7 @@
         },
         "path": {
           "default": "",
-          "description": "Project-relative subtree to search; empty means root.",
+          "description": "Project-relative file or directory to search; a directory is searched recursively and empty means the project root.",
           "title": "Path",
           "type": "string"
         },

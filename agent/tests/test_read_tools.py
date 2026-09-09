@@ -53,6 +53,35 @@ def test_read_directory_file_and_search(tmp_path: Path, project_root: Path) -> N
     assert searched.structured["matches"][0]["line"] == 2
 
 
+def test_search_text_accepts_a_single_file_path(tmp_path: Path, project_root: Path) -> None:
+    target = project_root / "src" / "hello.py"
+    target.parent.mkdir()
+    target.write_text("first\nneedle\nthird\n", encoding="utf-8")
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    project = database.register_project("Example", project_root)
+
+    result = ProjectReadService(database).search_text(
+        project.project_id,
+        query="needle",
+        path="src/hello.py",
+        globs=["**/*.py"],
+    )
+
+    assert result.structured["matches"] == [
+        {"path": "src/hello.py", "line": 2, "column": 1, "preview": "needle"}
+    ]
+
+
+def test_missing_file_is_reported_as_path_not_found(tmp_path: Path, project_root: Path) -> None:
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    project = database.register_project("Example", project_root)
+
+    with pytest.raises(AgentError) as error:
+        ProjectReadService(database).read_file(project.project_id, "missing.txt")
+
+    assert error.value.code == "path_not_found"
+
+
 def test_read_continuation_is_bounded(tmp_path: Path, project_root: Path) -> None:
     (project_root / "long.txt").write_text("one\ntwo\nthree\n", encoding="utf-8")
     database = AgentDatabase(tmp_path / "agent.sqlite3")

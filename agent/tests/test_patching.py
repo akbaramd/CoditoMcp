@@ -117,6 +117,28 @@ def test_ambiguous_context_and_base_hash_fail_closed(tmp_path: Path, project_roo
     assert (project_root / "file.txt").read_bytes() == value
 
 
+def test_stale_base_hash_explains_how_to_rebuild_patch(tmp_path: Path, project_root: Path) -> None:
+    value = b"before\n"
+    (project_root / "file.txt").write_bytes(value)
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    project = database.register_project("Example", project_root)
+    service = PatchService(database, tmp_path / "journals")
+
+    with pytest.raises(AgentError) as error:
+        service.apply(
+            project_id=project.project_id,
+            patch="*** Begin Patch\n*** Update File: file.txt\n@@\n-before\n+after\n*** End Patch",
+            base_hashes={"file.txt": sha(b"stale\n")},
+            idempotency_key="stale_hash_abcdefghijkl",
+            dry_run=True,
+            **BINDING,
+        )
+
+    assert error.value.code == "patch_conflict"
+    assert error.value.details["resolution"] == "reread_and_rebase"
+    assert error.value.details["conflicts"][0]["actual_sha256"] == sha(value)
+
+
 def test_parser_rejects_unanchored_lines() -> None:
     with pytest.raises(AgentError):
         AnchoredPatchParser().parse(

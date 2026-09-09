@@ -13,17 +13,17 @@ from codito_agent.updates import GitHubUpdateService, ReleaseUpdate
 
 def _release_response(*, digest: str = "sha256:" + "a" * 64) -> dict[str, object]:
     return {
-        "tag_name": "v0.2.0",
+        "tag_name": "v9.9.9",
         "draft": False,
         "prerelease": False,
-        "html_url": "https://github.com/akbaramd/CoditoMcp/releases/tag/v0.2.0",
+        "html_url": "https://github.com/akbaramd/CoditoMcp/releases/tag/v9.9.9",
         "published_at": "2026-09-08T00:00:00Z",
         "assets": [
             {
-                "name": "Codito-0.2.0-win-x64.zip",
+                "name": "Codito-9.9.9-win-x64.zip",
                 "browser_download_url": (
                     "https://github.com/akbaramd/CoditoMcp/releases/download/"
-                    "v0.2.0/Codito-0.2.0-win-x64.zip"
+                    "v9.9.9/Codito-9.9.9-win-x64.zip"
                 ),
                 "digest": digest,
                 "size": 12345,
@@ -39,7 +39,7 @@ def test_update_check_uses_stable_semver_and_github_digest() -> None:
     with httpx.Client(transport=transport) as client:
         update = GitHubUpdateService(client).check()
     assert update.current_version == __version__
-    assert update.latest_version == "0.2.0"
+    assert update.latest_version == "9.9.9"
     assert update.available
     assert update.asset_sha256 == "a" * 64
 

@@ -375,6 +375,240 @@ async def test_snapshot_refs_inspect_source_act_and_stop_are_generation_bound(
 
 
 @pytest.mark.asyncio
+async def test_transient_reconnect_rebinds_and_recovers_frontend_session(
+    tmp_path: Path, project_root: Path
+) -> None:
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    project = database.register_project("UI", project_root, ProjectMode.FULL_ACCESS)
+    browser = FakeBrowser()
+    servers = FakeDevServers(project_root)
+    manager = FrontendSessionManager(
+        database,
+        ProjectPathResolver(),
+        ApprovalManager(allow_once),
+        servers,
+        browser,
+        tmp_path,
+        account_id="account",
+        device_id="device",
+    )
+    start_request = request(
+        {
+            "operation": "session_start",
+            "project_id": project.project_id,
+            "purpose": "Review before reconnect",
+            "viewport": {"width": 320, "height": 240},
+            "idempotency_key": "frontend_start_reconnect",
+        }
+    )
+    started = await manager.execute(start_request, **bindings())
+    session_id = started.structured["session_id"]
+
+    await manager.disconnected()
+    assert session_id in manager._sessions
+    assert browser.closed_pages == servers.released == 0
+
+    recovered = await manager.execute(
+        request(
+            {
+                "operation": "session_start",
+                "project_id": project.project_id,
+                "purpose": "Recover after reconnect",
+                "viewport": {"width": 320, "height": 240},
+                "idempotency_key": "frontend_start_recovered",
+            }
+        ),
+        **{**bindings(), "connection_epoch": 8},
+    )
+    assert recovered.structured["session_id"] == session_id
+    assert "reconnect" in recovered.structured["warnings"][0].lower()
+
+    snapshot = await manager.execute(
+        request(
+            {
+                "operation": "snapshot",
+                "project_id": project.project_id,
+                "session_id": session_id,
+                "purpose": "Continue after reconnect",
+            }
+        ),
+        **{**bindings(), "connection_epoch": 8},
+    )
+    assert snapshot.structured["operation"] == "snapshot"
+    assert manager._sessions[session_id].connection_epoch == 8
+
+    with pytest.raises(AgentError) as stale:
+        await manager.execute(
+            request(
+                {
+                    "operation": "snapshot",
+                    "project_id": project.project_id,
+                    "session_id": session_id,
+                    "purpose": "Reject stale transport work",
+                }
+            ),
+            **bindings(),
+        )
+    assert stale.value.code == "stale_connection"
+
+    stopped = await manager.execute(
+        request(
+            {
+                "operation": "session_stop",
+                "project_id": project.project_id,
+                "session_id": session_id,
+                "purpose": "Done after reconnect",
+            }
+        ),
+        **{**bindings(), "connection_epoch": 8},
+    )
+    assert stopped.structured["status"] == "stopped"
+    assert browser.closed_pages == servers.released == 1
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_stop_can_cleanup_after_reconnect_and_authority_generation_change(
+    tmp_path: Path, project_root: Path
+) -> None:
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    project = database.register_project("UI", project_root, ProjectMode.FULL_ACCESS)
+    approvals = ApprovalManager(allow_once)
+    browser = FakeBrowser()
+    servers = FakeDevServers(project_root)
+    manager = FrontendSessionManager(
+        database,
+        ProjectPathResolver(),
+        approvals,
+        servers,
+        browser,
+        tmp_path,
+        account_id="account",
+        device_id="device",
+    )
+    started = await manager.execute(
+        request(
+            {
+                "operation": "session_start",
+                "project_id": project.project_id,
+                "purpose": "Review",
+                "idempotency_key": "frontend_start_cleanup",
+            }
+        ),
+        **bindings(),
+    )
+    session_id = started.structured["session_id"]
+    approvals.clear("long_disconnect")
+
+    stopped = await manager.execute(
+        request(
+            {
+                "operation": "session_stop",
+                "project_id": project.project_id,
+                "session_id": session_id,
+                "purpose": "Cleanup stale authority",
+            }
+        ),
+        **{**bindings(), "connection_epoch": 8},
+    )
+    assert stopped.structured["status"] == "stopped"
+    assert browser.closed_pages == servers.released == 1
+
+    repeated = await manager.execute(
+        request(
+            {
+                "operation": "session_stop",
+                "project_id": project.project_id,
+                "session_id": session_id,
+                "purpose": "Confirm cleanup",
+            }
+        ),
+        **{**bindings(), "connection_epoch": 9},
+    )
+    assert repeated.structured["status"] == "already_stopped"
+
+    with pytest.raises(AgentError) as stale_stop:
+        await manager.execute(
+            request(
+                {
+                    "operation": "session_stop",
+                    "project_id": project.project_id,
+                    "session_id": session_id,
+                    "purpose": "Reject stale cleanup transport",
+                }
+            ),
+            **{**bindings(), "connection_epoch": 8},
+        )
+    assert stale_stop.value.code == "stale_connection"
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_never_rebinds_or_stops_session_for_a_different_owner(
+    tmp_path: Path, project_root: Path
+) -> None:
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    project = database.register_project("UI", project_root, ProjectMode.FULL_ACCESS)
+    manager = FrontendSessionManager(
+        database,
+        ProjectPathResolver(),
+        ApprovalManager(allow_once),
+        FakeDevServers(project_root),
+        FakeBrowser(),
+        tmp_path,
+        account_id="account",
+        device_id="device",
+    )
+    started = await manager.execute(
+        request(
+            {
+                "operation": "session_start",
+                "project_id": project.project_id,
+                "purpose": "Review",
+                "idempotency_key": "frontend_start_owner",
+            }
+        ),
+        **bindings(),
+    )
+    session_id = started.structured["session_id"]
+    other_owner = {
+        **bindings(),
+        "grant_id": "grant_other_owner",
+        "connection_epoch": 8,
+    }
+
+    with pytest.raises(AgentError) as existing:
+        await manager.execute(
+            request(
+                {
+                    "operation": "session_start",
+                    "project_id": project.project_id,
+                    "purpose": "Do not recover another owner's session",
+                    "idempotency_key": "frontend_start_other_owner",
+                }
+            ),
+            **other_owner,
+        )
+    assert existing.value.code == "frontend_session_exists"
+
+    with pytest.raises(AgentError) as stop:
+        await manager.execute(
+            request(
+                {
+                    "operation": "session_stop",
+                    "project_id": project.project_id,
+                    "session_id": session_id,
+                    "purpose": "Do not stop another owner's session",
+                }
+            ),
+            **other_owner,
+        )
+    assert stop.value.code == "binding_mismatch"
+    assert session_id in manager._sessions
+    await manager.close()
+
+
+@pytest.mark.asyncio
 async def test_security_generation_and_viewport_coordinates_are_enforced(
     tmp_path: Path, project_root: Path
 ) -> None:

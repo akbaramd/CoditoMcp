@@ -189,9 +189,9 @@ class CoditoDaemon:
         deadline_at: datetime,
         reconcile_duplicate: bool,
     ) -> ToolResponse:
-        # A disconnect teardown fences native browser authority. A rapid
-        # reconnect must not start a new-epoch session while stale teardown can
-        # still close it, so frontend work crosses this cleanup barrier first.
+        # A disconnect fences pending frontend starts. A rapid reconnect waits
+        # for that cancellation barrier before an established session rebinds or
+        # a new session starts.
         if tool_name == "project_frontend":
             while True:
                 cleanup = self._frontend_cleanup_task
@@ -243,6 +243,7 @@ class CoditoDaemon:
             await asyncio.sleep(60)
             if not self._online:
                 self.approvals.clear("relay_disconnect")
+                await self.frontends.close_invalid_sessions()
         except asyncio.CancelledError:
             return
 

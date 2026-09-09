@@ -120,7 +120,6 @@ class _StoppedSession:
     grant_id: str
     link_id: str
     connection_epoch: int
-    security_generation: int
     dev_server_stopped: bool
 
 
@@ -273,6 +272,7 @@ class FrontendSessionManager:
                     )
                 existing = self._sessions.get(prior[1])
                 if existing is not None:
+                    previous_epoch = existing.connection_epoch
                     self._ensure_session(
                         existing,
                         request.project_id,
@@ -281,7 +281,9 @@ class FrontendSessionManager:
                         connection_epoch=connection_epoch,
                         deadline_at=deadline_at,
                     )
-                    return self._start_response(existing)
+                    return self._start_response(
+                        existing, recovered=connection_epoch > previous_epoch
+                    )
                 raise AgentError(
                     "outcome_unknown",
                     "The frontend session may have started but is no longer recoverable",
@@ -293,6 +295,27 @@ class FrontendSessionManager:
                         "idempotency_conflict", "Frontend start idempotency key was reused"
                     )
                 task = pending[1]
+            elif (
+                (session_id := self._project_sessions.get(request.project_id)) is not None
+                and (existing := self._sessions.get(session_id)) is not None
+                and self._stable_binding_matches(
+                    existing,
+                    request.project_id,
+                    grant_id=grant_id,
+                    link_id=link_id,
+                )
+                and connection_epoch > existing.connection_epoch
+            ):
+                self._ensure_session(
+                    existing,
+                    request.project_id,
+                    grant_id=grant_id,
+                    link_id=link_id,
+                    connection_epoch=connection_epoch,
+                    deadline_at=deadline_at,
+                )
+                self._starts[start_key] = (digest, existing.session_id)
+                return self._start_response(existing, recovered=True)
             elif (
                 request.project_id in self._project_sessions
                 or request.project_id in self._project_starts
@@ -516,8 +539,13 @@ class FrontendSessionManager:
         if self._shutdown or generation != self._lifecycle_generation:
             raise AgentError("approval_expired", "Frontend lifecycle authority changed")
 
-    def _start_response(self, session: FrontendSession) -> ToolResponse:
+    def _start_response(self, session: FrontendSession, *, recovered: bool = False) -> ToolResponse:
         warnings = []
+        if recovered:
+            warnings.append(
+                "Recovered the existing frontend session after transport reconnect; "
+                "capture a fresh snapshot before continuing."
+            )
         if not session.server.owned:
             warnings.append(
                 "Reused the explicitly configured loopback server; Codito will not stop it."
@@ -576,13 +604,17 @@ class FrontendSessionManager:
             raise AgentError("frontend_session_closed", "The frontend session is closed")
         if now - session.created_at > SESSION_MAX or now - session.last_used_at > SESSION_IDLE:
             raise AgentError("frontend_session_expired", "The frontend session expired")
-        if (
-            session.project_id != project_id
-            or session.grant_id != grant_id
-            or session.link_id != link_id
-            or session.connection_epoch != connection_epoch
+        if not self._stable_binding_matches(
+            session,
+            project_id,
+            grant_id=grant_id,
+            link_id=link_id,
         ):
             raise AgentError("binding_mismatch", "Frontend session binding does not match")
+        if connection_epoch < session.connection_epoch:
+            raise AgentError(
+                "stale_connection", "Frontend request belongs to a stale connection epoch"
+            )
         self.approvals.ensure_current(session.security_generation, deadline_at)
         project = self.database.get_project(session.project_id)
         if (
@@ -593,7 +625,24 @@ class FrontendSessionManager:
         ):
             raise AgentError("approval_expired", "Frontend project access changed")
         self.resolver.verify_project(project)
+        # The epoch fences stale transport work but is not part of the durable
+        # account/device/project/grant ownership of a managed browser session.
+        session.connection_epoch = connection_epoch
         session.last_used_at = now
+
+    @staticmethod
+    def _stable_binding_matches(
+        session: FrontendSession,
+        project_id: str,
+        *,
+        grant_id: str,
+        link_id: str,
+    ) -> bool:
+        return (
+            session.project_id == project_id
+            and session.grant_id == grant_id
+            and session.link_id == link_id
+        )
 
     @staticmethod
     def _validate_project(project: Project) -> None:
@@ -1004,12 +1053,24 @@ class FrontendSessionManager:
                     or tombstone.project_id != request.project_id
                     or tombstone.grant_id != grant_id
                     or tombstone.link_id != link_id
-                    or tombstone.connection_epoch != connection_epoch
                 ):
                     raise AgentError(
                         "frontend_session_not_found", "The frontend session is unavailable"
                     )
-                self.approvals.ensure_current(tombstone.security_generation, deadline_at)
+                self._ensure_stop_epoch(
+                    previous_epoch=tombstone.connection_epoch,
+                    connection_epoch=connection_epoch,
+                    deadline_at=deadline_at,
+                )
+                if connection_epoch > tombstone.connection_epoch:
+                    tombstone = _StoppedSession(
+                        tombstone.project_id,
+                        tombstone.grant_id,
+                        tombstone.link_id,
+                        connection_epoch,
+                        tombstone.dev_server_stopped,
+                    )
+                    self._stopped[request.session_id] = tombstone
                 result = {
                     "operation": "session_stop",
                     "project_id": request.project_id,
@@ -1040,14 +1101,30 @@ class FrontendSessionManager:
         connection_epoch: int,
         deadline_at: datetime,
     ) -> None:
-        if (
-            session.project_id != project_id
-            or session.grant_id != grant_id
-            or session.link_id != link_id
-            or session.connection_epoch != connection_epoch
+        if not self._stable_binding_matches(
+            session,
+            project_id,
+            grant_id=grant_id,
+            link_id=link_id,
         ):
             raise AgentError("binding_mismatch", "Frontend session binding does not match")
-        self.approvals.ensure_current(session.security_generation, deadline_at)
+        self._ensure_stop_epoch(
+            previous_epoch=session.connection_epoch,
+            connection_epoch=connection_epoch,
+            deadline_at=deadline_at,
+        )
+        session.connection_epoch = connection_epoch
+
+    @staticmethod
+    def _ensure_stop_epoch(
+        *, previous_epoch: int, connection_epoch: int, deadline_at: datetime
+    ) -> None:
+        if deadline_at <= datetime.now(UTC):
+            raise AgentError("deadline_exceeded", "Frontend stop deadline expired")
+        if connection_epoch < previous_epoch:
+            raise AgentError(
+                "stale_connection", "Frontend stop belongs to a stale connection epoch"
+            )
 
     def _begin_close_locked(self, session: FrontendSession) -> asyncio.Task[bool]:
         existing = self._closing.get(session.session_id)
@@ -1097,7 +1174,6 @@ class FrontendSessionManager:
                 session.grant_id,
                 session.link_id,
                 session.connection_epoch,
-                session.security_generation,
                 session.dev_server_stopped,
             )
             self._closing.pop(session.session_id, None)
@@ -1144,9 +1220,11 @@ class FrontendSessionManager:
             await asyncio.gather(*(asyncio.shield(task) for task in tasks))
 
     async def disconnected(self) -> None:
-        # Socket fencing invalidates the approval generation. Close native authority now.
+        # A transport fence cancels work that has not established a session yet.
+        # Established sessions retain their stable ownership and may rebind to the
+        # next epoch. Long disconnects still clear the approval generation, and the
+        # reaper/close_invalid_sessions then disposes those sessions.
         await self._cancel_pending_starts(shutdown=False)
-        await self._close_all_sessions()
 
     async def _cancel_pending_starts(self, *, shutdown: bool) -> None:
         async with self._guard:

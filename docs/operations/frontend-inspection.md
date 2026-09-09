@@ -155,6 +155,14 @@ frontend_session_stop(project_id="<project>", session_id="<session>",
 Stop is idempotent. Security changes, project-root replacement, expiry, and agent
 shutdown also close the browser and owned server.
 
+A transient relay reconnect does not change frontend-session ownership. The agent
+rejects requests from older connection epochs, but a request from the same
+account/device/project/grant/link on the new epoch rebinds the existing session. A
+new `frontend_session_start` from that owner recovers the existing session and tells
+the caller to take a fresh snapshot. `frontend_session_stop` remains available after
+reconnect or approval-generation invalidation because cleanup only reduces local
+authority; stable ownership and the current transport deadline are still enforced.
+
 ## What leaves the device
 
 Snapshot pixels and bounded semantic/style/accessibility evidence return through

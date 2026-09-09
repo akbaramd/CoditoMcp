@@ -4,21 +4,25 @@
   "additionalProperties": false,
   "properties": {
     "job_id": {
+      "description": "Job ID returned by execute_shell.",
       "title": "Job Id",
       "type": "string"
     },
     "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "sequence_cursor": {
       "default": 0,
+      "description": "Next output sequence cursor returned by shell_status.",
       "minimum": 0,
       "title": "Sequence Cursor",
       "type": "integer"
     },
     "wait_milliseconds": {
       "default": 30000,
+      "description": "Maximum long-poll wait for new output or a terminal state.",
       "maximum": 30000,
       "minimum": 0,
       "title": "Wait Milliseconds",

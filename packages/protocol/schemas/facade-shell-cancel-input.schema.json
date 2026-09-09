@@ -4,15 +4,18 @@
   "additionalProperties": false,
   "properties": {
     "job_id": {
+      "description": "Running job ID returned by execute_shell.",
       "title": "Job Id",
       "type": "string"
     },
     "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "reason": {
       "default": "cancelled by caller",
+      "description": "Short audit reason for cancelling this job.",
       "maxLength": 500,
       "minLength": 1,
       "title": "Reason",

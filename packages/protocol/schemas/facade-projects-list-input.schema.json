@@ -14,10 +14,12 @@
         }
       ],
       "default": null,
+      "description": "Opaque continuation returned by the same tool and unchanged query; do not edit it.",
       "title": "Cursor"
     },
     "limit": {
       "default": 50,
+      "description": "Maximum projects to return.",
       "maximum": 100,
       "minimum": 1,
       "title": "Limit",

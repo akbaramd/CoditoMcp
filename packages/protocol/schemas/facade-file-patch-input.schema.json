@@ -14,6 +14,7 @@
           }
         ]
       },
+      "description": "Exact precondition for every source/destination path: current SHA-256 from file_read, or null only when an added destination must not exist.",
       "maxProperties": 256,
       "minProperties": 1,
       "title": "Base Hashes",
@@ -21,10 +22,12 @@
     },
     "dry_run": {
       "default": false,
+      "description": "Preflight and report the patch without changing files.",
       "title": "Dry Run",
       "type": "boolean"
     },
     "idempotency_key": {
+      "description": "Caller-generated stable unique key for this logical mutation or command. Reuse only when retrying that exact same request.",
       "title": "Idempotency Key",
       "type": "string"
     },
@@ -35,12 +38,12 @@
       "type": "string"
     },
     "project_id": {
-      "description": "Origin project ID from projects_list.",
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "purpose": {
-      "description": "Reason shown in local approval/history.",
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
       "maxLength": 1000,
       "minLength": 1,
       "title": "Purpose",

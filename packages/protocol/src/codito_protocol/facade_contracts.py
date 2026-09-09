@@ -130,10 +130,41 @@ _SCOPE = (
     "Each call uses that project's locally configured policy; scope_path never proves approval. "
 )
 
+MCP_SERVER_INSTRUCTIONS = """Codito gives access to one Windows device through focused tools.
+
+Tool-selection rules (follow in this order):
+1. Use projects_list when a project_id is unknown. Never invent an ID or local absolute path.
+2. Prefer dedicated read tools over execute_shell: directory_list for names/metadata, file_read for
+   exact file contents and hashes, and text_search for literal/regex discovery. Parallelize
+   independent read-only calls when possible, then follow continuation cursors until sufficient.
+3. Prefer semantic code_* tools over text_search or execute_shell for symbols, definitions,
+   references, diagnostics, hierarchies, dependencies, architecture, impact, and related tests.
+   Use file_read after discovery when exact source text or a mutation hash is required.
+4. Use file_patch for all text-file additions, updates, moves, and multi-file deletions. Use
+   file_delete for one exact deletion. Do not create/edit/delete files through execute_shell when
+   these dedicated tools can perform the request. Read current files first and supply exact hashes.
+5. Use execute_shell only for genuine command execution such as builds, tests, formatters, Git,
+   package managers, Docker, SSH, or programs without a dedicated Codito tool. Do not use it merely
+   to read, list, search, concatenate, edit, or delete files. Poll nonterminal jobs with
+   shell_status; never resubmit an uncertain command. Use shell_cancel only to stop an existing job.
+6. Use screen_list before screenshot_capture when the requested display is ambiguous. Use
+   browser_open only to open an HTTP/HTTPS URL; use screenshot_capture separately to inspect it.
+7. Every call is independently authorized by OAuth and the selected project's local policy.
+   Inputs request actions but never assert approval, trust, or elevation.
+
+Examples:
+- Inspect several known files: call file_read for each file (in parallel), not execute_shell with
+  Get-Content/type. Locate unknown text with text_search, then read the relevant ranges.
+- Inspect a directory tree: use directory_list with glob/recursive, not Get-ChildItem/dir.
+- Modify source: file_read -> file_patch -> file_read or code_diagnostics to verify.
+- Build, test, run Docker, or connect with SSH: execute_shell -> shell_status until terminal.
+"""
+
 FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     "projects_list": _contract(
         "List projects",
-        "List this device's registered projects and their opaque IDs.",
+        "Use when project IDs or availability are unknown. Lists registered projects, local policy "
+        "mode, online state, and opaque IDs required by project-scoped tools; never returns paths.",
         ["projects:read"],
         "Listing projects…",
         "Project list ready",
@@ -142,8 +173,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "project_add": _contract(
         "Add project",
-        "Request a project title; the Windows user selects the local folder. "
-        "Returns pending_local_selection, not a registered path.",
+        "Use only when the user asks to register a new local project. Requests a title, then the "
+        "Windows user selects the folder; returns pending_local_selection, never a local path.",
         _MANAGE,
         "Requesting project registration…",
         "Project registration response ready",
@@ -151,7 +182,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "project_rename": _contract(
         "Rename project",
-        "Rename registered project metadata under local policy; files are unchanged.",
+        "Use only to change a registered project's display title. Files, folders, IDs, and local "
+        "paths are unchanged; do not use file_patch or execute_shell for this metadata action.",
         _MANAGE,
         "Requesting project rename…",
         "Project rename response ready",
@@ -159,7 +191,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "project_remove": _contract(
         "Remove project",
-        "Unregister a project under local policy; this does not delete its files.",
+        "Use only when the user asks to unregister a project from Codito. This never deletes the "
+        "folder or files; use file_delete only for an explicitly requested file deletion.",
         _MANAGE,
         "Requesting project removal…",
         "Project removal response ready",
@@ -168,7 +201,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "directory_list": _contract(
         "List directory",
-        _SCOPE + "List bounded file/directory metadata with glob and cursor pagination.",
+        _SCOPE + "Use to discover file/directory names, types, sizes, and hashes with glob, "
+        "recursion, and pagination. Prefer this over execute_shell dir/Get-ChildItem/find.",
         _READ,
         "Listing directory…",
         "Directory response ready",
@@ -178,8 +212,9 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "file_read": _contract(
         "Read file",
-        _SCOPE + "Read a bounded numbered text range with encoding, newlines and SHA-256. "
-        "Use the returned hash as a mutation precondition; follow continuation for more lines.",
+        _SCOPE + "Use whenever exact text from a known file is needed. Returns numbered content, "
+        "encoding, newline style, size, SHA-256, truncation, and continuation; prefer this over "
+        "execute_shell Get-Content/type/cat and use the hash before mutation.",
         _READ,
         "Reading file…",
         "File response ready",
@@ -189,7 +224,10 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "text_search": _contract(
         "Search file text",
-        _SCOPE + "Search bounded text/globs; returns matching paths, lines and continuation.",
+        _SCOPE + "Use to locate literal or regex text across a file or filtered tree when exact "
+        "locations are unknown. Returns paths, line/column, previews, and continuation; prefer "
+        "this over execute_shell Select-String/findstr/grep, then use file_read for surrounding "
+        "source.",
         _READ,
         "Searching file text…",
         "Search response ready",
@@ -199,7 +237,9 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "file_patch": _contract(
         "Patch files",
-        _SCOPE + "Apply an exact anchored *** Begin Patch document with Add/Update/Delete/Move "
+        _SCOPE + "Use for every text-file add, update, move, or multi-file delete instead of shell "
+        "redirection or scripts. Apply an exact anchored *** Begin Patch document with "
+        "Add/Update/Delete/Move "
         "sections. Supply every touched path's base hash (null only for new files). "
         "No fuzzy matching; the full batch is preflighted and journaled. "
         "dry_run performs no writes.",
@@ -212,7 +252,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "file_delete": _contract(
         "Delete file",
-        _SCOPE + "Delete exactly one file against its current SHA-256. "
+        _SCOPE + "Use for one explicit file deletion instead of del/Remove-Item. Delete exactly "
+        "one file against its current SHA-256. "
         "Uses the same journaled patch engine; cannot recursively remove directories. "
         "Read first if the current base_hash is unknown. dry_run performs no deletion.",
         _WRITE,
@@ -224,7 +265,10 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "execute_shell": _contract(
         "Execute Windows command",
-        "Run command as a noninteractive PowerShell or cmd script. "
+        "Use only for genuine process execution: builds, tests, formatters, Git, package managers, "
+        "Docker, SSH, or programs without a dedicated Codito tool. Do NOT use for file reading, "
+        "listing, searching, editing, or deletion when file_read, directory_list, text_search, "
+        "file_patch, or file_delete can do it. Run as a noninteractive PowerShell or cmd script. "
         "Set executor, cwd and timeout_seconds directly. Uses the chosen project's local authority "
         "and installed Windows tools when policy permits; outside paths/cwd may require consent. "
         "Native cwd is not confinement. No PTY, elevation or automatic uncertain replay. "
@@ -238,7 +282,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "shell_status": _contract(
         "Read shell status",
-        "Poll the existing job's state and sequenced output. "
+        "Use only after execute_shell returns a nonterminal job. Poll that existing job's state "
+        "and sequenced stdout/stderr; never start or resubmit a command here. "
         "Reuse project_id/job_id and the returned sequence cursor; keep polling nonterminal jobs.",
         _SHELL,
         "Waiting for shell output…",
@@ -248,7 +293,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "shell_cancel": _contract(
         "Cancel shell job",
-        "Request cancellation of an existing bounded process tree; "
+        "Use only to stop a nonterminal job previously returned by execute_shell. Request "
+        "cancellation of its bounded process tree; "
         "use the original project_id/job_id. This is not a new command.",
         _SHELL,
         "Cancelling shell job…",
@@ -258,7 +304,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "screen_list": _contract(
         "List screens",
-        "List opaque display IDs and topology metadata without capturing pixels.",
+        "Use before screenshot_capture when a display is not already known or the user asks what "
+        "screens exist. Lists opaque display IDs and topology metadata without capturing pixels.",
         ["screen:read"],
         "Listing Windows screens…",
         "Screen list ready",
@@ -266,7 +313,9 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "screenshot_capture": _contract(
         "Capture screenshot",
-        "Capture one selected Windows display as an actual PNG image. "
+        "Use when the user asks to see or inspect the current Windows screen. Capture one selected "
+        "display as actual PNG ImageContent; this is not a file read and execute_shell cannot "
+        "substitute for it. "
         "Use display from screen_list, or primary. Applies the origin project's screen policy; "
         "when consent is needed the local user can allow once or save same-monitor permission. "
         "Visible private windows can be included. Lock/UAC desktops are blocked. "
@@ -279,7 +328,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "browser_open": _contract(
         "Open browser",
-        "Open a requested HTTP/HTTPS URL in the default browser or installed Firefox "
+        "Use only when the user asks to open an HTTP/HTTPS page on the Windows device. Open it in "
+        "the default browser or installed Firefox "
         "under the origin project's desktop policy. Existing browser cookies/profile may be used. "
         "Returns submitted, never proof the page loaded. No arbitrary apps, URI schemes, clicking "
         "or typing. Use screenshot_capture separately to inspect; never replay uncertain opens.",
@@ -294,7 +344,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     # -----------------------------------------------------------------------
     "code_intelligence_status": _contract(
         "Code intelligence status",
-        "Report the active workspace state, provider, capabilities, and freshness for a registered "
+        "Use before semantic code tools when provider capability or freshness is unknown. Report "
+        "the active workspace state, provider, capabilities, and freshness for a registered "
         "project. Does not download or start a language server on its own — only reflects what is "
         "already configured and running. Check capabilities before calling semantic tools.",
         _READ,
@@ -305,6 +356,7 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_workspace_summary": _contract(
         "Workspace summary",
+        "Use for a fast structural orientation before manually listing or reading many files. "
         "Return languages, manifest files, framework hints (Next.js/React are JS/TS hints, "
         "not additional languages), detected build roots, and structural project layout. "
         "Based on file analysis of the current snapshot; results include provenance.",
@@ -316,7 +368,9 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_symbol_search": _contract(
         "Search symbols",
-        "Search workspace or document symbols by name. Returns bounded matches with kind, "
+        "Use to find named classes, functions, methods, types, and other code symbols; use "
+        "text_search instead for arbitrary strings. Search workspace or document symbols by name. "
+        "Returns bounded matches with kind, "
         "location, and source precision. Scope=document requires a file path. "
         "Results include snapshot_id and precision; truncation is explicit.",
         _ANALYZE,
@@ -327,7 +381,9 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_definition": _contract(
         "Go to definition",
-        "Resolve the semantic definition of the symbol at a 1-based line/character position. "
+        "Use when the source position is known and the symbol's declaration is needed; do not "
+        "approximate this with text_search. Resolve the semantic definition at a 1-based "
+        "line/character position. "
         "Returns all definition locations with precision. Exact (LSP) vs structural is labelled. "
         "External library definitions are returned as external_unavailable.",
         _ANALYZE,
@@ -338,7 +394,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_references": _contract(
         "Find references",
-        "Find semantic references to the symbol at a 1-based position. "
+        "Use to find semantic uses of a known symbol before refactoring; use text_search only for "
+        "literal text. Find references to the symbol at a 1-based position. "
         "Structural or heuristic candidates are never passed off as exact. "
         "include_declaration controls whether the declaration itself is included. "
         "Results include precision, truncation flag, and total match count.",
@@ -350,7 +407,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_implementations": _contract(
         "Find implementations",
-        "Find concrete implementations of an interface or abstract symbol at a 1-based position. "
+        "Use to locate concrete implementations of a known interface or abstract symbol; do not "
+        "substitute a filename/text search. Resolve from a 1-based position. "
         "Returns unavailable with an explanation when the language server does not support it. "
         "Precision is always reported; never conflates structural with semantic.",
         _ANALYZE,
@@ -361,7 +419,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_diagnostics": _contract(
         "Get diagnostics",
-        "Return compiler/language-server diagnostics for a project-relative file. "
+        "Use for current editor/compiler diagnostics of one source file; use execute_shell for a "
+        "real build or test run. Return language-server diagnostics for a project-relative file. "
         "State can be ready, stale, partial, pending, or unavailable — missing diagnostics "
         "NEVER mean a clean build. severity_min filters by error/warning/information/hint. "
         "Snapshot_id and captured_at show freshness.",
@@ -373,7 +432,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_hover": _contract(
         "Hover information",
-        "Return hover signature, type, and documentation at a 1-based position. "
+        "Use for a symbol's signature, inferred type, or documentation at a known source position. "
+        "Return hover information at a 1-based position. "
         "Preserves markdown or plaintext format without reinventing structure from free text. "
         "Returns null content (not an error) when no hover information is available.",
         _ANALYZE,
@@ -384,7 +444,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_context": _contract(
         "Rich code context",
-        "Aggregate definition, hover, references, nearby source lines, and diagnostics from "
+        "Use when one known symbol needs definition, hover, references, nearby source, and "
+        "diagnostics together; prefer focused tools when only one result is needed. Aggregate from "
         "ONE coherent snapshot at a 1-based position. Each section reports its own "
         "availability and precision. Never aggregates across mismatched generations.",
         _ANALYZE,
@@ -395,7 +456,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_call_hierarchy": _contract(
         "Call hierarchy",
-        "Prepare call hierarchy at a 1-based position and traverse incoming/outgoing calls. "
+        "Use to answer who calls a known callable or what it calls; do not infer this from plain "
+        "text matches. Prepare at a 1-based position and traverse incoming/outgoing calls. "
         "Bounded by max_depth and max_nodes. Precision is exact (LSP) or structural (graph). "
         "Returns unavailable when the server does not support call hierarchy.",
         _ANALYZE,
@@ -406,7 +468,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_type_hierarchy": _contract(
         "Type hierarchy",
-        "Prepare type hierarchy at a 1-based position and traverse supertypes/subtypes. "
+        "Use to answer inheritance/interface hierarchy for a known type. Prepare at a 1-based "
+        "position and traverse supertypes/subtypes. "
         "Bounded by max_depth and max_nodes. Precision is exact (LSP) or structural (graph). "
         "Returns unavailable when the server does not support type hierarchy.",
         _ANALYZE,
@@ -417,7 +480,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_impact": _contract(
         "Code impact",
-        "Return bounded graph dependents for a path or symbol with evidence and precision. "
+        "Use before changing a file or symbol when downstream structural dependents are needed. "
+        "Return bounded graph dependents with evidence and precision. "
         "Dynamic and reflection effects are never claimed. Graph provider must be configured; "
         "returns precision=unavailable without one. Never exposes all-project graph results.",
         _ANALYZE,
@@ -428,7 +492,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_architecture": _contract(
         "Architecture overview",
-        "Return structural package/dependency graph from manifests and graph analysis. "
+        "Use for package/layer architecture instead of manually reading every manifest or running "
+        "shell discovery commands. Return a structural graph from manifests and graph analysis. "
         "Separates structural facts from inferred layers. Graph provider optional; "
         "manifest-only analysis is available without one.",
         _ANALYZE,
@@ -439,7 +504,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_dependencies": _contract(
         "Project dependencies",
-        "Return manifest-backed or graph-backed dependencies and direction. "
+        "Use to inspect project/package dependencies without invoking package-manager listing "
+        "commands. Return manifest-backed or graph-backed dependencies and direction. "
         "Not arbitrary SQL or Cypher; only the registered project scope is queried. "
         "direction=direct|transitive|all; precision reflects manifest vs graph source.",
         _ANALYZE,
@@ -450,7 +516,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_related_tests": _contract(
         "Related tests",
-        "Return test files/functions related to a source file. Relationship is exact "
+        "Use to discover likely tests for a known source file; use execute_shell only when "
+        "actually running tests. Return related test files/functions. Relationship is exact "
         "(from graph or framework conventions) or explicitly labelled heuristic_name / "
         "heuristic_path. Never presents candidates as guaranteed coverage.",
         _ANALYZE,
@@ -461,8 +528,9 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     ),
     "code_reindex": _contract(
         "Reindex workspace",
-        "Explicitly trigger incremental or full refresh of the code intelligence index "
-        "for a registered project. Does not acknowledge completion until indexing finishes. "
+        "Use only when semantic results are stale/unavailable and status indicates a refresh is "
+        "appropriate. Explicitly trigger incremental or full refresh of the code intelligence "
+        "index for a registered project. Does not acknowledge completion until indexing finishes. "
         "scope=incremental updates changed files; scope=full rebuilds from scratch. "
         "Reports timed_out=true if timeout_seconds is reached before completion.",
         _ANALYZE,

@@ -4,6 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "character": {
+      "description": "One-based Unicode character position.",
       "maximum": 100000,
       "minimum": 1,
       "title": "Character",
@@ -11,29 +12,35 @@
     },
     "include_diagnostics": {
       "default": true,
+      "description": "Include current diagnostics in the aggregate.",
       "title": "Include Diagnostics",
       "type": "boolean"
     },
     "include_references": {
       "default": true,
+      "description": "Include bounded symbol references in the aggregate.",
       "title": "Include References",
       "type": "boolean"
     },
     "line": {
+      "description": "One-based symbol line.",
       "maximum": 10000000,
       "minimum": 1,
       "title": "Line",
       "type": "integer"
     },
     "path": {
+      "description": "Project-relative source file containing the symbol.",
       "title": "Path",
       "type": "string"
     },
     "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "purpose": {
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
       "maxLength": 1000,
       "minLength": 1,
       "title": "Purpose",
@@ -41,6 +48,7 @@
     },
     "source_context_lines": {
       "default": 5,
+      "description": "Nearby source lines to include on each side.",
       "maximum": 50,
       "minimum": 0,
       "title": "Source Context Lines",

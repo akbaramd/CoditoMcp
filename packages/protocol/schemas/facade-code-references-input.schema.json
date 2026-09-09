@@ -4,6 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "character": {
+      "description": "One-based Unicode character position.",
       "maximum": 100000,
       "minimum": 1,
       "title": "Character",
@@ -11,10 +12,12 @@
     },
     "include_declaration": {
       "default": true,
+      "description": "Include the symbol declaration in returned locations.",
       "title": "Include Declaration",
       "type": "boolean"
     },
     "line": {
+      "description": "One-based symbol line.",
       "maximum": 10000000,
       "minimum": 1,
       "title": "Line",
@@ -22,20 +25,24 @@
     },
     "max_results": {
       "default": 100,
+      "description": "Maximum reference locations to return.",
       "maximum": 1000,
       "minimum": 1,
       "title": "Max Results",
       "type": "integer"
     },
     "path": {
+      "description": "Project-relative source file containing the symbol.",
       "title": "Path",
       "type": "string"
     },
     "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "purpose": {
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
       "maxLength": 1000,
       "minLength": 1,
       "title": "Purpose",

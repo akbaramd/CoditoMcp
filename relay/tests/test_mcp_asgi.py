@@ -68,6 +68,9 @@ def test_mcp_initialization_list_and_local_tool_call(
             "name": "Codito",
             "version": __version__,
         }
+        instructions = initialized.json()["result"]["instructions"]
+        assert "Prefer dedicated read tools over execute_shell" in instructions
+        assert "Do not use it merely" in instructions
         negotiated = initialized.json()["result"]["protocolVersion"]
         versioned_headers = {**headers, "MCP-Protocol-Version": negotiated}
         tools = client.post(
@@ -114,7 +117,12 @@ def test_mcp_initialization_list_and_local_tool_call(
         output_schema_titles: set[str] = set()
         for descriptor in descriptors:
             assert descriptor["title"]
+            assert "Use " in descriptor["description"]
             assert descriptor["outputSchema"]["properties"]["ok"]
+            assert all(
+                property_schema.get("description")
+                for property_schema in descriptor["inputSchema"]["properties"].values()
+            )
             result_schema = descriptor["outputSchema"]["properties"]["result"]
             assert result_schema["anyOf"][0]["$ref"]
             output_schema_titles.add(descriptor["outputSchema"]["title"])

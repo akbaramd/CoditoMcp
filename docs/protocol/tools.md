@@ -38,6 +38,41 @@ See [ADR 0018](../adr/0018-focused-tools-and-local-access.md).
 | `code_related_tests` | Return structural/heuristic related-test candidates |
 | `code_reindex` | Force incremental or full provider synchronization |
 
+## Agent tool-selection policy
+
+The public catalog is intentionally action-specific. ChatGPT should choose the
+narrowest tool that directly represents the requested operation; reducing MCP
+call count is not a reason to replace structured file operations with a shell
+script. Independent read-only calls should run in parallel when the client can do
+so.
+
+| User intent | Preferred tool | Do not substitute |
+| --- | --- | --- |
+| Discover registered projects/IDs | `projects_list` | Invented IDs or paths |
+| Discover filenames and directory metadata | `directory_list` | `dir`, `Get-ChildItem` |
+| Read known file contents or obtain a mutation hash | `file_read` | `Get-Content`, `type` |
+| Find arbitrary text or regex matches | `text_search` | `Select-String`, `findstr` |
+| Find symbols/definitions/references/relationships | Matching `code_*` tool | Text or shell approximation |
+| Add, update, move, or batch-delete text files | `file_patch` | Shell redirection or mutation scripts |
+| Delete one hash-verified file | `file_delete` | `del`, `Remove-Item` |
+| Build, test, format, run Git/package tools/Docker/SSH/programs | `execute_shell` | File tools cannot execute processes |
+| Continue or stop an existing process | `shell_status` / `shell_cancel` | Resubmitting `execute_shell` |
+| Inspect a Windows display | `screen_list` / `screenshot_capture` | Shell screenshot utilities |
+| Open an HTTP/HTTPS page | `browser_open` | Shell process launch |
+
+The MCP initialize response carries the same routing rules plus concrete examples.
+Each tool and every public input property has a concise description explaining
+what it means, when the tool should be selected, and relevant side effects. The
+relay contract tests reject metadata regressions, including missing parameter
+descriptions or a Shell contract that omits the dedicated file-tool boundary.
+
+For example, inspecting three known files, finding a filename, and locating a
+source symbol should use parallel `file_read` calls, `directory_list`, and the
+appropriate search/code tool. It should not bundle `Get-Content`,
+`Get-ChildItem`, and `Select-String` into one PowerShell command. `execute_shell`
+remains correct for real builds, test execution, Docker, SSH, Git, and other
+process-based work.
+
 ## Identity, authorization and metadata
 
 Every content/action tool requires an opaque `project_id` and a human-readable
@@ -50,7 +85,8 @@ is not a conversation-bound single-project grant. A caller can select another
 registered project it is authorized to use. An explicit external target under
 another project does not change the origin project's local policy.
 
-Each descriptor includes an action-specific title, accurate safety annotations,
+Each descriptor includes an action-specific title, agent-oriented description,
+fully described input fields, accurate safety annotations,
 OAuth security schemes and static short invoking/invoked status strings.
 ChatGPT controls its own narrative and host approval UI. Metadata cannot force a
 custom sentence for every runtime argument. After a schema change, a client with

@@ -5,6 +5,7 @@
   "properties": {
     "browser": {
       "default": "default",
+      "description": "Use the Windows default browser or installed Firefox.",
       "enum": [
         "default",
         "firefox"
@@ -13,10 +14,12 @@
       "type": "string"
     },
     "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "purpose": {
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
       "maxLength": 1000,
       "minLength": 1,
       "title": "Purpose",

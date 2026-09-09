@@ -5,6 +5,7 @@
   "properties": {
     "direction": {
       "default": "direct",
+      "description": "Return direct, transitive, or all known dependencies.",
       "enum": [
         "all",
         "direct",
@@ -15,6 +16,7 @@
     },
     "max_results": {
       "default": 100,
+      "description": "Maximum dependency records returned.",
       "maximum": 500,
       "minimum": 1,
       "title": "Max Results",
@@ -30,13 +32,16 @@
         }
       ],
       "default": null,
+      "description": "Optional project-relative manifest, package, or source path.",
       "title": "Path"
     },
     "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "purpose": {
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
       "maxLength": 1000,
       "minLength": 1,
       "title": "Purpose",

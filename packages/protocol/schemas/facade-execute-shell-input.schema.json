@@ -5,13 +5,14 @@
   "properties": {
     "approval_timeout_seconds": {
       "default": 180,
+      "description": "Maximum time to wait for required local Windows approval.",
       "maximum": 300,
       "minimum": 15,
       "title": "Approval Timeout Seconds",
       "type": "integer"
     },
     "command": {
-      "description": "Exact noninteractive command/script to run.",
+      "description": "Exact noninteractive command/script to execute. Do not put file reads, searches, edits, or deletes here when a dedicated Codito tool can perform them.",
       "minLength": 1,
       "title": "Command",
       "type": "string"
@@ -24,6 +25,7 @@
     },
     "executor": {
       "default": "powershell",
+      "description": "Windows command interpreter used for command.",
       "enum": [
         "powershell",
         "cmd"
@@ -32,27 +34,32 @@
       "type": "string"
     },
     "idempotency_key": {
+      "description": "Caller-generated stable unique key for this logical mutation or command. Reuse only when retrying that exact same request.",
       "title": "Idempotency Key",
       "type": "string"
     },
     "output_limit_bytes": {
       "default": 2097152,
+      "description": "Maximum combined stdout/stderr retained for this job.",
       "maximum": 10485760,
       "minimum": 1024,
       "title": "Output Limit Bytes",
       "type": "integer"
     },
     "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "purpose": {
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
       "maxLength": 1000,
       "minLength": 1,
       "title": "Purpose",
       "type": "string"
     },
     "requested_external_paths": {
+      "description": "Absolute Windows paths the command is expected to access outside cwd/project, shown to local policy; this declaration never grants access.",
       "items": {
         "type": "string"
       },
@@ -62,6 +69,7 @@
     },
     "start_wait_milliseconds": {
       "default": 30000,
+      "description": "Initial server wait for completion/output before returning a job state.",
       "maximum": 30000,
       "minimum": 0,
       "title": "Start Wait Milliseconds",
@@ -69,6 +77,7 @@
     },
     "timeout_seconds": {
       "default": 300,
+      "description": "Maximum runtime before the process tree is stopped.",
       "maximum": 1800,
       "minimum": 1,
       "title": "Timeout Seconds",

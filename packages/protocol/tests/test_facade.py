@@ -9,7 +9,7 @@ from codito_protocol import (
 )
 from codito_protocol.desktop_action import DeviceDesktopInput
 from codito_protocol.facade import FACADE_MODELS, facade_wire_request
-from codito_protocol.facade_contracts import FACADE_CONTRACTS
+from codito_protocol.facade_contracts import FACADE_CONTRACTS, MCP_SERVER_INSTRUCTIONS
 from codito_protocol.screenshot import DeviceScreenshotInput
 from pydantic import ValidationError
 
@@ -107,6 +107,41 @@ def test_descriptors_have_precise_scopes_static_status_and_titles():
         assert contract["securitySchemes"][0]["type"] == "oauth2"
     assert FACADE_CONTRACTS["shell_status"]["annotations"]["readOnlyHint"] is True
     assert FACADE_CONTRACTS["execute_shell"]["annotations"]["destructiveHint"] is True
+
+
+def test_public_schemas_and_descriptions_are_agent_selectable():
+    for name, model in FACADE_MODELS.items():
+        schema = model.model_json_schema()
+        missing = [
+            field_name
+            for field_name, field_schema in schema["properties"].items()
+            if not field_schema.get("description")
+        ]
+        assert not missing, f"{name} fields missing descriptions: {missing}"
+        assert "Use " in FACADE_CONTRACTS[name]["description"]
+
+    shell_description = FACADE_CONTRACTS["execute_shell"]["description"]
+    for dedicated_tool in (
+        "file_read",
+        "directory_list",
+        "text_search",
+        "file_patch",
+        "file_delete",
+    ):
+        assert dedicated_tool in shell_description
+    assert "Do NOT use" in shell_description
+
+    normalized_instructions = " ".join(MCP_SERVER_INSTRUCTIONS.split())
+    for phrase in (
+        "Prefer dedicated read tools over execute_shell",
+        "Parallelize independent read-only calls",
+        "Prefer semantic code_* tools",
+        "Do not create/edit/delete files through execute_shell",
+        "Do not use it merely",
+        "Get-Content/type",
+        "execute_shell -> shell_status",
+    ):
+        assert phrase in normalized_instructions
 
 
 def test_shell_has_direct_string_command_and_requested_windows_cwd():

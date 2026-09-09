@@ -15,6 +15,7 @@
   "additionalProperties": false,
   "properties": {
     "character": {
+      "description": "One-based Unicode character position.",
       "maximum": 100000,
       "minimum": 1,
       "title": "Character",
@@ -22,9 +23,11 @@
     },
     "direction": {
       "$ref": "#/$defs/TypeHierarchyDirection",
-      "default": "both"
+      "default": "both",
+      "description": "Supertypes, subtypes, or both directions."
     },
     "line": {
+      "description": "One-based type line.",
       "maximum": 10000000,
       "minimum": 1,
       "title": "Line",
@@ -32,6 +35,7 @@
     },
     "max_depth": {
       "default": 3,
+      "description": "Maximum traversal depth.",
       "maximum": 10,
       "minimum": 1,
       "title": "Max Depth",
@@ -39,20 +43,24 @@
     },
     "max_nodes": {
       "default": 50,
+      "description": "Maximum graph nodes returned.",
       "maximum": 200,
       "minimum": 1,
       "title": "Max Nodes",
       "type": "integer"
     },
     "path": {
+      "description": "Project-relative source file containing the type.",
       "title": "Path",
       "type": "string"
     },
     "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "purpose": {
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
       "maxLength": 1000,
       "minLength": 1,
       "title": "Purpose",

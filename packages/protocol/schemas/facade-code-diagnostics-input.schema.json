@@ -17,20 +17,24 @@
   "properties": {
     "max_results": {
       "default": 200,
+      "description": "Maximum diagnostics to return.",
       "maximum": 1000,
       "minimum": 1,
       "title": "Max Results",
       "type": "integer"
     },
     "path": {
+      "description": "Project-relative source file to diagnose.",
       "title": "Path",
       "type": "string"
     },
     "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "purpose": {
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
       "maxLength": 1000,
       "minLength": 1,
       "title": "Purpose",
@@ -38,7 +42,8 @@
     },
     "severity_min": {
       "$ref": "#/$defs/DiagnosticSeverity",
-      "default": "hint"
+      "default": "hint",
+      "description": "Lowest diagnostic severity to include."
     }
   },
   "required": [

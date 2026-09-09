@@ -7,7 +7,11 @@ from typing import Any, Literal
 
 from codito_protocol import TOOL_CONTRACTS
 from codito_protocol.facade import FACADE_MODELS, facade_wire_request
-from codito_protocol.facade_contracts import FACADE_CONTRACTS, FACADE_OUTPUT_MODELS
+from codito_protocol.facade_contracts import (
+    FACADE_CONTRACTS,
+    FACADE_OUTPUT_MODELS,
+    MCP_SERVER_INSTRUCTIONS,
+)
 from django.conf import settings
 from mcp.server.mcpserver import Context, MCPServer
 from mcp_types import (
@@ -64,13 +68,7 @@ class CoditoMCPServer(MCPServer[Any]):
 mcp = CoditoMCPServer(
     "Codito",
     version=__version__,
-    instructions=(
-        "Use focused tools with opaque project IDs from projects_list. Each content/action call "
-        "is authorized under that project's locally configured policy, not an ambient active "
-        "project session. Request explicit scope_path/cwd for user-requested outside access. "
-        "Windows enforces approval/trust; inputs cannot assert consent. Continue nonterminal "
-        "commands with shell_status using the same job_id, without resubmitting the command."
-    ),
+    instructions=MCP_SERVER_INSTRUCTIONS,
 )
 
 

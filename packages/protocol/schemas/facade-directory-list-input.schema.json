@@ -14,15 +14,18 @@
         }
       ],
       "default": null,
+      "description": "Opaque continuation returned by the same tool and unchanged query; do not edit it.",
       "title": "Cursor"
     },
     "glob": {
       "default": "*",
+      "description": "Filename glob applied below path, for example **/*.py.",
       "title": "Glob",
       "type": "string"
     },
     "limit": {
       "default": 100,
+      "description": "Maximum entries to return.",
       "maximum": 500,
       "minimum": 1,
       "title": "Limit",
@@ -30,16 +33,17 @@
     },
     "path": {
       "default": "",
+      "description": "Directory relative to project root or scope_path; empty is root.",
       "title": "Path",
       "type": "string"
     },
     "project_id": {
-      "description": "Origin project ID from projects_list.",
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "purpose": {
-      "description": "Reason shown in local approval/history.",
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
       "maxLength": 1000,
       "minLength": 1,
       "title": "Purpose",
@@ -47,6 +51,7 @@
     },
     "recursive": {
       "default": false,
+      "description": "Whether to recursively traverse descendants below path.",
       "title": "Recursive",
       "type": "boolean"
     },

@@ -5,22 +5,26 @@
   "properties": {
     "display": {
       "default": "primary",
+      "description": "primary or an opaque display ID returned by screen_list.",
       "pattern": "^(primary|screen_[a-f0-9]{64})$",
       "title": "Display",
       "type": "string"
     },
     "max_dimension": {
       "default": 1600,
+      "description": "Maximum output width or height; aspect ratio is preserved.",
       "maximum": 2048,
       "minimum": 640,
       "title": "Max Dimension",
       "type": "integer"
     },
     "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "purpose": {
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
       "maxLength": 1000,
       "minLength": 1,
       "title": "Purpose",

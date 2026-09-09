@@ -4,10 +4,12 @@
   "additionalProperties": false,
   "properties": {
     "idempotency_key": {
+      "description": "Caller-generated stable unique key for this logical mutation or command. Reuse only when retrying that exact same request.",
       "title": "Idempotency Key",
       "type": "string"
     },
     "title": {
+      "description": "Human-readable project title; Windows separately asks the user for a folder.",
       "maxLength": 120,
       "minLength": 1,
       "title": "Title",

@@ -10,24 +10,27 @@
     },
     "dry_run": {
       "default": false,
+      "description": "Validate the deletion without changing the file.",
       "title": "Dry Run",
       "type": "boolean"
     },
     "idempotency_key": {
+      "description": "Caller-generated stable unique key for this logical mutation or command. Reuse only when retrying that exact same request.",
       "title": "Idempotency Key",
       "type": "string"
     },
     "path": {
+      "description": "Exact single file to delete, relative to the target root.",
       "title": "Path",
       "type": "string"
     },
     "project_id": {
-      "description": "Origin project ID from projects_list.",
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "purpose": {
-      "description": "Reason shown in local approval/history.",
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
       "maxLength": 1000,
       "minLength": 1,
       "title": "Purpose",

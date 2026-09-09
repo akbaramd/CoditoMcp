@@ -5,6 +5,7 @@
   "properties": {
     "case_sensitive": {
       "default": false,
+      "description": "Match letter case exactly when true.",
       "title": "Case Sensitive",
       "type": "boolean"
     },
@@ -19,15 +20,18 @@
         }
       ],
       "default": null,
+      "description": "Opaque continuation returned by the same tool and unchanged query; do not edit it.",
       "title": "Continuation"
     },
     "glob": {
       "default": "**/*",
+      "description": "File glob limiting which files are searched.",
       "title": "Glob",
       "type": "string"
     },
     "max_bytes_per_match": {
       "default": 2048,
+      "description": "Maximum UTF-8 preview bytes returned for each match.",
       "maximum": 16384,
       "minimum": 128,
       "title": "Max Bytes Per Match",
@@ -35,6 +39,7 @@
     },
     "max_results": {
       "default": 100,
+      "description": "Maximum matching locations to return.",
       "maximum": 500,
       "minimum": 1,
       "title": "Max Results",
@@ -42,22 +47,24 @@
     },
     "path": {
       "default": "",
+      "description": "File or directory relative to project root or scope_path; empty is root.",
       "title": "Path",
       "type": "string"
     },
     "project_id": {
-      "description": "Origin project ID from projects_list.",
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "purpose": {
-      "description": "Reason shown in local approval/history.",
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
       "maxLength": 1000,
       "minLength": 1,
       "title": "Purpose",
       "type": "string"
     },
     "query": {
+      "description": "Literal text to find, or a bounded regular expression when regex=true.",
       "maxLength": 4096,
       "minLength": 1,
       "title": "Query",
@@ -65,6 +72,7 @@
     },
     "regex": {
       "default": false,
+      "description": "Interpret query as a regular expression.",
       "title": "Regex",
       "type": "boolean"
     },

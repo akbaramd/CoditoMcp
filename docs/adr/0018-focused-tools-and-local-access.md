@@ -1,6 +1,6 @@
 # ADR 0018 — Focused MCP tools and explicit local access policy
 
-Date: 2026-09-08. Status: implementation in progress.
+Date: 2026-09-08. Status: accepted and implemented.
 
 ## Decision
 
@@ -15,6 +15,16 @@ file names inside that scope remain relative and traversal-checked.
 Human-readable `title` and static `openai/toolInvocation/invoking` / `invoked`
 metadata describe the actual action. These status strings are at most 64
 characters. They do not override ChatGPT's own narration or approval interface.
+
+Every public tool description states when to use that tool and distinguishes it
+from adjacent tools. Every public input property carries a model-readable
+description. Server instructions define a deterministic preference order:
+dedicated file and semantic-code tools precede Shell; independent reads may run
+in parallel; Shell is reserved for actual process execution such as builds,
+tests, Git, package managers, Docker, and SSH. Examples live in server
+instructions rather than bloating individual tool descriptions. Hidden legacy
+aliases do not appear in the public catalog and therefore cannot compete during
+fresh tool selection.
 
 Three locally selected project policies are displayed:
 

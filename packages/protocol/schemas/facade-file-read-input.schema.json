@@ -14,10 +14,12 @@
         }
       ],
       "default": null,
+      "description": "Opaque continuation returned by the same tool and unchanged query; do not edit it.",
       "title": "Continuation"
     },
     "max_bytes": {
       "default": 65536,
+      "description": "Maximum file-content bytes returned in this page.",
       "maximum": 262144,
       "minimum": 256,
       "title": "Max Bytes",
@@ -25,23 +27,24 @@
     },
     "max_lines": {
       "default": 200,
+      "description": "Maximum numbered lines to return in this page.",
       "maximum": 2000,
       "minimum": 1,
       "title": "Max Lines",
       "type": "integer"
     },
     "path": {
-      "description": "File path relative to project root or scope_path.",
+      "description": "Exact file path relative to the project root or requested scope_path.",
       "title": "Path",
       "type": "string"
     },
     "project_id": {
-      "description": "Origin project ID from projects_list.",
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "purpose": {
-      "description": "Reason shown in local approval/history.",
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
       "maxLength": 1000,
       "minLength": 1,
       "title": "Purpose",
@@ -62,6 +65,7 @@
     },
     "start_line": {
       "default": 1,
+      "description": "One-based first line to return.",
       "maximum": 1000000,
       "minimum": 1,
       "title": "Start Line",

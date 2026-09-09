@@ -28,29 +28,40 @@ from .types import CoditoModel, OpaqueId, ProjectGlob, RelativePath, Sha256
 Purpose = Annotated[str, Field(min_length=1, max_length=1000)]
 Cursor = Annotated[str | None, Field(max_length=512)]
 _FIRST_PRINTABLE = 32
+_PROJECT_ID = "Opaque project ID returned by projects_list; never send a local path."
+_PURPOSE = "Concise user-facing reason shown in Windows approval and local activity history."
+_IDEMPOTENCY = (
+    "Caller-generated stable unique key for this logical mutation or command. "
+    "Reuse only when retrying that exact same request."
+)
+_CURSOR = "Opaque continuation returned by the same tool and unchanged query; do not edit it."
 
 
 class ProjectsListInput(CoditoModel):
-    cursor: Cursor = None
-    limit: int = Field(default=50, ge=1, le=100)
+    cursor: Cursor = Field(default=None, description=_CURSOR)
+    limit: int = Field(default=50, ge=1, le=100, description="Maximum projects to return.")
 
 
 class ProjectAddInput(CoditoModel):
-    title: str = Field(min_length=1, max_length=120)
-    idempotency_key: OpaqueId
+    title: str = Field(
+        min_length=1,
+        max_length=120,
+        description="Human-readable project title; Windows separately asks the user for a folder.",
+    )
+    idempotency_key: OpaqueId = Field(description=_IDEMPOTENCY)
 
 
 class ProjectRenameInput(ProjectAddInput):
-    project_id: OpaqueId
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
 
 
 class ProjectRemoveInput(CoditoModel):
-    project_id: OpaqueId
-    idempotency_key: OpaqueId
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    idempotency_key: OpaqueId = Field(description=_IDEMPOTENCY)
 
 
 class ProjectTarget(CoditoModel):
-    project_id: OpaqueId = Field(description="Origin project ID from projects_list.")
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
     scope_path: str | None = Field(
         default=None,
         description=(
@@ -58,7 +69,7 @@ class ProjectTarget(CoditoModel):
             "Local project policy and Windows approval still apply; not a trust assertion."
         ),
     )
-    purpose: Purpose = Field(description="Reason shown in local approval/history.")
+    purpose: Purpose = Field(description=_PURPOSE)
 
     @field_validator("scope_path")
     @classmethod
@@ -67,11 +78,22 @@ class ProjectTarget(CoditoModel):
 
 
 class FileReadInput(ProjectTarget):
-    path: RelativePath = Field(description="File path relative to project root or scope_path.")
-    start_line: int = Field(default=1, ge=1, le=1_000_000)
-    max_lines: int = Field(default=200, ge=1, le=2000)
-    max_bytes: int = Field(default=65536, ge=256, le=262144)
-    continuation: Cursor = None
+    path: RelativePath = Field(
+        description="Exact file path relative to the project root or requested scope_path."
+    )
+    start_line: int = Field(
+        default=1, ge=1, le=1_000_000, description="One-based first line to return."
+    )
+    max_lines: int = Field(
+        default=200, ge=1, le=2000, description="Maximum numbered lines to return in this page."
+    )
+    max_bytes: int = Field(
+        default=65536,
+        ge=256,
+        le=262144,
+        description="Maximum file-content bytes returned in this page.",
+    )
+    continuation: Cursor = Field(default=None, description=_CURSOR)
 
     @model_validator(mode="after")
     def valid_file(self) -> FileReadInput:
@@ -81,29 +103,60 @@ class FileReadInput(ProjectTarget):
 
 
 class DirectoryListInput(ProjectTarget):
-    path: RelativePath = ""
-    glob: ProjectGlob = "*"
-    recursive: bool = False
-    cursor: Cursor = None
-    limit: int = Field(default=100, ge=1, le=500)
+    path: RelativePath = Field(
+        default="", description="Directory relative to project root or scope_path; empty is root."
+    )
+    glob: ProjectGlob = Field(
+        default="*", description="Filename glob applied below path, for example **/*.py."
+    )
+    recursive: bool = Field(
+        default=False, description="Whether to recursively traverse descendants below path."
+    )
+    cursor: Cursor = Field(default=None, description=_CURSOR)
+    limit: int = Field(default=100, ge=1, le=500, description="Maximum entries to return.")
 
 
 class TextSearchInput(ProjectTarget):
-    query: str = Field(min_length=1, max_length=4096)
-    path: RelativePath = ""
-    glob: ProjectGlob = "**/*"
-    case_sensitive: bool = False
-    regex: bool = False
-    max_results: int = Field(default=100, ge=1, le=500)
-    max_bytes_per_match: int = Field(default=2048, ge=128, le=16384)
-    continuation: Cursor = None
+    query: str = Field(
+        min_length=1,
+        max_length=4096,
+        description="Literal text to find, or a bounded regular expression when regex=true.",
+    )
+    path: RelativePath = Field(
+        default="",
+        description="File or directory relative to project root or scope_path; empty is root.",
+    )
+    glob: ProjectGlob = Field(
+        default="**/*", description="File glob limiting which files are searched."
+    )
+    case_sensitive: bool = Field(default=False, description="Match letter case exactly when true.")
+    regex: bool = Field(default=False, description="Interpret query as a regular expression.")
+    max_results: int = Field(
+        default=100, ge=1, le=500, description="Maximum matching locations to return."
+    )
+    max_bytes_per_match: int = Field(
+        default=2048,
+        ge=128,
+        le=16384,
+        description="Maximum UTF-8 preview bytes returned for each match.",
+    )
+    continuation: Cursor = Field(default=None, description=_CURSOR)
 
 
 class FilePatchInput(ProjectTarget):
     patch: str = Field(min_length=35, description="Exact anchored *** Begin Patch document.")
-    base_hashes: dict[RelativePath, Sha256 | None] = Field(min_length=1, max_length=256)
-    idempotency_key: OpaqueId
-    dry_run: bool = False
+    base_hashes: dict[RelativePath, Sha256 | None] = Field(
+        min_length=1,
+        max_length=256,
+        description=(
+            "Exact precondition for every source/destination path: current SHA-256 from file_read, "
+            "or null only when an added destination must not exist."
+        ),
+    )
+    idempotency_key: OpaqueId = Field(description=_IDEMPOTENCY)
+    dry_run: bool = Field(
+        default=False, description="Preflight and report the patch without changing files."
+    )
 
     @model_validator(mode="after")
     def valid_patch(self) -> FilePatchInput:
@@ -114,10 +167,14 @@ class FilePatchInput(ProjectTarget):
 
 
 class FileDeleteInput(ProjectTarget):
-    path: RelativePath
+    path: RelativePath = Field(
+        description="Exact single file to delete, relative to the target root."
+    )
     base_hash: Sha256 = Field(description="Current SHA-256 returned by file_read.")
-    idempotency_key: OpaqueId
-    dry_run: bool = False
+    idempotency_key: OpaqueId = Field(description=_IDEMPOTENCY)
+    dry_run: bool = Field(
+        default=False, description="Validate the deletion without changing the file."
+    )
 
     @field_validator("path")
     @classmethod
@@ -128,20 +185,55 @@ class FileDeleteInput(ProjectTarget):
 
 
 class ExecuteShellInput(CoditoModel):
-    project_id: OpaqueId
-    command: str = Field(min_length=1, description="Exact noninteractive command/script to run.")
-    executor: Literal["powershell", "cmd"] = "powershell"
-    purpose: Purpose
-    idempotency_key: OpaqueId
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    command: str = Field(
+        min_length=1,
+        description=(
+            "Exact noninteractive command/script to execute. Do not put file reads, searches, "
+            "edits, or deletes here when a dedicated Codito tool can perform them."
+        ),
+    )
+    executor: Literal["powershell", "cmd"] = Field(
+        default="powershell", description="Windows command interpreter used for command."
+    )
+    purpose: Purpose = Field(description=_PURPOSE)
+    idempotency_key: OpaqueId = Field(description=_IDEMPOTENCY)
     cwd: str = Field(
         default="",
         description="Project-relative cwd (empty=root), or absolute requested Windows directory.",
     )
-    timeout_seconds: int = Field(default=300, ge=1, le=1800)
-    output_limit_bytes: int = Field(default=2 * 1024 * 1024, ge=1024, le=10 * 1024 * 1024)
-    approval_timeout_seconds: int = Field(default=180, ge=15, le=300)
-    start_wait_milliseconds: int = Field(default=30000, ge=0, le=30000)
-    requested_external_paths: list[str] = Field(default_factory=list, max_length=32)
+    timeout_seconds: int = Field(
+        default=300,
+        ge=1,
+        le=1800,
+        description="Maximum runtime before the process tree is stopped.",
+    )
+    output_limit_bytes: int = Field(
+        default=2 * 1024 * 1024,
+        ge=1024,
+        le=10 * 1024 * 1024,
+        description="Maximum combined stdout/stderr retained for this job.",
+    )
+    approval_timeout_seconds: int = Field(
+        default=180,
+        ge=15,
+        le=300,
+        description="Maximum time to wait for required local Windows approval.",
+    )
+    start_wait_milliseconds: int = Field(
+        default=30000,
+        ge=0,
+        le=30000,
+        description="Initial server wait for completion/output before returning a job state.",
+    )
+    requested_external_paths: list[str] = Field(
+        default_factory=list,
+        max_length=32,
+        description=(
+            "Absolute Windows paths the command is expected to access outside cwd/project, "
+            "shown to local policy; this declaration never grants access."
+        ),
+    )
 
     @field_validator("command")
     @classmethod
@@ -163,34 +255,58 @@ class ExecuteShellInput(CoditoModel):
 
 
 class ShellStatusInput(CoditoModel):
-    project_id: OpaqueId
-    job_id: OpaqueId
-    sequence_cursor: int = Field(default=0, ge=0)
-    wait_milliseconds: int = Field(default=30000, ge=0, le=30000)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    job_id: OpaqueId = Field(description="Job ID returned by execute_shell.")
+    sequence_cursor: int = Field(
+        default=0, ge=0, description="Next output sequence cursor returned by shell_status."
+    )
+    wait_milliseconds: int = Field(
+        default=30000,
+        ge=0,
+        le=30000,
+        description="Maximum long-poll wait for new output or a terminal state.",
+    )
 
 
 class ShellCancelInput(CoditoModel):
-    project_id: OpaqueId
-    job_id: OpaqueId
-    reason: str = Field(default="cancelled by caller", min_length=1, max_length=500)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    job_id: OpaqueId = Field(description="Running job ID returned by execute_shell.")
+    reason: str = Field(
+        default="cancelled by caller",
+        min_length=1,
+        max_length=500,
+        description="Short audit reason for cancelling this job.",
+    )
 
 
 class ScreenListInput(CoditoModel):
-    purpose: Purpose = "List available Windows screens without capturing pixels"
+    purpose: Purpose = Field(
+        default="List available Windows screens without capturing pixels",
+        description=_PURPOSE,
+    )
 
 
 class ScreenshotCaptureInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose
-    display: DisplaySelector = "primary"
-    max_dimension: int = Field(default=1600, ge=640, le=2048)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    display: DisplaySelector = Field(
+        default="primary", description="primary or an opaque display ID returned by screen_list."
+    )
+    max_dimension: int = Field(
+        default=1600,
+        ge=640,
+        le=2048,
+        description="Maximum output width or height; aspect ratio is preserved.",
+    )
 
 
 class BrowserOpenInput(CoditoModel):
-    project_id: OpaqueId
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
     url: str = Field(description="HTTP/HTTPS destination; no credentials or custom schemes.")
-    purpose: Purpose
-    browser: Literal["default", "firefox"] = "default"
+    purpose: Purpose = Field(description=_PURPOSE)
+    browser: Literal["default", "firefox"] = Field(
+        default="default", description="Use the Windows default browser or installed Firefox."
+    )
 
     @field_validator("url")
     @classmethod
@@ -204,136 +320,189 @@ class BrowserOpenInput(CoditoModel):
 
 
 class CodeStatusInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose = "Query code intelligence status"
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(default="Query code intelligence status", description=_PURPOSE)
 
 
 class CodeSummaryInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose = "Summarise workspace"
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(default="Summarise workspace", description=_PURPOSE)
 
 
 class CodeSymbolSearchFacadeInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose
-    query: str = Field(min_length=1, max_length=512)
-    scope: Literal["workspace", "document"] = "workspace"
-    path: RelativePath | None = None
-    kinds: list[SymbolKind] = Field(default_factory=list, max_length=27)
-    max_results: int = Field(default=50, ge=1, le=500)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    query: str = Field(
+        min_length=1, max_length=512, description="Symbol name or partial symbol name to find."
+    )
+    scope: Literal["workspace", "document"] = Field(
+        default="workspace", description="Search the whole project or one document."
+    )
+    path: RelativePath | None = Field(
+        default=None, description="Required project-relative source file when scope=document."
+    )
+    kinds: list[SymbolKind] = Field(
+        default_factory=list,
+        max_length=27,
+        description="Optional symbol-kind filter; empty allows every supported kind.",
+    )
+    max_results: int = Field(
+        default=50, ge=1, le=500, description="Maximum symbol matches to return."
+    )
 
 
 class CodeDefinitionFacadeInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose
-    path: RelativePath
-    line: int = Field(ge=1, le=10_000_000)
-    character: int = Field(ge=1, le=100_000)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    path: RelativePath = Field(description="Project-relative source file containing the symbol.")
+    line: int = Field(ge=1, le=10_000_000, description="One-based symbol line.")
+    character: int = Field(ge=1, le=100_000, description="One-based Unicode character position.")
 
 
 class CodeReferencesFacadeInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose
-    path: RelativePath
-    line: int = Field(ge=1, le=10_000_000)
-    character: int = Field(ge=1, le=100_000)
-    include_declaration: bool = True
-    max_results: int = Field(default=100, ge=1, le=1000)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    path: RelativePath = Field(description="Project-relative source file containing the symbol.")
+    line: int = Field(ge=1, le=10_000_000, description="One-based symbol line.")
+    character: int = Field(ge=1, le=100_000, description="One-based Unicode character position.")
+    include_declaration: bool = Field(
+        default=True, description="Include the symbol declaration in returned locations."
+    )
+    max_results: int = Field(
+        default=100, ge=1, le=1000, description="Maximum reference locations to return."
+    )
 
 
 class CodeImplementationsFacadeInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose
-    path: RelativePath
-    line: int = Field(ge=1, le=10_000_000)
-    character: int = Field(ge=1, le=100_000)
-    max_results: int = Field(default=100, ge=1, le=500)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    path: RelativePath = Field(description="Project-relative source file containing the symbol.")
+    line: int = Field(ge=1, le=10_000_000, description="One-based symbol line.")
+    character: int = Field(ge=1, le=100_000, description="One-based Unicode character position.")
+    max_results: int = Field(
+        default=100, ge=1, le=500, description="Maximum implementation locations to return."
+    )
 
 
 class CodeDiagnosticsFacadeInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose
-    path: RelativePath
-    severity_min: DiagnosticSeverity = DiagnosticSeverity.HINT
-    max_results: int = Field(default=200, ge=1, le=1000)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    path: RelativePath = Field(description="Project-relative source file to diagnose.")
+    severity_min: DiagnosticSeverity = Field(
+        default=DiagnosticSeverity.HINT,
+        description="Lowest diagnostic severity to include.",
+    )
+    max_results: int = Field(
+        default=200, ge=1, le=1000, description="Maximum diagnostics to return."
+    )
 
 
 class CodeHoverFacadeInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose
-    path: RelativePath
-    line: int = Field(ge=1, le=10_000_000)
-    character: int = Field(ge=1, le=100_000)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    path: RelativePath = Field(description="Project-relative source file containing the symbol.")
+    line: int = Field(ge=1, le=10_000_000, description="One-based symbol line.")
+    character: int = Field(ge=1, le=100_000, description="One-based Unicode character position.")
 
 
 class CodeContextFacadeInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose
-    path: RelativePath
-    line: int = Field(ge=1, le=10_000_000)
-    character: int = Field(ge=1, le=100_000)
-    source_context_lines: int = Field(default=5, ge=0, le=50)
-    include_references: bool = True
-    include_diagnostics: bool = True
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    path: RelativePath = Field(description="Project-relative source file containing the symbol.")
+    line: int = Field(ge=1, le=10_000_000, description="One-based symbol line.")
+    character: int = Field(ge=1, le=100_000, description="One-based Unicode character position.")
+    source_context_lines: int = Field(
+        default=5, ge=0, le=50, description="Nearby source lines to include on each side."
+    )
+    include_references: bool = Field(
+        default=True, description="Include bounded symbol references in the aggregate."
+    )
+    include_diagnostics: bool = Field(
+        default=True, description="Include current diagnostics in the aggregate."
+    )
 
 
 class CodeCallHierarchyFacadeInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose
-    path: RelativePath
-    line: int = Field(ge=1, le=10_000_000)
-    character: int = Field(ge=1, le=100_000)
-    direction: HierarchyDirection = HierarchyDirection.BOTH
-    max_depth: int = Field(default=3, ge=1, le=10)
-    max_nodes: int = Field(default=50, ge=1, le=200)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    path: RelativePath = Field(description="Project-relative source file containing the callable.")
+    line: int = Field(ge=1, le=10_000_000, description="One-based callable line.")
+    character: int = Field(ge=1, le=100_000, description="One-based Unicode character position.")
+    direction: HierarchyDirection = Field(
+        default=HierarchyDirection.BOTH, description="Incoming, outgoing, or both call directions."
+    )
+    max_depth: int = Field(default=3, ge=1, le=10, description="Maximum traversal depth.")
+    max_nodes: int = Field(default=50, ge=1, le=200, description="Maximum graph nodes returned.")
 
 
 class CodeTypeHierarchyFacadeInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose
-    path: RelativePath
-    line: int = Field(ge=1, le=10_000_000)
-    character: int = Field(ge=1, le=100_000)
-    direction: TypeHierarchyDirection = TypeHierarchyDirection.BOTH
-    max_depth: int = Field(default=3, ge=1, le=10)
-    max_nodes: int = Field(default=50, ge=1, le=200)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    path: RelativePath = Field(description="Project-relative source file containing the type.")
+    line: int = Field(ge=1, le=10_000_000, description="One-based type line.")
+    character: int = Field(ge=1, le=100_000, description="One-based Unicode character position.")
+    direction: TypeHierarchyDirection = Field(
+        default=TypeHierarchyDirection.BOTH,
+        description="Supertypes, subtypes, or both directions.",
+    )
+    max_depth: int = Field(default=3, ge=1, le=10, description="Maximum traversal depth.")
+    max_nodes: int = Field(default=50, ge=1, le=200, description="Maximum graph nodes returned.")
 
 
 class CodeImpactFacadeInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose
-    path: RelativePath
-    line: int | None = Field(default=None, ge=1, le=10_000_000)
-    character: int | None = Field(default=None, ge=1, le=100_000)
-    max_nodes: int = Field(default=50, ge=1, le=500)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    path: RelativePath = Field(description="Project-relative file whose dependents are requested.")
+    line: int | None = Field(
+        default=None, ge=1, le=10_000_000, description="Optional one-based symbol line."
+    )
+    character: int | None = Field(
+        default=None, ge=1, le=100_000, description="Optional one-based symbol character."
+    )
+    max_nodes: int = Field(default=50, ge=1, le=500, description="Maximum impact nodes returned.")
 
 
 class CodeArchitectureFacadeInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose
-    max_packages: int = Field(default=100, ge=1, le=500)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    max_packages: int = Field(
+        default=100, ge=1, le=500, description="Maximum package/layer nodes returned."
+    )
 
 
 class CodeDependenciesFacadeInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose
-    path: RelativePath | None = None
-    direction: Literal["all", "direct", "transitive"] = "direct"
-    max_results: int = Field(default=100, ge=1, le=500)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    path: RelativePath | None = Field(
+        default=None, description="Optional project-relative manifest, package, or source path."
+    )
+    direction: Literal["all", "direct", "transitive"] = Field(
+        default="direct", description="Return direct, transitive, or all known dependencies."
+    )
+    max_results: int = Field(
+        default=100, ge=1, le=500, description="Maximum dependency records returned."
+    )
 
 
 class CodeRelatedTestsFacadeInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose
-    path: RelativePath
-    max_results: int = Field(default=50, ge=1, le=200)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    path: RelativePath = Field(description="Project-relative source file to find tests for.")
+    max_results: int = Field(
+        default=50, ge=1, le=200, description="Maximum related test candidates returned."
+    )
 
 
 class CodeReindexFacadeInput(CoditoModel):
-    project_id: OpaqueId
-    purpose: Purpose = "Reindex project"
-    scope: ReindexScope = ReindexScope.INCREMENTAL
-    timeout_seconds: int = Field(default=30, ge=5, le=30)
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(default="Reindex project", description=_PURPOSE)
+    scope: ReindexScope = Field(
+        default=ReindexScope.INCREMENTAL,
+        description="Incremental refresh or explicit full index rebuild.",
+    )
+    timeout_seconds: int = Field(
+        default=30, ge=5, le=30, description="Maximum wait for the indexing operation."
+    )
 
 
 _CODE_FACADE_TO_OPERATION: dict[str, str] = {

@@ -39,6 +39,7 @@
   "additionalProperties": false,
   "properties": {
     "kinds": {
+      "description": "Optional symbol-kind filter; empty allows every supported kind.",
       "items": {
         "$ref": "#/$defs/SymbolKind"
       },
@@ -48,6 +49,7 @@
     },
     "max_results": {
       "default": 50,
+      "description": "Maximum symbol matches to return.",
       "maximum": 500,
       "minimum": 1,
       "title": "Max Results",
@@ -63,19 +65,23 @@
         }
       ],
       "default": null,
+      "description": "Required project-relative source file when scope=document.",
       "title": "Path"
     },
     "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
       "title": "Project Id",
       "type": "string"
     },
     "purpose": {
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
       "maxLength": 1000,
       "minLength": 1,
       "title": "Purpose",
       "type": "string"
     },
     "query": {
+      "description": "Symbol name or partial symbol name to find.",
       "maxLength": 512,
       "minLength": 1,
       "title": "Query",
@@ -83,6 +89,7 @@
     },
     "scope": {
       "default": "workspace",
+      "description": "Search the whole project or one document.",
       "enum": [
         "workspace",
         "document"

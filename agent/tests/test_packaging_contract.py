@@ -113,8 +113,11 @@ def test_release_workflow_separates_verification_from_native_publish() -> None:
 
 def test_release_retry_is_bound_to_exact_tag_tree_and_verified_assets() -> None:
     workflow = (WORKFLOWS / "windows-release.yml").read_text(encoding="utf-8")
+    build_job, _ = workflow.split("  native-publish:", maxsplit=1)
     assert "$stablePattern = '\\Av(?<version>" in workflow
     assert "git tag --list 'v[0-9]*.[0-9]*.[0-9]*'" not in workflow
+    assert "if ($tag -in $rawTags)" in build_job
+    assert 'git show-ref --verify --quiet "refs/tags/$tag"' not in build_job
     assert "$parentFields.Count -eq 2" in workflow
     assert "^{tree}" in workflow
     assert "--clobber" in workflow

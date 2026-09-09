@@ -121,13 +121,8 @@ jobs:
             }
             $tag = "v$version"
             $resumeCommit = ''
-            git show-ref --verify --quiet "refs/tags/$tag"
-            $tagStatus = $LASTEXITCODE
-            if ($tagStatus -eq 0) {
+            if ($tag -in $rawTags) {
               throw "Selected release tag already exists but is not a valid resume candidate: $tag"
-            }
-            if ($tagStatus -ne 1) {
-              throw "Unable to inspect selected release tag (git exit $tagStatus)."
             }
           }
 

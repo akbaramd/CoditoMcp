@@ -103,8 +103,8 @@ Release tests must include:
 - Relay worker, Redis, PostgreSQL, agent, and network restart at each operation
   transition.
 - Frontend route/origin tricks, popup/download/external-navigation attempts,
-  password fills, forged/traversing source attributes, stale element IDs, HMR
-  invalidation, event/image/frame floods, reused-server cleanup, and profile isolation.
+  sensitive-input fills, forged/traversing source attributes, stale element IDs,
+  HMR invalidation, event/image/frame floods, reused-server cleanup, and profile isolation.
 
 ## Residual risk
 

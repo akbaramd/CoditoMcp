@@ -14,6 +14,80 @@ from .errors import AgentError
 from .models import TERMINAL_OPERATION_STATES, OperationState, Project, ProjectMode
 from .paths import validate_project_root
 
+_ACTIVITY_SECRET_KEYS = frozenset(
+    {
+        "access_token",
+        "authorization",
+        "client_secret",
+        "cookie",
+        "id_token",
+        "password",
+        "private_key",
+        "refresh_token",
+        "secret",
+        "token",
+    }
+)
+
+
+def _activity_safe_value(value: Any, *, depth: int = 0) -> Any:
+    """Create a JSON-safe local audit value without transport credentials."""
+
+    if depth > 12:
+        return "[maximum nesting reached]"
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, Mapping):
+        safe: dict[str, Any] = {}
+        for key, item in value.items():
+            name = str(key)
+            normalized = name.casefold().replace("-", "_")
+            safe[name] = (
+                "[redacted]"
+                if normalized in _ACTIVITY_SECRET_KEYS
+                else _activity_safe_value(item, depth=depth + 1)
+            )
+        return safe
+    if isinstance(value, (list, tuple)):
+        return [_activity_safe_value(item, depth=depth + 1) for item in value]
+    return str(value)
+
+
+def _json_object(value: object) -> dict[str, Any] | None:
+    if not value:
+        return None
+    try:
+        parsed = json.loads(str(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _activity_target(request: Mapping[str, Any] | None) -> str | None:
+    if request is None:
+        return None
+    for key in ("path", "working_directory", "scope_path", "display_id", "title", "query"):
+        value = request.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:240]
+    patch = request.get("patch")
+    if isinstance(patch, str):
+        paths = [
+            line.split(":", 1)[1].strip()
+            for line in patch.splitlines()
+            if line.startswith(
+                ("*** Add File:", "*** Update File:", "*** Delete File:", "*** Move to:")
+            )
+            and ":" in line
+        ]
+        if paths:
+            visible = ", ".join(paths[:3])
+            return f"{visible}{' …' if len(paths) > 3 else ''}"[:240]
+    command = request.get("command")
+    if isinstance(command, str) and command.strip():
+        return command.strip().replace("\r", " ").replace("\n", " ")[:240]
+    return None
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
@@ -71,6 +145,7 @@ class AgentDatabase:
                     action_digest TEXT NOT NULL,
                     idempotency_key TEXT,
                     request_digest TEXT NOT NULL,
+                    request_json TEXT,
                     state TEXT NOT NULL,
                     result_json TEXT,
                     terminal_acked INTEGER NOT NULL DEFAULT 0,
@@ -187,6 +262,8 @@ class AgentDatabase:
                 connection.execute(
                     "ALTER TABLE operations ADD COLUMN terminal_acked INTEGER NOT NULL DEFAULT 0"
                 )
+            if "request_json" not in columns:
+                connection.execute("ALTER TABLE operations ADD COLUMN request_json TEXT")
             idempotency_columns = {
                 str(row["name"])
                 for row in connection.execute("PRAGMA table_info(idempotency)").fetchall()
@@ -564,6 +641,7 @@ class AgentDatabase:
         action_digest: str,
         idempotency_key: str | None,
         request_digest: str,
+        request: Mapping[str, Any] | None = None,
         connection_epoch: int,
         deadline_at: str,
     ) -> bool:
@@ -574,15 +652,25 @@ class AgentDatabase:
         """
 
         now = _now()
+        request_json = (
+            json.dumps(
+                _activity_safe_value(request),
+                separators=(",", ":"),
+                sort_keys=True,
+                ensure_ascii=False,
+            )
+            if request is not None
+            else None
+        )
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 connection.execute(
                     """INSERT INTO operations
                        (operation_id,correlation_id,account_id,grant_id,link_id,device_id,project_id,
-                        capability,action_digest,idempotency_key,request_digest,state,result_json,
-                        connection_epoch,deadline_at,received_at,updated_at)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?)""",
+                        capability,action_digest,idempotency_key,request_digest,request_json,state,
+                        result_json,connection_epoch,deadline_at,received_at,updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?)""",
                     (
                         operation_id,
                         correlation_id,
@@ -595,6 +683,7 @@ class AgentDatabase:
                         action_digest,
                         idempotency_key,
                         request_digest,
+                        request_json,
                         OperationState.RECEIVED.value,
                         connection_epoch,
                         deadline_at,
@@ -734,7 +823,7 @@ class AgentDatabase:
             rows = connection.execute(
                 """SELECT operations.operation_id,operations.project_id,
                           projects.title AS project_title,operations.capability,
-                          operations.state,operations.result_json,
+                          operations.state,operations.request_json,operations.result_json,
                           operations.terminal_acked,operations.received_at,
                           operations.updated_at
                      FROM operations
@@ -745,11 +834,27 @@ class AgentDatabase:
             ).fetchall()
         activity: list[dict[str, Any]] = []
         for row in rows:
-            result = json.loads(row["result_json"]) if row["result_json"] else None
+            request = _json_object(row["request_json"])
+            result = _json_object(row["result_json"])
             error_code = None
+            error_message = None
             if isinstance(result, dict) and isinstance(result.get("error"), dict):
                 code = result["error"].get("code")
                 error_code = str(code) if code else None
+                message = result["error"].get("message")
+                error_message = str(message) if message else None
+            operation = None
+            purpose = None
+            if request is not None:
+                action = request.get("operation", request.get("action"))
+                operation = str(action) if action else None
+                raw_purpose = request.get("purpose")
+                purpose = str(raw_purpose) if raw_purpose else None
+            if operation is None and isinstance(result, dict):
+                result_value = result.get("result")
+                if isinstance(result_value, dict):
+                    action = result_value.get("operation", result_value.get("action"))
+                    operation = str(action) if action else None
             activity.append(
                 {
                     "operation_id": str(row["operation_id"]),
@@ -758,12 +863,75 @@ class AgentDatabase:
                     "capability": str(row["capability"]),
                     "state": str(row["state"]),
                     "error_code": error_code,
+                    "error_message": error_message,
+                    "operation": operation,
+                    "purpose": purpose,
+                    "target": _activity_target(request),
                     "terminal_acked": bool(row["terminal_acked"]),
                     "received_at": str(row["received_at"]),
                     "updated_at": str(row["updated_at"]),
                 }
             )
         return activity
+
+    def get_activity_detail(self, operation_id: str) -> dict[str, Any] | None:
+        """Return one complete local audit record for the authenticated desktop UI."""
+
+        if not operation_id or len(operation_id) > 200:
+            raise AgentError("invalid_request", "Activity operation identifier is invalid")
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT operations.*,projects.title AS project_title
+                     FROM operations
+                     LEFT JOIN projects ON projects.project_id=operations.project_id
+                    WHERE operations.operation_id=?""",
+                (operation_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        request = _json_object(row["request_json"])
+        result = _json_object(row["result_json"])
+        error = result.get("error") if isinstance(result, dict) else None
+        operation = None
+        if request is not None:
+            action = request.get("operation", request.get("action"))
+            operation = str(action) if action else None
+        if operation is None and isinstance(result, dict):
+            result_value = result.get("result")
+            if isinstance(result_value, dict):
+                action = result_value.get("operation", result_value.get("action"))
+                operation = str(action) if action else None
+        try:
+            received = datetime.fromisoformat(str(row["received_at"]))
+            updated = datetime.fromisoformat(str(row["updated_at"]))
+            duration_ms = max(0, int((updated - received).total_seconds() * 1000))
+        except ValueError:
+            duration_ms = None
+        return {
+            "operation_id": str(row["operation_id"]),
+            "correlation_id": str(row["correlation_id"]),
+            "account_id": str(row["account_id"]),
+            "grant_id": str(row["grant_id"]),
+            "link_id": str(row["link_id"]),
+            "device_id": str(row["device_id"]),
+            "project_id": str(row["project_id"]) if row["project_id"] else None,
+            "project_title": str(row["project_title"] or "Device"),
+            "capability": str(row["capability"]),
+            "operation": operation,
+            "state": str(row["state"]),
+            "action_digest": str(row["action_digest"]),
+            "idempotency_key": (str(row["idempotency_key"]) if row["idempotency_key"] else None),
+            "request_digest": str(row["request_digest"]),
+            "connection_epoch": int(row["connection_epoch"]),
+            "deadline_at": str(row["deadline_at"]),
+            "received_at": str(row["received_at"]),
+            "updated_at": str(row["updated_at"]),
+            "duration_ms": duration_ms,
+            "terminal_acked": bool(row["terminal_acked"]),
+            "request": request,
+            "result": result,
+            "error": error if isinstance(error, dict) else None,
+        }
 
     def acknowledge_terminal(
         self,

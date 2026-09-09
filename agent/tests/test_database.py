@@ -108,11 +108,72 @@ def test_operation_receipt_is_durable_and_conflicting_reuse_is_rejected(tmp_path
             "capability": "project_read",
             "state": "succeeded",
             "error_code": None,
+            "error_message": None,
+            "operation": None,
+            "purpose": None,
+            "target": None,
             "terminal_acked": True,
             "received_at": activity[0]["received_at"],
             "updated_at": activity[0]["updated_at"],
         }
     ]
+
+
+def test_activity_detail_preserves_tool_evidence_and_redacts_credentials(tmp_path: Path) -> None:
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    values = {
+        "operation_id": "activity_abcdefghijkl",
+        "correlation_id": "correlation_abcdefgh",
+        "account_id": "account_abcdefghijkl",
+        "grant_id": "grant_abcdefghijklmn",
+        "link_id": "link_abcdefghijklmnop",
+        "device_id": "device_abcdefghijkl",
+        "project_id": None,
+        "capability": "project_shell",
+        "action_digest": "a" * 64,
+        "idempotency_key": "shell_activity_key",
+        "request_digest": "b" * 64,
+        "request": {
+            "action": "start",
+            "purpose": "Inspect the build",
+            "command": "uv run pytest",
+            "working_directory": "src",
+            "password": "must-not-be-journaled",
+            "headers": {"Authorization": "Bearer must-not-be-journaled"},
+        },
+        "connection_epoch": 7,
+        "deadline_at": "2030-01-01T00:00:00+00:00",
+    }
+    assert database.record_received(**values)
+    database.transition_operation(
+        values["operation_id"],
+        OperationState.FAILED,
+        {
+            "ok": False,
+            "error": {
+                "code": "shell_failed",
+                "message": "Command exited with status 1",
+                "details": {"exit_code": 1},
+                "retryable": False,
+            },
+        },
+    )
+
+    summary = database.list_recent_operations(1)[0]
+    assert summary["operation"] == "start"
+    assert summary["purpose"] == "Inspect the build"
+    assert summary["target"] == "src"
+    assert summary["error_code"] == "shell_failed"
+    assert summary["error_message"] == "Command exited with status 1"
+
+    detail = database.get_activity_detail(values["operation_id"])
+    assert detail is not None
+    assert detail["request"]["command"] == "uv run pytest"
+    assert detail["request"]["password"] == "[redacted]"  # noqa: S105
+    assert detail["request"]["headers"]["Authorization"] == "[redacted]"
+    assert detail["error"]["details"] == {"exit_code": 1}
+    assert detail["duration_ms"] >= 0
+    assert database.get_activity_detail("missing_activity") is None
 
 
 def test_activity_feed_is_bounded(tmp_path: Path) -> None:

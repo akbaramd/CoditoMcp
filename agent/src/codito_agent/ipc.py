@@ -19,7 +19,9 @@ from .credentials import DataProtector, DpapiProtector
 from .diagnostics import event
 from .errors import AgentError
 
-MAX_IPC_MESSAGE = 1_048_576
+# A single authorized activity detail can contain a bounded 10 MiB shell result.
+# Keep the local authenticated transport bounded while allowing that record plus JSON overhead.
+MAX_IPC_MESSAGE = 16 * 1_048_576
 
 
 class IpcSecretStore:
@@ -96,7 +98,9 @@ class NamedPipeServer:
                 except Exception:
                     response = {"ok": False, "error": "invalid_ipc_request"}
                 connection.send_bytes(
-                    json.dumps(response, separators=(",", ":"), default=str).encode()
+                    json.dumps(
+                        response, separators=(",", ":"), ensure_ascii=False, default=str
+                    ).encode()
                 )
 
     def close(self) -> None:

@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -161,6 +162,27 @@ QLineEdit, QComboBox {
     selection-background-color: #84adff;
 }
 QLineEdit:focus, QComboBox:focus { border: 1px solid #84adff; }
+QPlainTextEdit {
+    background: #ffffff;
+    color: #101828;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    padding: 9px;
+    selection-background-color: #84adff;
+}
+QTabWidget::pane {
+    background: #ffffff;
+    border: 1px solid #e4e7ec;
+    border-radius: 8px;
+}
+QTabBar::tab {
+    background: #eaecf0;
+    color: #475467;
+    padding: 9px 14px;
+    margin-right: 2px;
+    font-weight: 650;
+}
+QTabBar::tab:selected { background: #ffffff; color: #101828; }
 QTableWidget {
     background: #ffffff;
     alternate-background-color: #f9fafb;
@@ -180,6 +202,20 @@ QHeaderView::section {
     font-weight: 700;
 }
 QTableWidget::item { padding: 8px; border-bottom: 1px solid #f2f4f7; }
+QFrame#ActivityDetailHeader {
+    background: #101828;
+    border: none;
+    border-radius: 12px;
+}
+QLabel#ActivityDetailTitle { color: #ffffff; font-size: 19px; font-weight: 750; }
+QLabel#ActivityDetailMeta { color: #d0d5dd; }
+QFrame#ActivityErrorCard {
+    background: #fef3f2;
+    border: 1px solid #fecdca;
+    border-radius: 10px;
+}
+QLabel#ActivityErrorTitle { color: #b42318; font-size: 14px; font-weight: 750; }
+QLabel#ActivityErrorText { color: #912018; }
 QScrollBar:vertical { background: transparent; width: 9px; margin: 2px; }
 QScrollBar::handle:vertical { background: #d0d5dd; border-radius: 4px; min-height: 28px; }
 QStatusBar { background: #ffffff; color: #667085; border-top: 1px solid #eaecf0; }
@@ -228,6 +264,27 @@ STATE_COLORS = {
     "outcome_unknown": "#b54708",
     "received": "#344054",
 }
+TOOL_TITLES = {
+    ("project_read", "list_projects"): "List projects",
+    ("project_read", "list_directory"): "List directory",
+    ("project_read", "read_file"): "Read file",
+    ("project_read", "search_text"): "Search text",
+    ("project_apply_patch", ""): "Edit files",
+    ("project_shell", "start"): "Execute shell",
+    ("project_shell", "poll"): "Read command output",
+    ("project_shell", "cancel"): "Cancel command",
+    ("project_manage", "get_projects"): "List projects",
+    ("project_manage", "request_add_project"): "Add project",
+    ("project_manage", "rename_project"): "Rename project",
+    ("project_manage", "remove_project"): "Remove project",
+    ("device_read", "list_directory"): "Read device folder",
+    ("device_read", "read_file"): "Read device file",
+    ("device_screenshot", "capture"): "Capture screen",
+    ("device_screenshot", "list_displays"): "List displays",
+    ("device_desktop", "open_browser"): "Open browser",
+    ("device_desktop", ""): "Control desktop",
+    ("project_code", ""): "Inspect code",
+}
 
 
 def _short_id(value: object) -> str:
@@ -250,6 +307,23 @@ def _relative_time(value: object) -> str:
     if seconds < 86_400:
         return f"{seconds // 3600} hr ago"
     return f"{seconds // 86_400} days ago"
+
+
+def _tool_title(capability: object, operation: object = None) -> str:
+    raw_capability = str(capability or "")
+    raw_operation = str(operation or "")
+    if raw_capability == "project_code" and raw_operation.startswith("code_"):
+        return raw_operation.removeprefix("code_").replace("_", " ").title()
+    return TOOL_TITLES.get(
+        (raw_capability, raw_operation),
+        TOOL_TITLES.get((raw_capability, ""), raw_capability.replace("_", " ").title() or "Tool"),
+    )
+
+
+def _json_text(value: object) -> str:
+    if value is None:
+        return "No data was recorded for this operation."
+    return json.dumps(value, indent=2, ensure_ascii=False, default=str)
 
 
 def _label(text: str, object_name: str | None = None) -> QLabel:
@@ -277,6 +351,145 @@ class MetricCard(QFrame):  # type: ignore[misc, unused-ignore]  # PySide wheel v
         self.detail = _label(detail, "SmallMuted")
         self.detail.setWordWrap(True)
         layout.addWidget(self.detail)
+
+
+class ActivityDetailDialog(QDialog):  # type: ignore[misc, unused-ignore]
+    """Local operation inspector with complete input, result and failure evidence."""
+
+    def __init__(self, activity: dict[str, Any], parent: QWidget) -> None:
+        super().__init__(parent)
+        self.activity = activity
+        raw_request = activity.get("request")
+        request: dict[str, Any] = raw_request if isinstance(raw_request, dict) else {}
+        operation = request.get("operation", request.get("action", activity.get("operation")))
+        capability = str(activity.get("capability") or "")
+        state = str(activity.get("state") or "")
+        self.setWindowTitle(f"Codito activity — {_tool_title(capability, operation)}")
+        self.setModal(True)
+        self.resize(940, 720)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(18, 18, 18, 18)
+        outer.setSpacing(12)
+
+        header = QFrame()
+        header.setObjectName("ActivityDetailHeader")
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(18, 15, 18, 15)
+        header_layout.addWidget(_label(_tool_title(capability, operation), "ActivityDetailTitle"))
+        exact = _label(
+            f"Exact tool: {capability or 'Unavailable'}"
+            f"{f'  ·  Action: {operation}' if operation else ''}",
+            "ActivityDetailMeta",
+        )
+        exact.setTextFormat(Qt.TextFormat.PlainText)
+        header_layout.addWidget(exact)
+        purpose = request.get("purpose")
+        purpose_label = _label(
+            f"Purpose: {purpose or 'Not provided by the caller'}", "ActivityDetailMeta"
+        )
+        purpose_label.setWordWrap(True)
+        purpose_label.setTextFormat(Qt.TextFormat.PlainText)
+        header_layout.addWidget(purpose_label)
+        outer.addWidget(header)
+
+        facts = QFrame()
+        facts.setObjectName("Card")
+        facts_layout = QGridLayout(facts)
+        facts_layout.setContentsMargins(16, 12, 16, 12)
+        fact_values = (
+            ("Status", STATE_LABELS.get(state, state or "Unknown")),
+            ("Project", str(activity.get("project_title") or "Device")),
+            ("Duration", self._duration(activity.get("duration_ms"))),
+            ("Relay result", "Acknowledged" if activity.get("terminal_acked") else "Pending"),
+            ("Received", str(activity.get("received_at") or "—")),
+            ("Updated", str(activity.get("updated_at") or "—")),
+        )
+        for index, (name, value) in enumerate(fact_values):
+            column = (index % 3) * 2
+            row = index // 3
+            facts_layout.addWidget(_label(name.upper(), "MetricLabel"), row, column)
+            fact = QLabel(value)
+            fact.setTextFormat(Qt.TextFormat.PlainText)
+            if name == "Status":
+                fact.setStyleSheet(f"color:{STATE_COLORS.get(state, '#344054')};font-weight:700;")
+            facts_layout.addWidget(fact, row, column + 1)
+            facts_layout.setColumnStretch(column + 1, 1)
+        outer.addWidget(facts)
+
+        error = activity.get("error")
+        if isinstance(error, dict):
+            error_card = QFrame()
+            error_card.setObjectName("ActivityErrorCard")
+            error_layout = QVBoxLayout(error_card)
+            error_layout.setContentsMargins(15, 12, 15, 12)
+            code = str(error.get("code") or "unknown_error")
+            retained_marker = (
+                state == "succeeded"
+                and capability == "device_screenshot"
+                and code == "outcome_unknown"
+            )
+            error_layout.addWidget(
+                _label(
+                    f"{'Image not retained' if retained_marker else 'Failed'} · {code}",
+                    "ActivityErrorTitle",
+                )
+            )
+            error_text = _label(
+                str(error.get("message") or "No error message was recorded."),
+                "ActivityErrorText",
+            )
+            error_text.setTextFormat(Qt.TextFormat.PlainText)
+            error_text.setWordWrap(True)
+            error_layout.addWidget(error_text)
+            retryable = "Yes" if error.get("retryable") else "No"
+            error_layout.addWidget(
+                _label(f"Safe automatic retry: {retryable}", "ActivityErrorText")
+            )
+            outer.addWidget(error_card)
+
+        tabs = QTabWidget()
+        tabs.addTab(self._viewer(activity.get("request")), "Input")
+        tabs.addTab(self._viewer(activity.get("result")), "Output")
+        if isinstance(error, dict):
+            tabs.addTab(self._viewer(error), "Error details")
+        metadata = {
+            key: value
+            for key, value in activity.items()
+            if key not in {"request", "result", "error", "project_title", "state"}
+        }
+        tabs.addTab(self._viewer(metadata), "Identifiers & timing")
+        outer.addWidget(tabs, 1)
+
+        actions = QHBoxLayout()
+        copy_button = QPushButton("Copy complete record")
+        copy_button.clicked.connect(self._copy)
+        actions.addWidget(copy_button)
+        actions.addStretch()
+        close_button = QPushButton("Close")
+        close_button.setProperty("primary", True)
+        close_button.clicked.connect(self.accept)
+        actions.addWidget(close_button)
+        outer.addLayout(actions)
+
+    @staticmethod
+    def _duration(value: object) -> str:
+        if not isinstance(value, int):
+            return "—"
+        if value < 1000:
+            return f"{value} ms"
+        return f"{value / 1000:.2f} s"
+
+    @staticmethod
+    def _viewer(value: object) -> QPlainTextEdit:
+        viewer = QPlainTextEdit()
+        viewer.setReadOnly(True)
+        viewer.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        viewer.setPlainText(_json_text(value))
+        return viewer
+
+    def _copy(self) -> None:
+        QApplication.clipboard().setText(_json_text(self.activity))
 
 
 class PermissionReviewDialog(QDialog):  # type: ignore[misc, unused-ignore]
@@ -926,28 +1139,44 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
+        toolbar = QHBoxLayout()
         description = _label(
-            "Recent operations are read from the durable local journal. "
-            "File contents and tokens are not shown.",
+            "Select an operation to inspect its exact tool, purpose, input, output and error. "
+            "Records stay on this device; Codito transport credentials are never journaled.",
             "Muted",
         )
         description.setWordWrap(True)
-        layout.addWidget(description)
-        self.activity_table = QTableWidget(0, 5)
+        toolbar.addWidget(description, 1)
+        refresh_button = QPushButton("Refresh")
+        refresh_button.clicked.connect(self.refresh_activity)
+        toolbar.addWidget(refresh_button)
+        self.activity_detail_button = QPushButton("View details")
+        self.activity_detail_button.setProperty("primary", True)
+        self.activity_detail_button.setEnabled(False)
+        self.activity_detail_button.clicked.connect(self.show_activity_detail)
+        toolbar.addWidget(self.activity_detail_button)
+        layout.addLayout(toolbar)
+        self.activity_table = QTableWidget(0, 6)
         self.activity_table.setHorizontalHeaderLabels(
-            ["WHEN", "TOOL", "PROJECT", "STATE", "RELAY ACK"]
+            ["WHEN", "TOOL", "PURPOSE / TARGET", "PROJECT", "STATE", "RELAY ACK"]
         )
         self.activity_table.setAlternatingRowColors(True)
         self.activity_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.activity_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.activity_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.activity_table.verticalHeader().setVisible(False)
-        self.activity_table.verticalHeader().setDefaultSectionSize(45)
+        self.activity_table.verticalHeader().setDefaultSectionSize(48)
         header = self.activity_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self.activity_table.itemSelectionChanged.connect(self._activity_selection_changed)
+        self.activity_table.cellDoubleClicked.connect(
+            lambda _row, _column: self.show_activity_detail()
+        )
         layout.addWidget(self.activity_table, 1)
         return page
 
@@ -1391,18 +1620,53 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
                 and error == "outcome_unknown"
             ):
                 error = "image not retained"
+            purpose = str(item.get("purpose") or "").strip()
+            target = str(item.get("target") or "").strip()
+            summary = " · ".join(value for value in (purpose, target) if value) or "—"
             cells = [
                 _relative_time(item.get("updated_at")),
-                str(item.get("capability") or "—"),
+                _tool_title(item.get("capability"), item.get("operation")),
+                summary,
                 str(item.get("project_title") or "Device"),
                 f"{STATE_LABELS.get(state, state)}{f' · {error}' if error else ''}",
                 "Acknowledged" if item.get("terminal_acked") else "Pending",
             ]
             for column, value in enumerate(cells):
                 cell = QTableWidgetItem(value)
-                if column == 3:
+                cell.setToolTip(value)
+                if column == 0:
+                    cell.setData(Qt.ItemDataRole.UserRole, item.get("operation_id"))
+                if column == 1:
+                    exact = str(item.get("capability") or "Unavailable")
+                    operation = str(item.get("operation") or "")
+                    cell.setToolTip(
+                        f"Exact tool: {exact}{f' · Action: {operation}' if operation else ''}"
+                    )
+                if column == 4:
                     cell.setForeground(QColor(STATE_COLORS.get(state, "#344054")))
+                    if item.get("error_message"):
+                        cell.setToolTip(str(item.get("error_message")))
                 self.activity_table.setItem(row, column, cell)
+        self._activity_selection_changed()
+
+    def _activity_selection_changed(self) -> None:
+        row = self.activity_table.currentRow()
+        item = self.activity_table.item(row, 0) if row >= 0 else None
+        operation_id = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+        self.activity_detail_button.setEnabled(isinstance(operation_id, str) and bool(operation_id))
+
+    def show_activity_detail(self) -> None:
+        row = self.activity_table.currentRow()
+        item = self.activity_table.item(row, 0) if row >= 0 else None
+        operation_id = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+        if not isinstance(operation_id, str) or not operation_id:
+            return
+        response = self._request({"action": "activity.detail", "operation_id": operation_id})
+        detail = response.get("activity") if response and response.get("ok") else None
+        if not isinstance(detail, dict):
+            self._show_error(response, "The activity details could not be loaded.")
+            return
+        ActivityDetailDialog(detail, self).exec()
 
     def add_project(self) -> None:
         directory = QFileDialog.getExistingDirectory(

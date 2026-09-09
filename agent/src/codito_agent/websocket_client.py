@@ -370,6 +370,7 @@ class DeviceWebSocketClient:
             action_digest=envelope.action_digest,
             idempotency_key=tool_input.get("idempotency_key"),
             request_digest=request_digest,
+            request=tool_input,
             connection_epoch=self._epoch,
             deadline_at=envelope.deadline_at.isoformat(),
         )

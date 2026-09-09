@@ -351,6 +351,11 @@ class CoditoDaemon:
         if action == "activity.list":
             limit = int(request.get("limit", 50))
             return {"ok": True, "activity": self.database.list_recent_operations(limit)}
+        if action == "activity.detail":
+            detail = self.database.get_activity_detail(str(request.get("operation_id", "")))
+            if detail is None:
+                raise AgentError("operation_not_found", "Activity record was not found")
+            return {"ok": True, "activity": detail}
         if action == "project.request.next":
             return {
                 "ok": True,

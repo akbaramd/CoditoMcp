@@ -11,10 +11,16 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QSystemTrayIcon
+from PySide6.QtWidgets import (
+    QApplication,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QSystemTrayIcon,
+)
 
 from codito_agent.config import AgentConfig
-from codito_agent.desktop_ui import CoditoMainWindow, PermissionReviewDialog
+from codito_agent.desktop_ui import ActivityDetailDialog, CoditoMainWindow, PermissionReviewDialog
 
 
 @pytest.fixture
@@ -664,9 +670,77 @@ def test_activity_explains_only_successful_screenshot_replay_marker(background_w
         ],
     }
     window.refresh_activity()
-    assert window.activity_table.item(0, 3).text() == "Succeeded · image not retained"
-    assert window.activity_table.item(1, 3).text() == "Failed · outcome_unknown"
-    assert window.activity_table.item(2, 3).text() == "Succeeded · outcome_unknown"
+    assert window.activity_table.item(0, 4).text() == "Succeeded · image not retained"
+    assert window.activity_table.item(1, 4).text() == "Failed · outcome_unknown"
+    assert window.activity_table.item(2, 4).text() == "Succeeded · outcome_unknown"
+
+
+def test_activity_table_and_dialog_show_exact_tool_input_output_and_error(background_window):
+    window, _, responses = background_window
+    summary = {
+        "operation_id": "activity_abcdefghijkl",
+        "capability": "project_shell",
+        "operation": "start",
+        "purpose": "Run focused tests",
+        "target": "tests",
+        "project_title": "CoditoMcp",
+        "state": "failed",
+        "error_code": "shell_failed",
+        "error_message": "Command exited with status 1",
+        "terminal_acked": True,
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    detail = {
+        **summary,
+        "capability": "project_shell",
+        "state": "failed",
+        "request": {
+            "action": "start",
+            "purpose": "Run focused tests",
+            "command": "uv run pytest tests -q",
+            "working_directory": "tests",
+        },
+        "result": {
+            "ok": False,
+            "error": {
+                "code": "shell_failed",
+                "message": "Command exited with status 1",
+                "details": {"exit_code": 1},
+                "retryable": False,
+            },
+        },
+        "error": {
+            "code": "shell_failed",
+            "message": "Command exited with status 1",
+            "details": {"exit_code": 1},
+            "retryable": False,
+        },
+        "duration_ms": 1234,
+        "received_at": datetime.now(UTC).isoformat(),
+    }
+    responses["activity.list"] = {"ok": True, "activity": [summary]}
+
+    window.refresh_activity()
+
+    assert window.activity_table.columnCount() == 6
+    assert window.activity_table.item(0, 1).text() == "Execute shell"
+    assert window.activity_table.item(0, 1).toolTip() == (
+        "Exact tool: project_shell · Action: start"
+    )
+    assert window.activity_table.item(0, 2).text() == "Run focused tests · tests"
+    assert window.activity_table.item(0, 4).toolTip() == "Command exited with status 1"
+    window.activity_table.selectRow(0)
+    assert window.activity_detail_button.isEnabled()
+
+    dialog = ActivityDetailDialog(detail, window)
+    try:
+        assert dialog.windowTitle() == "Codito activity — Execute shell"
+        viewers = dialog.findChildren(QPlainTextEdit)
+        assert any("uv run pytest tests -q" in viewer.toPlainText() for viewer in viewers)
+        assert any("shell_failed" in viewer.toPlainText() for viewer in viewers)
+        assert any("exit_code" in viewer.toPlainText() for viewer in viewers)
+    finally:
+        dialog.close()
 
 
 @pytest.mark.parametrize(

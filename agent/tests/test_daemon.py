@@ -63,3 +63,24 @@ def test_daemon_construction_wires_dynamic_link_without_stale_constructor_argume
         "ok": True,
         "activity": [],
     }
+    daemon.database.record_received(
+        operation_id="activity_abcdefghijkl",
+        correlation_id="correlation_abcdefgh",
+        account_id=state.account_id,
+        grant_id="grant_abcdefghijklmn",
+        link_id=state.link_id,
+        device_id=state.device_id,
+        project_id=None,
+        capability="project_shell",
+        action_digest="a" * 64,
+        idempotency_key="shell_activity_key",
+        request_digest="b" * 64,
+        request={"action": "start", "purpose": "Inspect activity", "command": "whoami"},
+        connection_epoch=1,
+        deadline_at="2030-01-01T00:00:00+00:00",
+    )
+    detail = daemon._handle_ipc(
+        {"action": "activity.detail", "operation_id": "activity_abcdefghijkl"}
+    )
+    assert detail["ok"] is True
+    assert detail["activity"]["request"]["command"] == "whoami"

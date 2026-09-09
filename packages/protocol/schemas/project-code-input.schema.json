@@ -1,0 +1,920 @@
+{
+  "$defs": {
+    "CodeArchitectureInput": {
+      "additionalProperties": false,
+      "properties": {
+        "max_packages": {
+          "default": 100,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Max Packages",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "code_architecture",
+          "default": "code_architecture",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose"
+      ],
+      "title": "CodeArchitectureInput",
+      "type": "object"
+    },
+    "CodeCallHierarchyInput": {
+      "additionalProperties": false,
+      "properties": {
+        "character": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Character",
+          "type": "integer"
+        },
+        "direction": {
+          "$ref": "#/$defs/HierarchyDirection",
+          "default": "both"
+        },
+        "line": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "max_depth": {
+          "default": 3,
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Max Depth",
+          "type": "integer"
+        },
+        "max_nodes": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Max Nodes",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "code_call_hierarchy",
+          "default": "code_call_hierarchy",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose",
+        "path",
+        "line",
+        "character"
+      ],
+      "title": "CodeCallHierarchyInput",
+      "type": "object"
+    },
+    "CodeContextInput": {
+      "additionalProperties": false,
+      "properties": {
+        "character": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Character",
+          "type": "integer"
+        },
+        "include_diagnostics": {
+          "default": true,
+          "title": "Include Diagnostics",
+          "type": "boolean"
+        },
+        "include_references": {
+          "default": true,
+          "title": "Include References",
+          "type": "boolean"
+        },
+        "line": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "code_context",
+          "default": "code_context",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        },
+        "source_context_lines": {
+          "default": 5,
+          "maximum": 50,
+          "minimum": 0,
+          "title": "Source Context Lines",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose",
+        "path",
+        "line",
+        "character"
+      ],
+      "title": "CodeContextInput",
+      "type": "object"
+    },
+    "CodeDefinitionInput": {
+      "additionalProperties": false,
+      "properties": {
+        "character": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Character",
+          "type": "integer"
+        },
+        "line": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "code_definition",
+          "default": "code_definition",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose",
+        "path",
+        "line",
+        "character"
+      ],
+      "title": "CodeDefinitionInput",
+      "type": "object"
+    },
+    "CodeDependenciesInput": {
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "default": "direct",
+          "enum": [
+            "all",
+            "direct",
+            "transitive"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "max_results": {
+          "default": 100,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Max Results",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "code_dependencies",
+          "default": "code_dependencies",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose"
+      ],
+      "title": "CodeDependenciesInput",
+      "type": "object"
+    },
+    "CodeDiagnosticsInput": {
+      "additionalProperties": false,
+      "properties": {
+        "max_results": {
+          "default": 200,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Max Results",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "code_diagnostics",
+          "default": "code_diagnostics",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        },
+        "severity_min": {
+          "$ref": "#/$defs/DiagnosticSeverity",
+          "default": "hint"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose",
+        "path"
+      ],
+      "title": "CodeDiagnosticsInput",
+      "type": "object"
+    },
+    "CodeHoverInput": {
+      "additionalProperties": false,
+      "properties": {
+        "character": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Character",
+          "type": "integer"
+        },
+        "line": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "code_hover",
+          "default": "code_hover",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose",
+        "path",
+        "line",
+        "character"
+      ],
+      "title": "CodeHoverInput",
+      "type": "object"
+    },
+    "CodeImpactInput": {
+      "additionalProperties": false,
+      "properties": {
+        "character": {
+          "anyOf": [
+            {
+              "maximum": 100000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Character"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "maximum": 10000000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line"
+        },
+        "max_nodes": {
+          "default": 50,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Max Nodes",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "code_impact",
+          "default": "code_impact",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose",
+        "path"
+      ],
+      "title": "CodeImpactInput",
+      "type": "object"
+    },
+    "CodeImplementationsInput": {
+      "additionalProperties": false,
+      "properties": {
+        "character": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Character",
+          "type": "integer"
+        },
+        "line": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "max_results": {
+          "default": 100,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Max Results",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "code_implementations",
+          "default": "code_implementations",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose",
+        "path",
+        "line",
+        "character"
+      ],
+      "title": "CodeImplementationsInput",
+      "type": "object"
+    },
+    "CodeIntelligenceStatusInput": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "code_intelligence_status",
+          "default": "code_intelligence_status",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "default": "Query code intelligence status",
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id"
+      ],
+      "title": "CodeIntelligenceStatusInput",
+      "type": "object"
+    },
+    "CodeReferencesInput": {
+      "additionalProperties": false,
+      "properties": {
+        "character": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Character",
+          "type": "integer"
+        },
+        "include_declaration": {
+          "default": true,
+          "title": "Include Declaration",
+          "type": "boolean"
+        },
+        "line": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "max_results": {
+          "default": 100,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Max Results",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "code_references",
+          "default": "code_references",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose",
+        "path",
+        "line",
+        "character"
+      ],
+      "title": "CodeReferencesInput",
+      "type": "object"
+    },
+    "CodeReindexInput": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "code_reindex",
+          "default": "code_reindex",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/ReindexScope",
+          "default": "incremental"
+        },
+        "timeout_seconds": {
+          "default": 30,
+          "maximum": 30,
+          "minimum": 5,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose"
+      ],
+      "title": "CodeReindexInput",
+      "type": "object"
+    },
+    "CodeRelatedTestsInput": {
+      "additionalProperties": false,
+      "properties": {
+        "max_results": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Max Results",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "code_related_tests",
+          "default": "code_related_tests",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose",
+        "path"
+      ],
+      "title": "CodeRelatedTestsInput",
+      "type": "object"
+    },
+    "CodeSymbolSearchInput": {
+      "additionalProperties": false,
+      "properties": {
+        "kinds": {
+          "items": {
+            "$ref": "#/$defs/SymbolKind"
+          },
+          "maxItems": 27,
+          "title": "Kinds",
+          "type": "array"
+        },
+        "max_results": {
+          "default": 50,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Max Results",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "code_symbol_search",
+          "default": "code_symbol_search",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        },
+        "query": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        },
+        "scope": {
+          "default": "workspace",
+          "enum": [
+            "workspace",
+            "document"
+          ],
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose",
+        "query"
+      ],
+      "title": "CodeSymbolSearchInput",
+      "type": "object"
+    },
+    "CodeTypeHierarchyInput": {
+      "additionalProperties": false,
+      "properties": {
+        "character": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Character",
+          "type": "integer"
+        },
+        "direction": {
+          "$ref": "#/$defs/TypeHierarchyDirection",
+          "default": "both"
+        },
+        "line": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "max_depth": {
+          "default": 3,
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Max Depth",
+          "type": "integer"
+        },
+        "max_nodes": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Max Nodes",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "code_type_hierarchy",
+          "default": "code_type_hierarchy",
+          "title": "Operation",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose",
+        "path",
+        "line",
+        "character"
+      ],
+      "title": "CodeTypeHierarchyInput",
+      "type": "object"
+    },
+    "CodeWorkspaceSummaryInput": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "code_workspace_summary",
+          "default": "code_workspace_summary",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "default": "Summarise workspace",
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id"
+      ],
+      "title": "CodeWorkspaceSummaryInput",
+      "type": "object"
+    },
+    "DiagnosticSeverity": {
+      "enum": [
+        "error",
+        "warning",
+        "information",
+        "hint"
+      ],
+      "title": "DiagnosticSeverity",
+      "type": "string"
+    },
+    "HierarchyDirection": {
+      "enum": [
+        "incoming",
+        "outgoing",
+        "both"
+      ],
+      "title": "HierarchyDirection",
+      "type": "string"
+    },
+    "ReindexScope": {
+      "enum": [
+        "incremental",
+        "full"
+      ],
+      "title": "ReindexScope",
+      "type": "string"
+    },
+    "SymbolKind": {
+      "enum": [
+        "file",
+        "module",
+        "namespace",
+        "package",
+        "class",
+        "method",
+        "property",
+        "field",
+        "constructor",
+        "enum",
+        "interface",
+        "function",
+        "variable",
+        "constant",
+        "string",
+        "number",
+        "boolean",
+        "array",
+        "object",
+        "key",
+        "null",
+        "enum_member",
+        "struct",
+        "event",
+        "operator",
+        "type_parameter",
+        "unknown"
+      ],
+      "title": "SymbolKind",
+      "type": "string"
+    },
+    "TypeHierarchyDirection": {
+      "enum": [
+        "supertypes",
+        "subtypes",
+        "both"
+      ],
+      "title": "TypeHierarchyDirection",
+      "type": "string"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/project-code-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/CodeIntelligenceStatusInput"
+    },
+    {
+      "$ref": "#/$defs/CodeWorkspaceSummaryInput"
+    },
+    {
+      "$ref": "#/$defs/CodeSymbolSearchInput"
+    },
+    {
+      "$ref": "#/$defs/CodeDefinitionInput"
+    },
+    {
+      "$ref": "#/$defs/CodeReferencesInput"
+    },
+    {
+      "$ref": "#/$defs/CodeImplementationsInput"
+    },
+    {
+      "$ref": "#/$defs/CodeDiagnosticsInput"
+    },
+    {
+      "$ref": "#/$defs/CodeHoverInput"
+    },
+    {
+      "$ref": "#/$defs/CodeContextInput"
+    },
+    {
+      "$ref": "#/$defs/CodeCallHierarchyInput"
+    },
+    {
+      "$ref": "#/$defs/CodeTypeHierarchyInput"
+    },
+    {
+      "$ref": "#/$defs/CodeImpactInput"
+    },
+    {
+      "$ref": "#/$defs/CodeArchitectureInput"
+    },
+    {
+      "$ref": "#/$defs/CodeDependenciesInput"
+    },
+    {
+      "$ref": "#/$defs/CodeRelatedTestsInput"
+    },
+    {
+      "$ref": "#/$defs/CodeReindexInput"
+    }
+  ]
+}

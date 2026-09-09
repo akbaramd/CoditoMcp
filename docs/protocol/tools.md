@@ -1,6 +1,6 @@
 # MCP tool contracts
 
-Updated 2026-09-09. The public catalog contains 15 focused tools. Existing
+Updated 2026-09-09. The public catalog contains 31 focused tools. Existing
 authenticated legacy names remain callable for cached clients but are not listed.
 See [ADR 0018](../adr/0018-focused-tools-and-local-access.md).
 
@@ -21,6 +21,22 @@ See [ADR 0018](../adr/0018-focused-tools-and-local-access.md).
 | `screen_list` | List display metadata without capturing pixels |
 | `screenshot_capture` | Capture the selected display and return MCP image content |
 | `browser_open` | Open an HTTP/HTTPS URL in default browser or Firefox |
+| `code_intelligence_status` | Report provider capabilities, setup and current analysis state |
+| `code_workspace_summary` | Summarize languages, frameworks, manifests and build roots |
+| `code_symbol_search` | Search bounded document/workspace symbols |
+| `code_definition` | Resolve a definition at a source position |
+| `code_references` | Find semantic references or explicitly structural fallback candidates |
+| `code_implementations` | Find implementations when semantic/structural evidence supports them |
+| `code_diagnostics` | Return version-aware diagnostics and readiness state |
+| `code_hover` | Return signature/type/documentation hover content |
+| `code_context` | Aggregate bounded source/navigation/diagnostic context from one snapshot |
+| `code_call_hierarchy` | Traverse incoming/outgoing call relationships |
+| `code_type_hierarchy` | Traverse super/subtype relationships |
+| `code_impact` | Return bounded structural dependents/impact evidence |
+| `code_architecture` | Return manifest/graph structural architecture |
+| `code_dependencies` | Return manifest/graph dependency information |
+| `code_related_tests` | Return structural/heuristic related-test candidates |
+| `code_reindex` | Force incremental or full provider synchronization |
 
 ## Identity, authorization and metadata
 
@@ -124,6 +140,30 @@ access; transitive behavior of arbitrary build tools cannot be exhaustively
 classified. Full device access is an explicit local opt-in to native user
 authority. No remote field can assert approved/trusted or change local policy.
 Commands are never automatically replayed after an uncertain start.
+
+## Code Intelligence
+
+All `code_*` tools use project-relative source coordinates and the currently registered
+project identity. The public schema is language-neutral. Provider details stay local to
+the Windows agent.
+
+`code_intelligence_status` and `code_workspace_summary` are non-executing reads. The
+remaining analysis tools may start a trusted local language/graph process and therefore
+also require `shell:execute` plus the project's native-execution approval policy.
+
+Responses carry provider (`lsp`, `graph`, `manifest`, or unavailable), precision,
+snapshot ID, captured/verified time, freshness, completeness and warnings. An LSP result
+is exact only for the operation actually returned by that server. Structural graph
+fallback is always identified as structural.
+
+Freshness does not depend on Git or a manual refresh: Codito content-hashes the bounded
+eligible workspace, synchronizes provider state on add/edit/delete/rename, and verifies
+the snapshot again after the query. Repeated concurrent changes return a retryable race
+rather than stale success. `code_reindex` remains available for explicit incremental or
+full refresh.
+
+See [ADR 0019](../adr/0019-code-intelligence.md) and the
+[operations guide](../operations/code-intelligence.md).
 
 ## Screens and browser
 

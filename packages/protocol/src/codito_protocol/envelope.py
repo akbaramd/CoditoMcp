@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import Field, TypeAdapter, field_validator, model_validator
 
+from .code import ProjectCodeInput
 from .desktop_action import DeviceDesktopInput
 from .device_read import DeviceReadInput
 from .digest import compute_action_digest
@@ -49,6 +50,7 @@ class OperationPayload(CoditoModel):
         "project_apply_patch",
         "project_shell",
         "project_manage",
+        "project_code",
         "device_read",
         "device_screenshot",
         "device_desktop",
@@ -65,6 +67,7 @@ class OperationPayload(CoditoModel):
             "project_apply_patch": TypeAdapter(ProjectApplyPatchInput),
             "project_shell": TypeAdapter(ProjectShellInput),
             "project_manage": TypeAdapter(ProjectManageInput),
+            "project_code": TypeAdapter(ProjectCodeInput),
         }
         adapters[self.tool_name].validate_python(self.input)
         return self

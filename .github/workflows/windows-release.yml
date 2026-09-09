@@ -28,15 +28,21 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - run: uv python install 3.12
-      - name: Select the next patch version
+      - name: Select the release version
         id: version
         shell: pwsh
         run: |
           git fetch --force --tags origin
+          $declaredMatch = Select-String -Path pyproject.toml `
+            -Pattern '^version = "(?<version>\d+\.\d+\.\d+)"$' | Select-Object -First 1
+          if (-not $declaredMatch) {
+            throw 'Repository version is not a valid X.Y.Z SemVer.'
+          }
+          $declaredVersion = [version]$declaredMatch.Matches[0].Groups['version'].Value
           $latestTag = git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname |
             Select-Object -First 1
           if (-not $latestTag) {
-            $version = '0.1.0'
+            $version = $declaredVersion.ToString(3)
           }
           else {
             $parts = $latestTag.TrimStart('v').Split('.')
@@ -44,7 +50,13 @@ jobs:
             if ($parts.Count -ne 3 -or $invalidParts.Count -gt 0) {
               throw "Latest release tag is not SemVer: $latestTag"
             }
-            $version = '{0}.{1}.{2}' -f $parts[0], $parts[1], ([int]$parts[2] + 1)
+            $latestVersion = [version]$latestTag.TrimStart('v')
+            if ($declaredVersion -gt $latestVersion) {
+              $version = $declaredVersion.ToString(3)
+            }
+            else {
+              $version = '{0}.{1}.{2}' -f $parts[0], $parts[1], ([int]$parts[2] + 1)
+            }
           }
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=v$version" >> $env:GITHUB_OUTPUT

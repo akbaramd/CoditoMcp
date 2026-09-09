@@ -1,0 +1,311 @@
+{
+  "$defs": {
+    "CodeArchitectureResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "manifests": {
+          "items": {
+            "$ref": "#/$defs/ManifestInfo"
+          },
+          "maxItems": 128,
+          "title": "Manifests",
+          "type": "array"
+        },
+        "operation": {
+          "const": "code_architecture",
+          "default": "code_architecture",
+          "title": "Operation",
+          "type": "string"
+        },
+        "packages": {
+          "items": {
+            "$ref": "#/$defs/PackageInfo"
+          },
+          "maxItems": 500,
+          "title": "Packages",
+          "type": "array"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeArchitectureResult",
+      "type": "object"
+    },
+    "ErrorCode": {
+      "enum": [
+        "invalid_request",
+        "unauthenticated",
+        "unauthorized",
+        "resource_mismatch",
+        "scope_missing",
+        "rate_limited",
+        "project_not_found",
+        "device_offline",
+        "device_revoked",
+        "link_revoked",
+        "queue_full",
+        "deadline_exceeded",
+        "path_invalid",
+        "path_outside_project",
+        "path_changed",
+        "reparse_point_forbidden",
+        "hardlink_mutation_forbidden",
+        "file_not_found",
+        "file_too_large",
+        "encoding_unsupported",
+        "hash_mismatch",
+        "patch_invalid",
+        "patch_conflict",
+        "idempotency_conflict",
+        "approval_required",
+        "approval_denied",
+        "approval_expired",
+        "sandbox_unavailable",
+        "shell_not_found",
+        "shell_not_running",
+        "output_limit_exceeded",
+        "outcome_unknown",
+        "screenshot_unavailable",
+        "desktop_unavailable",
+        "cancelled",
+        "internal_error"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "ManifestInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "kind"
+      ],
+      "title": "ManifestInfo",
+      "type": "object"
+    },
+    "PackageInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 500,
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "file_count": {
+          "minimum": 0,
+          "title": "File Count",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "file_count"
+      ],
+      "title": "PackageInfo",
+      "type": "object"
+    },
+    "Precision": {
+      "enum": [
+        "exact",
+        "structural",
+        "heuristic",
+        "unavailable"
+      ],
+      "title": "Precision",
+      "type": "string"
+    },
+    "ProviderKind": {
+      "enum": [
+        "lsp",
+        "graph",
+        "manifest",
+        "none"
+      ],
+      "title": "ProviderKind",
+      "type": "string"
+    },
+    "ToolError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "correlation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Correlation Id"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "message": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "retryable": {
+          "default": false,
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ToolError",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-code-architecture-output.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ToolError"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "operation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Operation Id"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CodeArchitectureResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "text": {
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ok",
+    "text"
+  ],
+  "title": "FacadeToolResult[CodeArchitectureResult]",
+  "type": "object"
+}

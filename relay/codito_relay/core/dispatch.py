@@ -14,11 +14,13 @@ from codito_protocol import (
     DeviceReadInput,
     DeviceReadResult,
     ProjectApplyPatchResult,
+    ProjectCodeResult,
     ProjectManageResult,
     ProjectReadResult,
     ProjectShellResult,
     compute_action_digest,
     validate_project_apply_patch,
+    validate_project_code,
     validate_project_manage,
     validate_project_read,
     validate_project_shell,
@@ -239,6 +241,8 @@ def _validate_device_result(tool_name: str, payload: dict[str, Any]) -> dict[str
             validated_result = TypeAdapter(ProjectShellResult).validate_python(payload["result"])
         elif tool_name == "project_manage":
             validated_result = TypeAdapter(ProjectManageResult).validate_python(payload["result"])
+        elif tool_name == "project_code":
+            validated_result = TypeAdapter(ProjectCodeResult).validate_python(payload["result"])
         else:
             raise KeyError(tool_name)
     except (ImportError, KeyError, ValidationError) as exc:
@@ -273,6 +277,11 @@ def _required_scopes(tool_name: str, operation: str) -> frozenset[str]:
             if operation == "get_projects"
             else frozenset({"projects:read", "projects:write"})
         )
+    if tool_name == "project_code":
+        scopes = {"projects:read", "files:read"}
+        if operation not in {"code_intelligence_status", "code_workspace_summary"}:
+            scopes.add("shell:execute")
+        return frozenset(scopes)
     raise ToolDispatchError("unknown_tool", f"Unknown tool {tool_name}")
 
 
@@ -310,12 +319,16 @@ def _validate_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, 
             )
         if tool_name == "project_manage":
             return validate_project_manage(arguments).model_dump(mode="json", exclude_none=True)
+        if tool_name == "project_code":
+            return validate_project_code(arguments).model_dump(mode="json", exclude_none=True)
     except (ValueError, TypeError) as exc:
         raise ToolDispatchError("invalid_request", str(exc)) from exc
     if tool_name == "project_read" and "operation" not in arguments:
         raise ToolDispatchError("invalid_request", "operation is required")
     if tool_name == "project_shell" and "action" not in arguments:
         raise ToolDispatchError("invalid_request", "action is required")
+    if tool_name == "project_code" and "operation" not in arguments:
+        raise ToolDispatchError("invalid_request", "operation is required")
     return arguments
 
 

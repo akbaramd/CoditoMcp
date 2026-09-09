@@ -17,6 +17,8 @@ from codito_protocol import (
     ProjectReadResult,
     ProjectShellResult,
     validate_project_apply_patch,
+    validate_project_code,
+    validate_project_code_result,
     validate_project_manage,
     validate_project_read,
     validate_project_shell,
@@ -27,6 +29,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from .access_policy import authorize_project_operation
 from .approvals import ApprovalManager, ApprovalRisk, action_digest
+from .code_intelligence import CodeIntelligenceManager
 from .db import AgentDatabase
 from .desktop_actions import DesktopActionQueue, DeviceDesktopService
 from .device_read import DeviceReadService
@@ -83,6 +86,7 @@ class AgentProtocolAdapter:
         account_id: str,
         approvals: ApprovalManager,
         read_concurrency: int = 4,
+        code_intelligence: CodeIntelligenceManager | None = None,
     ) -> None:
         self.database = database
         self.reads = reads
@@ -92,6 +96,7 @@ class AgentProtocolAdapter:
         self.device_id = device_id
         self.account_id = account_id
         self.approvals = approvals
+        self.code_intelligence = code_intelligence
         self.online = True
         self._read_semaphore = asyncio.Semaphore(read_concurrency)
         self._read_result: TypeAdapter[Any] = TypeAdapter(ProjectReadResult)
@@ -224,6 +229,15 @@ class AgentProtocolAdapter:
                     deadline_at=deadline_at,
                 )
                 validated = self._manage_result.validate_python(response.structured)
+            elif tool_name == "project_code":
+                response = await self._code_operation(
+                    payload,
+                    grant_id=grant_id,
+                    link_id=link_id,
+                    connection_epoch=connection_epoch,
+                    deadline_at=deadline_at,
+                )
+                validated = validate_project_code_result(response.structured)
             else:
                 raise AgentError("invalid_request", "Unknown Codito tool")
         except ValidationError as exc:
@@ -233,6 +247,86 @@ class AgentProtocolAdapter:
                 {"errors": [error["type"] for error in exc.errors()[:8]]},
             ) from exc
         return ToolResponse(validated.model_dump(mode="json", exclude_none=True), response.text)
+
+    async def _code_operation(
+        self,
+        payload: dict[str, Any],
+        *,
+        grant_id: str,
+        link_id: str,
+        connection_epoch: int,
+        deadline_at: datetime,
+    ) -> ToolResponse:
+        from .paths import ProjectPathResolver
+
+        if self.code_intelligence is None:
+            raise AgentError("invalid_request", "Code intelligence is unavailable")
+        request = validate_project_code(payload)
+        project = self.database.get_project(request.project_id)
+        generation = self.approvals.generation
+        native = request.operation not in {"code_intelligence_status", "code_workspace_summary"}
+        resolver = ProjectPathResolver()
+
+        def ensure_authorized() -> None:
+            self.approvals.ensure_current(generation, deadline_at)
+            current = self.database.get_project(project.project_id)
+            if (
+                not current.enabled
+                or current.mode != project.mode
+                or current.root != project.root
+                or current.root_fingerprint != project.root_fingerprint
+            ):
+                raise AgentError("approval_expired", "Local project analysis access changed")
+            resolver.verify_project(project)
+
+        ensure_authorized()
+        approval = self.approvals.build_request(
+            account_id=self.account_id,
+            grant_id=grant_id,
+            link_id=link_id,
+            device_id=self.device_id,
+            project_id=project.project_id,
+            project_title=project.title,
+            capability="shell:execute" if native else "files:read",
+            action_digest=action_digest(request),
+            connection_epoch=connection_epoch,
+            deadline_at=deadline_at,
+            risk=ApprovalRisk.NATIVE_EXECUTION if native else ApprovalRisk.READ,
+            summary=(
+                f"{request.operation}: {request.purpose}\nProject: {project.title}"
+                + (
+                    "\nMay start trusted native analysis tools and write private analysis cache."
+                    if native
+                    else ""
+                )
+            ),
+        )
+        await authorize_project_operation(
+            project, self.approvals, approval, inside_project=True, uncertain=native
+        )
+        ensure_authorized()
+        async with self._read_semaphore:
+            ensure_authorized()
+            task = asyncio.create_task(
+                self.code_intelligence.execute(
+                    request, project.root, root_identity=project.root_fingerprint
+                )
+            )
+            try:
+                while not task.done():
+                    ensure_authorized()
+                    await asyncio.wait({task}, timeout=0.2)
+                result = await task
+                ensure_authorized()
+            except BaseException:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                raise
+        validated = validate_project_code_result(result.model_dump(mode="json", exclude_none=True))
+        return ToolResponse(
+            validated.model_dump(mode="json", exclude_none=True),
+            f"Code intelligence: {request.operation}",
+        )
 
     async def _file_operation(
         self,

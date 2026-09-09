@@ -303,6 +303,7 @@ class Operation(models.Model):
         PATCH = "project_apply_patch", "Project apply patch"
         SHELL = "project_shell", "Project shell"
         MANAGE = "project_manage", "Project management"
+        CODE = "project_code", "Project code intelligence"
         DEVICE_READ = "device_read", "Approved device read"
         DEVICE_SCREENSHOT = "device_screenshot", "Approved screenshot"
         DEVICE_DESKTOP = "device_desktop", "Approved desktop action"

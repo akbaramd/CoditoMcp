@@ -11,6 +11,13 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field, TypeAdapter, field_validator, model_validator
 
+from .code import (
+    DiagnosticSeverity,
+    HierarchyDirection,
+    ReindexScope,
+    SymbolKind,
+    TypeHierarchyDirection,
+)
 from .desktop_action import DeviceDesktopInput
 from .device_read import normalize_read_scope
 from .patch import ProjectApplyPatchInput
@@ -191,6 +198,164 @@ class BrowserOpenInput(CoditoModel):
         return DeviceDesktopInput(url=value, purpose="Validate browser destination").url
 
 
+# ---------------------------------------------------------------------------
+# Code intelligence public inputs (language-neutral; 1-based lines, Unicode scalars)
+# ---------------------------------------------------------------------------
+
+
+class CodeStatusInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose = "Query code intelligence status"
+
+
+class CodeSummaryInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose = "Summarise workspace"
+
+
+class CodeSymbolSearchFacadeInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose
+    query: str = Field(min_length=1, max_length=512)
+    scope: Literal["workspace", "document"] = "workspace"
+    path: RelativePath | None = None
+    kinds: list[SymbolKind] = Field(default_factory=list, max_length=27)
+    max_results: int = Field(default=50, ge=1, le=500)
+
+
+class CodeDefinitionFacadeInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose
+    path: RelativePath
+    line: int = Field(ge=1, le=10_000_000)
+    character: int = Field(ge=1, le=100_000)
+
+
+class CodeReferencesFacadeInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose
+    path: RelativePath
+    line: int = Field(ge=1, le=10_000_000)
+    character: int = Field(ge=1, le=100_000)
+    include_declaration: bool = True
+    max_results: int = Field(default=100, ge=1, le=1000)
+
+
+class CodeImplementationsFacadeInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose
+    path: RelativePath
+    line: int = Field(ge=1, le=10_000_000)
+    character: int = Field(ge=1, le=100_000)
+    max_results: int = Field(default=100, ge=1, le=500)
+
+
+class CodeDiagnosticsFacadeInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose
+    path: RelativePath
+    severity_min: DiagnosticSeverity = DiagnosticSeverity.HINT
+    max_results: int = Field(default=200, ge=1, le=1000)
+
+
+class CodeHoverFacadeInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose
+    path: RelativePath
+    line: int = Field(ge=1, le=10_000_000)
+    character: int = Field(ge=1, le=100_000)
+
+
+class CodeContextFacadeInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose
+    path: RelativePath
+    line: int = Field(ge=1, le=10_000_000)
+    character: int = Field(ge=1, le=100_000)
+    source_context_lines: int = Field(default=5, ge=0, le=50)
+    include_references: bool = True
+    include_diagnostics: bool = True
+
+
+class CodeCallHierarchyFacadeInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose
+    path: RelativePath
+    line: int = Field(ge=1, le=10_000_000)
+    character: int = Field(ge=1, le=100_000)
+    direction: HierarchyDirection = HierarchyDirection.BOTH
+    max_depth: int = Field(default=3, ge=1, le=10)
+    max_nodes: int = Field(default=50, ge=1, le=200)
+
+
+class CodeTypeHierarchyFacadeInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose
+    path: RelativePath
+    line: int = Field(ge=1, le=10_000_000)
+    character: int = Field(ge=1, le=100_000)
+    direction: TypeHierarchyDirection = TypeHierarchyDirection.BOTH
+    max_depth: int = Field(default=3, ge=1, le=10)
+    max_nodes: int = Field(default=50, ge=1, le=200)
+
+
+class CodeImpactFacadeInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose
+    path: RelativePath
+    line: int | None = Field(default=None, ge=1, le=10_000_000)
+    character: int | None = Field(default=None, ge=1, le=100_000)
+    max_nodes: int = Field(default=50, ge=1, le=500)
+
+
+class CodeArchitectureFacadeInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose
+    max_packages: int = Field(default=100, ge=1, le=500)
+
+
+class CodeDependenciesFacadeInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose
+    path: RelativePath | None = None
+    direction: Literal["all", "direct", "transitive"] = "direct"
+    max_results: int = Field(default=100, ge=1, le=500)
+
+
+class CodeRelatedTestsFacadeInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose
+    path: RelativePath
+    max_results: int = Field(default=50, ge=1, le=200)
+
+
+class CodeReindexFacadeInput(CoditoModel):
+    project_id: OpaqueId
+    purpose: Purpose = "Reindex project"
+    scope: ReindexScope = ReindexScope.INCREMENTAL
+    timeout_seconds: int = Field(default=30, ge=5, le=30)
+
+
+_CODE_FACADE_TO_OPERATION: dict[str, str] = {
+    "code_intelligence_status": "code_intelligence_status",
+    "code_workspace_summary": "code_workspace_summary",
+    "code_symbol_search": "code_symbol_search",
+    "code_definition": "code_definition",
+    "code_references": "code_references",
+    "code_implementations": "code_implementations",
+    "code_diagnostics": "code_diagnostics",
+    "code_hover": "code_hover",
+    "code_context": "code_context",
+    "code_call_hierarchy": "code_call_hierarchy",
+    "code_type_hierarchy": "code_type_hierarchy",
+    "code_impact": "code_impact",
+    "code_architecture": "code_architecture",
+    "code_dependencies": "code_dependencies",
+    "code_related_tests": "code_related_tests",
+    "code_reindex": "code_reindex",
+}
+
+
 FACADE_MODELS: dict[str, type[CoditoModel]] = {
     "projects_list": ProjectsListInput,
     "project_add": ProjectAddInput,
@@ -207,6 +372,23 @@ FACADE_MODELS: dict[str, type[CoditoModel]] = {
     "screen_list": ScreenListInput,
     "screenshot_capture": ScreenshotCaptureInput,
     "browser_open": BrowserOpenInput,
+    # Code intelligence tools (language-neutral, all route to project_code wire tool)
+    "code_intelligence_status": CodeStatusInput,
+    "code_workspace_summary": CodeSummaryInput,
+    "code_symbol_search": CodeSymbolSearchFacadeInput,
+    "code_definition": CodeDefinitionFacadeInput,
+    "code_references": CodeReferencesFacadeInput,
+    "code_implementations": CodeImplementationsFacadeInput,
+    "code_diagnostics": CodeDiagnosticsFacadeInput,
+    "code_hover": CodeHoverFacadeInput,
+    "code_context": CodeContextFacadeInput,
+    "code_call_hierarchy": CodeCallHierarchyFacadeInput,
+    "code_type_hierarchy": CodeTypeHierarchyFacadeInput,
+    "code_impact": CodeImpactFacadeInput,
+    "code_architecture": CodeArchitectureFacadeInput,
+    "code_dependencies": CodeDependenciesFacadeInput,
+    "code_related_tests": CodeRelatedTestsFacadeInput,
+    "code_reindex": CodeReindexFacadeInput,
 }
 
 
@@ -256,4 +438,7 @@ def facade_wire_request(  # noqa: PLR0911 - explicit bounded public-to-wire mapp
             "action": "list_displays" if name == "screen_list" else "capture",
             **data,
         }
+    if name in _CODE_FACADE_TO_OPERATION:
+        operation = _CODE_FACADE_TO_OPERATION[name]
+        return "project_code", {"operation": operation, **data}
     return "device_desktop", {"action": "open_browser", **data}

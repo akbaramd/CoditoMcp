@@ -48,8 +48,10 @@ hash and the inner manifest instead of trusting a filename.
 ## GitHub release and bootstrap
 
 Every ordinary push to `main` runs `.github/workflows/windows-release.yml` on a
-GitHub-hosted Windows runner. The workflow increments the patch version, updates
-the version files and lockfile, repeats the release gates, commits and tags the
+GitHub-hosted Windows runner. If the repository declares a valid SemVer greater than
+the latest release tag (for example `0.2.0` after `v0.1.14`), that explicit version is
+released. Otherwise the workflow increments the latest patch version. It updates the
+version files and lockfile, repeats the release gates, commits/tags the synchronized
 version, and publishes an unsigned stable ZIP. It can be installed with:
 
 ```powershell

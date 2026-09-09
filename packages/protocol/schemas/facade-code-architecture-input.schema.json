@@ -1,0 +1,30 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-code-architecture-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "max_packages": {
+      "default": 100,
+      "maximum": 500,
+      "minimum": 1,
+      "title": "Max Packages",
+      "type": "integer"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "purpose"
+  ],
+  "title": "CodeArchitectureFacadeInput",
+  "type": "object"
+}

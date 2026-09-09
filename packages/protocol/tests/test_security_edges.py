@@ -202,10 +202,12 @@ def test_schema_errors_and_export() -> None:
     with pytest.raises(KeyError, match="unknown Codito schema"):
         schema_for("not-real")
     written = export_schemas(Path(__file__).resolve().parents[1] / "schemas")
-    assert len(written) == 46
+    assert len(written) == 80
     assert {
         "facade-file-read-output.schema.json",
         "facade-execute-shell-output.schema.json",
         "facade-screenshot-capture-output.schema.json",
+        "facade-code-definition-output.schema.json",
+        "facade-code-reindex-output.schema.json",
     }.issubset({path.name for path in written})
     assert all(path.read_text(encoding="utf-8").endswith("\n") for path in written)

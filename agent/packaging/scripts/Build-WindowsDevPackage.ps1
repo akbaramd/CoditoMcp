@@ -20,8 +20,9 @@ $repositoryPrefix = $repositoryRoot.TrimEnd('\') + '\'
 if (-not $outputRoot.StartsWith($repositoryPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "OutputDirectory must remain inside the repository: $outputRoot"
 }
-$isX64 = $env:PROCESSOR_ARCHITECTURE -eq 'AMD64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'AMD64'
-if (-not $IsWindows -or -not $isX64) {
+$isWindowsPlatform = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
+$isX64 = [Environment]::Is64BitOperatingSystem
+if (-not $isWindowsPlatform -or -not $isX64) {
     throw 'Codito Windows packages must be built on Windows x64.'
 }
 
@@ -47,6 +48,22 @@ function Copy-DirectoryContents {
     }
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     Get-ChildItem -LiteralPath $Source -Force | Copy-Item -Destination $Destination -Recurse -Force
+}
+
+function Get-SafeRelativePath {
+    param(
+        [Parameter(Mandatory)][string]$BasePath,
+        [Parameter(Mandatory)][string]$ChildPath
+    )
+    $baseFullPath = [System.IO.Path]::GetFullPath($BasePath).TrimEnd('\') + '\'
+    $childFullPath = [System.IO.Path]::GetFullPath($ChildPath)
+    if (-not $childFullPath.StartsWith(
+        $baseFullPath,
+        [System.StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "Path is outside the expected package root: $childFullPath"
+    }
+    return $childFullPath.Substring($baseFullPath.Length).Replace('\', '/')
 }
 
 $pythonExecutable = Join-Path $repositoryRoot '.venv\Scripts\python.exe'
@@ -189,7 +206,7 @@ $manifestLines = [System.Collections.Generic.List[string]]::new()
 $payloadRelativePaths = [string[]]@(Get-ChildItem -LiteralPath $stageRoot -File -Recurse |
     Where-Object { $_.FullName -ne $manifestPath } |
     ForEach-Object {
-        [System.IO.Path]::GetRelativePath($stageRoot, $_.FullName).Replace('\', '/')
+        Get-SafeRelativePath -BasePath $stageRoot -ChildPath $_.FullName
     })
 [System.Array]::Sort($payloadRelativePaths, [System.StringComparer]::Ordinal)
 foreach ($relativePath in $payloadRelativePaths) {

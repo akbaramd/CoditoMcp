@@ -10,6 +10,28 @@ def _oauth_scheme(*scopes: str) -> dict[str, Any]:
 
 
 TOOL_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
+    "project_code": {
+        "title": "Code intelligence for registered projects",
+        "description": (
+            "Language-neutral code intelligence backed by LSP and optional graph analysis. "
+            "Operations: status, workspace_summary, symbol_search, definition, references, "
+            "implementations, diagnostics, hover, context, call_hierarchy, type_hierarchy, "
+            "impact, architecture, dependencies, related_tests, reindex. "
+            "Metadata reads require projects:read + files:read; analysis also requires "
+            "shell:execute. "
+            "LSP servers run as agent-owned processes from trusted local config; "
+            "never downloaded automatically. External library URIs are not returned. "
+            "workspace/applyEdit and executeCommand from LSP are rejected without applying changes."
+        ),
+        "required_scopes": ["projects:read", "files:read", "shell:execute"],
+        "securitySchemes": [_oauth_scheme("projects:read", "files:read", "shell:execute")],
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    },
     "device_desktop": {
         "title": "Open a URL in the Windows browser with local consent",
         "description": (

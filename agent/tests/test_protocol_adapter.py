@@ -8,9 +8,22 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from codito_protocol.code import (
+    CodeIntelligenceStatusResult,
+    CodeReindexResult,
+    Precision,
+    ProviderKind,
+    WorkspaceReadyState,
+)
 
-from codito_agent.approvals import ApprovalDecision, ApprovalManager
+from codito_agent.approvals import (
+    ApprovalDecision,
+    ApprovalManager,
+    ApprovalRequest,
+    ApprovalRisk,
+)
 from codito_agent.db import AgentDatabase
+from codito_agent.errors import AgentError
 from codito_agent.models import ProjectMode
 from codito_agent.protocol_adapter import AgentProtocolAdapter
 from codito_agent.read_tools import ToolResponse
@@ -148,3 +161,163 @@ async def test_reconciled_patch_result_returns_before_destructive_reapproval() -
         reconcile_duplicate=True,
     )
     assert result.structured["applied"] is True
+
+
+class ImmediateCodeIntelligence:
+    async def execute(
+        self, request: Any, project_root: Path, *, root_identity: str | None = None
+    ) -> CodeIntelligenceStatusResult | CodeReindexResult:
+        del project_root, root_identity
+        captured_at = datetime.now(UTC).isoformat()
+        if request.operation == "code_intelligence_status":
+            return CodeIntelligenceStatusResult(
+                snapshot_id="snapshot_adapter_0001",
+                provider=ProviderKind.MANIFEST,
+                precision=Precision.STRUCTURAL,
+                captured_at=captured_at,
+                status=WorkspaceReadyState.READY,
+                indexed_files=1,
+            )
+        assert request.operation == "code_reindex"
+        return CodeReindexResult(
+            snapshot_id="snapshot_adapter_0002",
+            provider=ProviderKind.GRAPH,
+            precision=Precision.STRUCTURAL,
+            captured_at=captured_at,
+            completed=True,
+            generation="snapshot_adapter_0002",
+            files_processed=1,
+        )
+
+
+class BlockingCodeIntelligence:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.cancelled = asyncio.Event()
+
+    async def execute(
+        self, request: Any, project_root: Path, *, root_identity: str | None = None
+    ) -> Any:
+        del request, project_root, root_identity
+        self.started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            raise
+
+
+def _code_adapter(
+    database: AgentDatabase,
+    approvals: ApprovalManager,
+    code_intelligence: Any,
+) -> AgentProtocolAdapter:
+    return AgentProtocolAdapter(
+        database=database,
+        reads=object(),  # type: ignore[arg-type]
+        patches=object(),  # type: ignore[arg-type]
+        shells=object(),  # type: ignore[arg-type]
+        device_id="device_abcdefghijkl",
+        account_id="account_abcdefghijkl",
+        approvals=approvals,
+        code_intelligence=code_intelligence,
+    )
+
+
+@pytest.mark.asyncio
+async def test_code_status_is_metadata_read_and_does_not_prompt(
+    tmp_path: Path, project_root: Path
+) -> None:
+    async def must_not_prompt(_: ApprovalRequest) -> ApprovalDecision:
+        raise AssertionError("code status must not request native execution consent")
+
+    database = AgentDatabase(tmp_path / "code-status.sqlite")
+    project = database.register_project("Code status", project_root, ProjectMode.NATIVE_PROJECT)
+    adapter = _code_adapter(
+        database,
+        ApprovalManager(must_not_prompt),
+        ImmediateCodeIntelligence(),
+    )
+    result = await adapter.execute(
+        "project_code",
+        {"operation": "code_intelligence_status", "project_id": project.project_id},
+        grant_id="grant_abcdefghijklmn",
+        link_id="link_abcdefghijklmnop",
+        connection_epoch=1,
+        deadline_at=datetime.now(UTC) + timedelta(minutes=1),
+    )
+    assert result.structured["operation"] == "code_intelligence_status"
+    assert result.structured["status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_code_reindex_requests_native_execution_consent(
+    tmp_path: Path, project_root: Path
+) -> None:
+    prompts: list[ApprovalRequest] = []
+
+    async def allow_once(request: ApprovalRequest) -> ApprovalDecision:
+        prompts.append(request)
+        return ApprovalDecision.ALLOW_ONCE
+
+    database = AgentDatabase(tmp_path / "code-native.sqlite")
+    project = database.register_project("Code native", project_root, ProjectMode.NATIVE_PROJECT)
+    adapter = _code_adapter(
+        database,
+        ApprovalManager(allow_once),
+        ImmediateCodeIntelligence(),
+    )
+    result = await adapter.execute(
+        "project_code",
+        {
+            "operation": "code_reindex",
+            "project_id": project.project_id,
+            "purpose": "Refresh semantic and structural analysis",
+            "scope": "incremental",
+            "timeout_seconds": 5,
+        },
+        grant_id="grant_abcdefghijklmn",
+        link_id="link_abcdefghijklmnop",
+        connection_epoch=2,
+        deadline_at=datetime.now(UTC) + timedelta(minutes=1),
+    )
+    assert result.structured["completed"] is True
+    assert len(prompts) == 1
+    assert prompts[0].capability == "shell:execute"
+    assert prompts[0].risk is ApprovalRisk.NATIVE_EXECUTION
+
+
+@pytest.mark.asyncio
+async def test_revoking_native_permission_cancels_running_code_analysis(
+    tmp_path: Path, project_root: Path
+) -> None:
+    async def allow_once(_: ApprovalRequest) -> ApprovalDecision:
+        return ApprovalDecision.ALLOW_ONCE
+
+    database = AgentDatabase(tmp_path / "code-revoke.sqlite")
+    project = database.register_project("Code revoke", project_root, ProjectMode.NATIVE_PROJECT)
+    approvals = ApprovalManager(allow_once)
+    code = BlockingCodeIntelligence()
+    adapter = _code_adapter(database, approvals, code)
+    task = asyncio.create_task(
+        adapter.execute(
+            "project_code",
+            {
+                "operation": "code_reindex",
+                "project_id": project.project_id,
+                "purpose": "Long-running analysis",
+                "scope": "incremental",
+                "timeout_seconds": 5,
+            },
+            grant_id="grant_abcdefghijklmn",
+            link_id="link_abcdefghijklmnop",
+            connection_epoch=3,
+            deadline_at=datetime.now(UTC) + timedelta(minutes=1),
+        )
+    )
+    await asyncio.wait_for(code.started.wait(), timeout=2)
+    approvals.revoke_shell_permissions()
+    with pytest.raises(AgentError) as raised:
+        await asyncio.wait_for(task, timeout=2)
+    assert raised.value.code == "approval_expired"
+    assert code.cancelled.is_set()

@@ -7,6 +7,24 @@ from typing import Any, Literal
 
 from pydantic import Field
 
+from .code import (
+    CodeArchitectureResult,
+    CodeCallHierarchyResult,
+    CodeContextResult,
+    CodeDefinitionResult,
+    CodeDependenciesResult,
+    CodeDiagnosticsResult,
+    CodeHoverResult,
+    CodeImpactResult,
+    CodeImplementationsResult,
+    CodeIntelligenceStatusResult,
+    CodeReferencesResult,
+    CodeReindexResult,
+    CodeRelatedTestsResult,
+    CodeSymbolSearchResult,
+    CodeTypeHierarchyResult,
+    CodeWorkspaceSummaryResult,
+)
 from .desktop_action import DeviceDesktopResult
 from .errors import ToolError
 from .manage import ProjectRegistrationRequestResult, RemoveProjectResult, RenameProjectResult
@@ -54,6 +72,23 @@ FACADE_OUTPUT_MODELS: dict[str, type[CoditoModel]] = {
     "screen_list": FacadeToolResult[DeviceDisplaysResult],
     "screenshot_capture": FacadeToolResult[ScreenshotCaptureResult],
     "browser_open": FacadeToolResult[DeviceDesktopResult],
+    # Code intelligence
+    "code_intelligence_status": FacadeToolResult[CodeIntelligenceStatusResult],
+    "code_workspace_summary": FacadeToolResult[CodeWorkspaceSummaryResult],
+    "code_symbol_search": FacadeToolResult[CodeSymbolSearchResult],
+    "code_definition": FacadeToolResult[CodeDefinitionResult],
+    "code_references": FacadeToolResult[CodeReferencesResult],
+    "code_implementations": FacadeToolResult[CodeImplementationsResult],
+    "code_diagnostics": FacadeToolResult[CodeDiagnosticsResult],
+    "code_hover": FacadeToolResult[CodeHoverResult],
+    "code_context": FacadeToolResult[CodeContextResult],
+    "code_call_hierarchy": FacadeToolResult[CodeCallHierarchyResult],
+    "code_type_hierarchy": FacadeToolResult[CodeTypeHierarchyResult],
+    "code_impact": FacadeToolResult[CodeImpactResult],
+    "code_architecture": FacadeToolResult[CodeArchitectureResult],
+    "code_dependencies": FacadeToolResult[CodeDependenciesResult],
+    "code_related_tests": FacadeToolResult[CodeRelatedTestsResult],
+    "code_reindex": FacadeToolResult[CodeReindexResult],
 }
 
 
@@ -86,6 +121,7 @@ def _contract(
 
 _READ = ["projects:read", "files:read"]
 _WRITE = [*_READ, "files:write"]
+_ANALYZE = [*_READ, "shell:execute"]
 _MANAGE = ["projects:read", "projects:write"]
 _SHELL = ["projects:read", "shell:execute"]
 _SCREEN = ["projects:read", "screen:read"]
@@ -252,5 +288,187 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
         "Browser request response ready",
         destructive=True,
         open_world=True,
+    ),
+    # -----------------------------------------------------------------------
+    # Code intelligence tools (language-neutral LSP/graph-backed)
+    # -----------------------------------------------------------------------
+    "code_intelligence_status": _contract(
+        "Code intelligence status",
+        "Report the active workspace state, provider, capabilities, and freshness for a registered "
+        "project. Does not download or start a language server on its own — only reflects what is "
+        "already configured and running. Check capabilities before calling semantic tools.",
+        _READ,
+        "Checking code intelligence…",
+        "Status ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_workspace_summary": _contract(
+        "Workspace summary",
+        "Return languages, manifest files, framework hints (Next.js/React are JS/TS hints, "
+        "not additional languages), detected build roots, and structural project layout. "
+        "Based on file analysis of the current snapshot; results include provenance.",
+        _READ,
+        "Analysing workspace…",
+        "Summary ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_symbol_search": _contract(
+        "Search symbols",
+        "Search workspace or document symbols by name. Returns bounded matches with kind, "
+        "location, and source precision. Scope=document requires a file path. "
+        "Results include snapshot_id and precision; truncation is explicit.",
+        _ANALYZE,
+        "Searching symbols…",
+        "Symbol search ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_definition": _contract(
+        "Go to definition",
+        "Resolve the semantic definition of the symbol at a 1-based line/character position. "
+        "Returns all definition locations with precision. Exact (LSP) vs structural is labelled. "
+        "External library definitions are returned as external_unavailable.",
+        _ANALYZE,
+        "Finding definition…",
+        "Definition ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_references": _contract(
+        "Find references",
+        "Find semantic references to the symbol at a 1-based position. "
+        "Structural or heuristic candidates are never passed off as exact. "
+        "include_declaration controls whether the declaration itself is included. "
+        "Results include precision, truncation flag, and total match count.",
+        _ANALYZE,
+        "Finding references…",
+        "References ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_implementations": _contract(
+        "Find implementations",
+        "Find concrete implementations of an interface or abstract symbol at a 1-based position. "
+        "Returns unavailable with an explanation when the language server does not support it. "
+        "Precision is always reported; never conflates structural with semantic.",
+        _ANALYZE,
+        "Finding implementations…",
+        "Implementations ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_diagnostics": _contract(
+        "Get diagnostics",
+        "Return compiler/language-server diagnostics for a project-relative file. "
+        "State can be ready, stale, partial, pending, or unavailable — missing diagnostics "
+        "NEVER mean a clean build. severity_min filters by error/warning/information/hint. "
+        "Snapshot_id and captured_at show freshness.",
+        _ANALYZE,
+        "Reading diagnostics…",
+        "Diagnostics ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_hover": _contract(
+        "Hover information",
+        "Return hover signature, type, and documentation at a 1-based position. "
+        "Preserves markdown or plaintext format without reinventing structure from free text. "
+        "Returns null content (not an error) when no hover information is available.",
+        _ANALYZE,
+        "Fetching hover…",
+        "Hover ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_context": _contract(
+        "Rich code context",
+        "Aggregate definition, hover, references, nearby source lines, and diagnostics from "
+        "ONE coherent snapshot at a 1-based position. Each section reports its own "
+        "availability and precision. Never aggregates across mismatched generations.",
+        _ANALYZE,
+        "Building context…",
+        "Context ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_call_hierarchy": _contract(
+        "Call hierarchy",
+        "Prepare call hierarchy at a 1-based position and traverse incoming/outgoing calls. "
+        "Bounded by max_depth and max_nodes. Precision is exact (LSP) or structural (graph). "
+        "Returns unavailable when the server does not support call hierarchy.",
+        _ANALYZE,
+        "Building call hierarchy…",
+        "Call hierarchy ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_type_hierarchy": _contract(
+        "Type hierarchy",
+        "Prepare type hierarchy at a 1-based position and traverse supertypes/subtypes. "
+        "Bounded by max_depth and max_nodes. Precision is exact (LSP) or structural (graph). "
+        "Returns unavailable when the server does not support type hierarchy.",
+        _ANALYZE,
+        "Building type hierarchy…",
+        "Type hierarchy ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_impact": _contract(
+        "Code impact",
+        "Return bounded graph dependents for a path or symbol with evidence and precision. "
+        "Dynamic and reflection effects are never claimed. Graph provider must be configured; "
+        "returns precision=unavailable without one. Never exposes all-project graph results.",
+        _ANALYZE,
+        "Analysing impact…",
+        "Impact ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_architecture": _contract(
+        "Architecture overview",
+        "Return structural package/dependency graph from manifests and graph analysis. "
+        "Separates structural facts from inferred layers. Graph provider optional; "
+        "manifest-only analysis is available without one.",
+        _ANALYZE,
+        "Analysing architecture…",
+        "Architecture ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_dependencies": _contract(
+        "Project dependencies",
+        "Return manifest-backed or graph-backed dependencies and direction. "
+        "Not arbitrary SQL or Cypher; only the registered project scope is queried. "
+        "direction=direct|transitive|all; precision reflects manifest vs graph source.",
+        _ANALYZE,
+        "Listing dependencies…",
+        "Dependencies ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_related_tests": _contract(
+        "Related tests",
+        "Return test files/functions related to a source file. Relationship is exact "
+        "(from graph or framework conventions) or explicitly labelled heuristic_name / "
+        "heuristic_path. Never presents candidates as guaranteed coverage.",
+        _ANALYZE,
+        "Finding related tests…",
+        "Related tests ready",
+        read=True,
+        idempotent=True,
+    ),
+    "code_reindex": _contract(
+        "Reindex workspace",
+        "Explicitly trigger incremental or full refresh of the code intelligence index "
+        "for a registered project. Does not acknowledge completion until indexing finishes. "
+        "scope=incremental updates changed files; scope=full rebuilds from scratch. "
+        "Reports timed_out=true if timeout_seconds is reached before completion.",
+        _ANALYZE,
+        "Reindexing workspace…",
+        "Reindex complete",
+        read=True,
+        idempotent=False,
     ),
 }

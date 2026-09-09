@@ -8,6 +8,7 @@ from typing import Any
 
 from .approvals import ApprovalManager, ApprovalRisk
 from .broker_client import BrokerClient
+from .code_intelligence import CodeIntelligenceManager
 from .config import AgentConfig
 from .credentials import DeviceCredentialStore
 from .db import AgentDatabase
@@ -73,6 +74,10 @@ class CoditoDaemon:
             account_id=state.account_id,
             metadata_changed=self._project_metadata_changed,
         )
+        self.code_intelligence = CodeIntelligenceManager(
+            config.data_directory,
+            config.data_directory / "code-intelligence" / "lsp-profiles",
+        )
         self.adapter = AgentProtocolAdapter(
             self.database,
             self.reads,
@@ -83,6 +88,7 @@ class CoditoDaemon:
             account_id=state.account_id,
             approvals=self.approvals,
             read_concurrency=config.read_concurrency,
+            code_intelligence=self.code_intelligence,
         )
         self.websocket = DeviceWebSocketClient(
             url=config.relay_websocket_url,
@@ -107,6 +113,7 @@ class CoditoDaemon:
 
     async def run(self) -> None:
         self._loop = asyncio.get_running_loop()
+        self.code_intelligence.start()
         recovered = await asyncio.to_thread(self.patches.recover)
         del recovered
         self.ipc.start()
@@ -121,6 +128,7 @@ class CoditoDaemon:
                 self._metadata_sync_task.cancel()
                 tasks.append(self._metadata_sync_task)
             await asyncio.gather(*tasks, return_exceptions=True)
+            await self.code_intelligence.close()
             self.approval_queue.deny_all()
             self.approvals.clear("shutdown")
             self.ipc.close()

@@ -53,11 +53,15 @@ deploy/             Immutable container and Compose deployment assets
 docs/               Decisions, research, threat model, and runbooks
 ```
 
-The public catalog contains 15 focused tools: project list/add/rename/remove,
+The public catalog contains 31 focused tools: project list/add/rename/remove,
 directory listing, `file_read`, `text_search`, `file_patch`, `file_delete`,
 `execute_shell`, `shell_status`, `shell_cancel`, `screen_list`,
-`screenshot_capture` and `browser_open`. Old names remain hidden compatibility
-aliases. See the [tool contract](docs/protocol/tools.md).
+`screenshot_capture`, `browser_open`, plus 16 language-neutral `code_*` tools for
+workspace summary, symbols, definitions/references, diagnostics/hover, context,
+hierarchies, impact/architecture/dependencies/related tests and explicit reindex. Old
+names remain hidden compatibility aliases. See the
+[tool contract](docs/protocol/tools.md) and
+[Code Intelligence guide](docs/operations/code-intelligence.md).
 
 `execute_shell` takes the full `command` string, `executor` (`powershell` or `cmd`),
 `timeout_seconds`, project ID, cwd, purpose and idempotency key. It does not need an

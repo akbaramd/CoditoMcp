@@ -1,15 +1,18 @@
 [project]
 name = "codito-agent"
-version = "0.1.14"
+version = "0.2.0"
 description = "Per-user Windows agent for Codito"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "codito-protocol",
   "cryptography>=50,<51",
+  "defusedxml==0.7.1",
   "httpx>=0.28.1",
+  "pathspec==0.12.1",
   "platformdirs>=4.3.6",
   "pydantic>=2.10.5",
+  "pygls==2.1.1",
   "regex>=2024.11.6",
   "structlog>=25.1.0",
   "websockets>=14.2",

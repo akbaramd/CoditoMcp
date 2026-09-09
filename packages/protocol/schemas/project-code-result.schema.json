@@ -1,0 +1,2276 @@
+{
+  "$defs": {
+    "CallItem": {
+      "additionalProperties": false,
+      "properties": {
+        "depth": {
+          "default": 0,
+          "maximum": 10,
+          "minimum": 0,
+          "title": "Depth",
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/SymbolKind",
+          "default": "unknown"
+        },
+        "location": {
+          "$ref": "#/$defs/CodeLocation"
+        },
+        "name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "ranges": {
+          "items": {
+            "$ref": "#/$defs/CodeRange"
+          },
+          "maxItems": 100,
+          "title": "Ranges",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "location"
+      ],
+      "title": "CallItem",
+      "type": "object"
+    },
+    "CapabilityInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "call_hierarchy": {
+          "default": false,
+          "title": "Call Hierarchy",
+          "type": "boolean"
+        },
+        "definition": {
+          "default": false,
+          "title": "Definition",
+          "type": "boolean"
+        },
+        "diagnostics": {
+          "default": false,
+          "title": "Diagnostics",
+          "type": "boolean"
+        },
+        "document_symbols": {
+          "default": false,
+          "title": "Document Symbols",
+          "type": "boolean"
+        },
+        "hover": {
+          "default": false,
+          "title": "Hover",
+          "type": "boolean"
+        },
+        "implementations": {
+          "default": false,
+          "title": "Implementations",
+          "type": "boolean"
+        },
+        "references": {
+          "default": false,
+          "title": "References",
+          "type": "boolean"
+        },
+        "type_hierarchy": {
+          "default": false,
+          "title": "Type Hierarchy",
+          "type": "boolean"
+        },
+        "workspace_symbols": {
+          "default": false,
+          "title": "Workspace Symbols",
+          "type": "boolean"
+        }
+      },
+      "title": "CapabilityInfo",
+      "type": "object"
+    },
+    "CodeArchitectureResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "manifests": {
+          "items": {
+            "$ref": "#/$defs/ManifestInfo"
+          },
+          "maxItems": 128,
+          "title": "Manifests",
+          "type": "array"
+        },
+        "operation": {
+          "const": "code_architecture",
+          "default": "code_architecture",
+          "title": "Operation",
+          "type": "string"
+        },
+        "packages": {
+          "items": {
+            "$ref": "#/$defs/PackageInfo"
+          },
+          "maxItems": 500,
+          "title": "Packages",
+          "type": "array"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeArchitectureResult",
+      "type": "object"
+    },
+    "CodeCallHierarchyResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "incoming_calls": {
+          "items": {
+            "$ref": "#/$defs/CallItem"
+          },
+          "maxItems": 200,
+          "title": "Incoming Calls",
+          "type": "array"
+        },
+        "operation": {
+          "const": "code_call_hierarchy",
+          "default": "code_call_hierarchy",
+          "title": "Operation",
+          "type": "string"
+        },
+        "outgoing_calls": {
+          "items": {
+            "$ref": "#/$defs/CallItem"
+          },
+          "maxItems": 200,
+          "title": "Outgoing Calls",
+          "type": "array"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "root": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CallItem"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeCallHierarchyResult",
+      "type": "object"
+    },
+    "CodeContextResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "definition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeDefinitionResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeDiagnosticsResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "hover": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeHoverResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "operation": {
+          "const": "code_context",
+          "default": "code_context",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "references": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeReferencesResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sections": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContextSections"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "source_lines": {
+          "anyOf": [
+            {
+              "maxLength": 65536,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Lines"
+        },
+        "source_start_line": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Start Line"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeContextResult",
+      "type": "object"
+    },
+    "CodeDefinitionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "definitions": {
+          "items": {
+            "$ref": "#/$defs/CodeLocation"
+          },
+          "maxItems": 32,
+          "title": "Definitions",
+          "type": "array"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_definition",
+          "default": "code_definition",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeDefinitionResult",
+      "type": "object"
+    },
+    "CodeDependenciesResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "dependencies": {
+          "items": {
+            "$ref": "#/$defs/DependencyInfo"
+          },
+          "maxItems": 500,
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_dependencies",
+          "default": "code_dependencies",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeDependenciesResult",
+      "type": "object"
+    },
+    "CodeDiagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code"
+        },
+        "message": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "range": {
+          "$ref": "#/$defs/CodeRange"
+        },
+        "severity": {
+          "$ref": "#/$defs/DiagnosticSeverity"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        }
+      },
+      "required": [
+        "path",
+        "range",
+        "severity",
+        "message"
+      ],
+      "title": "CodeDiagnostic",
+      "type": "object"
+    },
+    "CodeDiagnosticsResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/CodeDiagnostic"
+          },
+          "maxItems": 1000,
+          "title": "Diagnostics",
+          "type": "array"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_diagnostics",
+          "default": "code_diagnostics",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/DiagnosticState",
+          "default": "unavailable"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeDiagnosticsResult",
+      "type": "object"
+    },
+    "CodeHoverResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "content": {
+          "anyOf": [
+            {
+              "maxLength": 32768,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "enum": [
+                "markdown",
+                "plaintext"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_hover",
+          "default": "code_hover",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeHoverResult",
+      "type": "object"
+    },
+    "CodeImpactResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "dependents": {
+          "items": {
+            "$ref": "#/$defs/ImpactNode"
+          },
+          "maxItems": 500,
+          "title": "Dependents",
+          "type": "array"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_impact",
+          "default": "code_impact",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeImpactResult",
+      "type": "object"
+    },
+    "CodeImplementationsResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "implementations": {
+          "items": {
+            "$ref": "#/$defs/CodeLocation"
+          },
+          "maxItems": 500,
+          "title": "Implementations",
+          "type": "array"
+        },
+        "operation": {
+          "const": "code_implementations",
+          "default": "code_implementations",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeImplementationsResult",
+      "type": "object"
+    },
+    "CodeIntelligenceStatusResult": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/CapabilityInfo"
+        },
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "indexed_files": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Indexed Files",
+          "type": "integer"
+        },
+        "lsp_server": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lsp Server"
+        },
+        "operation": {
+          "const": "code_intelligence_status",
+          "default": "code_intelligence_status",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "setup_requirements": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Setup Requirements",
+          "type": "array"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/WorkspaceReadyState"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at",
+        "status"
+      ],
+      "title": "CodeIntelligenceStatusResult",
+      "type": "object"
+    },
+    "CodeLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "CodeLocation",
+      "type": "object"
+    },
+    "CodePosition": {
+      "additionalProperties": false,
+      "description": "1-based line and Unicode-scalar column (not UTF-16).",
+      "properties": {
+        "character": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Character",
+          "type": "integer"
+        },
+        "line": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "line",
+        "character"
+      ],
+      "title": "CodePosition",
+      "type": "object"
+    },
+    "CodeRange": {
+      "additionalProperties": false,
+      "description": "Half-open [start, end) range. Both endpoints are 1-based Unicode scalars.",
+      "properties": {
+        "end": {
+          "$ref": "#/$defs/CodePosition"
+        },
+        "start": {
+          "$ref": "#/$defs/CodePosition"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "CodeRange",
+      "type": "object"
+    },
+    "CodeReferencesResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_references",
+          "default": "code_references",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/CodeLocation"
+          },
+          "maxItems": 1000,
+          "title": "References",
+          "type": "array"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "total_matches": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Total Matches",
+          "type": "integer"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeReferencesResult",
+      "type": "object"
+    },
+    "CodeReindexResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "completed": {
+          "title": "Completed",
+          "type": "boolean"
+        },
+        "errors": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Errors",
+          "type": "array"
+        },
+        "files_processed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Files Processed",
+          "type": "integer"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "generation": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Generation",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_reindex",
+          "default": "code_reindex",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "timed_out": {
+          "default": false,
+          "title": "Timed Out",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at",
+        "completed",
+        "generation"
+      ],
+      "title": "CodeReindexResult",
+      "type": "object"
+    },
+    "CodeRelatedTestsResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_related_tests",
+          "default": "code_related_tests",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "tests": {
+          "items": {
+            "$ref": "#/$defs/TestRelation"
+          },
+          "maxItems": 200,
+          "title": "Tests",
+          "type": "array"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeRelatedTestsResult",
+      "type": "object"
+    },
+    "CodeSymbolSearchResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_symbol_search",
+          "default": "code_symbol_search",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "symbols": {
+          "items": {
+            "$ref": "#/$defs/SymbolInfo"
+          },
+          "maxItems": 500,
+          "title": "Symbols",
+          "type": "array"
+        },
+        "total_matches": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Total Matches",
+          "type": "integer"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeSymbolSearchResult",
+      "type": "object"
+    },
+    "CodeTypeHierarchyResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_type_hierarchy",
+          "default": "code_type_hierarchy",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "root": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TypeItem"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "subtypes": {
+          "items": {
+            "$ref": "#/$defs/TypeItem"
+          },
+          "maxItems": 200,
+          "title": "Subtypes",
+          "type": "array"
+        },
+        "supertypes": {
+          "items": {
+            "$ref": "#/$defs/TypeItem"
+          },
+          "maxItems": 100,
+          "title": "Supertypes",
+          "type": "array"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeTypeHierarchyResult",
+      "type": "object"
+    },
+    "CodeWorkspaceSummaryResult": {
+      "additionalProperties": false,
+      "properties": {
+        "build_roots": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Build Roots",
+          "type": "array"
+        },
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "frameworks": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Frameworks",
+          "type": "array"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "languages": {
+          "items": {
+            "$ref": "#/$defs/LanguageSummary"
+          },
+          "maxItems": 64,
+          "title": "Languages",
+          "type": "array"
+        },
+        "manifests": {
+          "items": {
+            "$ref": "#/$defs/ManifestInfo"
+          },
+          "maxItems": 128,
+          "title": "Manifests",
+          "type": "array"
+        },
+        "operation": {
+          "const": "code_workspace_summary",
+          "default": "code_workspace_summary",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "total_bytes": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Total Bytes",
+          "type": "integer"
+        },
+        "total_files": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Total Files",
+          "type": "integer"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeWorkspaceSummaryResult",
+      "type": "object"
+    },
+    "ContextSection": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        }
+      },
+      "required": [
+        "available"
+      ],
+      "title": "ContextSection",
+      "type": "object"
+    },
+    "ContextSections": {
+      "additionalProperties": false,
+      "properties": {
+        "definition": {
+          "$ref": "#/$defs/ContextSection"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/ContextSection"
+        },
+        "hover": {
+          "$ref": "#/$defs/ContextSection"
+        },
+        "references": {
+          "$ref": "#/$defs/ContextSection"
+        },
+        "source_lines": {
+          "$ref": "#/$defs/ContextSection"
+        }
+      },
+      "required": [
+        "definition",
+        "hover",
+        "references",
+        "diagnostics",
+        "source_lines"
+      ],
+      "title": "ContextSections",
+      "type": "object"
+    },
+    "DependencyInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "default": "direct",
+          "enum": [
+            "direct",
+            "transitive",
+            "dev"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "name",
+        "kind"
+      ],
+      "title": "DependencyInfo",
+      "type": "object"
+    },
+    "DiagnosticSeverity": {
+      "enum": [
+        "error",
+        "warning",
+        "information",
+        "hint"
+      ],
+      "title": "DiagnosticSeverity",
+      "type": "string"
+    },
+    "DiagnosticState": {
+      "enum": [
+        "ready",
+        "stale",
+        "partial",
+        "pending",
+        "unavailable"
+      ],
+      "title": "DiagnosticState",
+      "type": "string"
+    },
+    "ImpactNode": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "$ref": "#/$defs/Precision",
+          "default": "structural"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 1024,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "reason"
+      ],
+      "title": "ImpactNode",
+      "type": "object"
+    },
+    "LanguageSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "extensions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Extensions",
+          "type": "array"
+        },
+        "file_count": {
+          "minimum": 0,
+          "title": "File Count",
+          "type": "integer"
+        },
+        "language": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Language",
+          "type": "string"
+        }
+      },
+      "required": [
+        "language",
+        "file_count"
+      ],
+      "title": "LanguageSummary",
+      "type": "object"
+    },
+    "ManifestInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "kind"
+      ],
+      "title": "ManifestInfo",
+      "type": "object"
+    },
+    "PackageInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 500,
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "file_count": {
+          "minimum": 0,
+          "title": "File Count",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "file_count"
+      ],
+      "title": "PackageInfo",
+      "type": "object"
+    },
+    "Precision": {
+      "enum": [
+        "exact",
+        "structural",
+        "heuristic",
+        "unavailable"
+      ],
+      "title": "Precision",
+      "type": "string"
+    },
+    "ProviderKind": {
+      "enum": [
+        "lsp",
+        "graph",
+        "manifest",
+        "none"
+      ],
+      "title": "ProviderKind",
+      "type": "string"
+    },
+    "SymbolInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "container": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Container"
+        },
+        "kind": {
+          "$ref": "#/$defs/SymbolKind",
+          "default": "unknown"
+        },
+        "location": {
+          "$ref": "#/$defs/CodeLocation"
+        },
+        "name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "location"
+      ],
+      "title": "SymbolInfo",
+      "type": "object"
+    },
+    "SymbolKind": {
+      "enum": [
+        "file",
+        "module",
+        "namespace",
+        "package",
+        "class",
+        "method",
+        "property",
+        "field",
+        "constructor",
+        "enum",
+        "interface",
+        "function",
+        "variable",
+        "constant",
+        "string",
+        "number",
+        "boolean",
+        "array",
+        "object",
+        "key",
+        "null",
+        "enum_member",
+        "struct",
+        "event",
+        "operator",
+        "type_parameter",
+        "unknown"
+      ],
+      "title": "SymbolKind",
+      "type": "string"
+    },
+    "TestRelation": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "relationship": {
+          "default": "heuristic_path",
+          "enum": [
+            "exact",
+            "structural_call",
+            "heuristic_name",
+            "heuristic_path"
+          ],
+          "title": "Relationship",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "TestRelation",
+      "type": "object"
+    },
+    "TypeItem": {
+      "additionalProperties": false,
+      "properties": {
+        "depth": {
+          "default": 0,
+          "maximum": 10,
+          "minimum": 0,
+          "title": "Depth",
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/SymbolKind",
+          "default": "unknown"
+        },
+        "location": {
+          "$ref": "#/$defs/CodeLocation"
+        },
+        "name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "location"
+      ],
+      "title": "TypeItem",
+      "type": "object"
+    },
+    "WorkspaceReadyState": {
+      "enum": [
+        "ready",
+        "indexing",
+        "unavailable",
+        "not_configured"
+      ],
+      "title": "WorkspaceReadyState",
+      "type": "string"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/project-code-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/CodeIntelligenceStatusResult"
+    },
+    {
+      "$ref": "#/$defs/CodeWorkspaceSummaryResult"
+    },
+    {
+      "$ref": "#/$defs/CodeSymbolSearchResult"
+    },
+    {
+      "$ref": "#/$defs/CodeDefinitionResult"
+    },
+    {
+      "$ref": "#/$defs/CodeReferencesResult"
+    },
+    {
+      "$ref": "#/$defs/CodeImplementationsResult"
+    },
+    {
+      "$ref": "#/$defs/CodeDiagnosticsResult"
+    },
+    {
+      "$ref": "#/$defs/CodeHoverResult"
+    },
+    {
+      "$ref": "#/$defs/CodeContextResult"
+    },
+    {
+      "$ref": "#/$defs/CodeCallHierarchyResult"
+    },
+    {
+      "$ref": "#/$defs/CodeTypeHierarchyResult"
+    },
+    {
+      "$ref": "#/$defs/CodeImpactResult"
+    },
+    {
+      "$ref": "#/$defs/CodeArchitectureResult"
+    },
+    {
+      "$ref": "#/$defs/CodeDependenciesResult"
+    },
+    {
+      "$ref": "#/$defs/CodeRelatedTestsResult"
+    },
+    {
+      "$ref": "#/$defs/CodeReindexResult"
+    }
+  ]
+}

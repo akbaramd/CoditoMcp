@@ -1,0 +1,71 @@
+{
+  "$defs": {
+    "TypeHierarchyDirection": {
+      "enum": [
+        "supertypes",
+        "subtypes",
+        "both"
+      ],
+      "title": "TypeHierarchyDirection",
+      "type": "string"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-code-type-hierarchy-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "character": {
+      "maximum": 100000,
+      "minimum": 1,
+      "title": "Character",
+      "type": "integer"
+    },
+    "direction": {
+      "$ref": "#/$defs/TypeHierarchyDirection",
+      "default": "both"
+    },
+    "line": {
+      "maximum": 10000000,
+      "minimum": 1,
+      "title": "Line",
+      "type": "integer"
+    },
+    "max_depth": {
+      "default": 3,
+      "maximum": 10,
+      "minimum": 1,
+      "title": "Max Depth",
+      "type": "integer"
+    },
+    "max_nodes": {
+      "default": 50,
+      "maximum": 200,
+      "minimum": 1,
+      "title": "Max Nodes",
+      "type": "integer"
+    },
+    "path": {
+      "title": "Path",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "purpose",
+    "path",
+    "line",
+    "character"
+  ],
+  "title": "CodeTypeHierarchyFacadeInput",
+  "type": "object"
+}

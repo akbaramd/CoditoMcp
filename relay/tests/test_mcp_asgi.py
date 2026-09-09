@@ -93,6 +93,22 @@ def test_mcp_initialization_list_and_local_tool_call(
             "screen_list",
             "screenshot_capture",
             "browser_open",
+            "code_intelligence_status",
+            "code_workspace_summary",
+            "code_symbol_search",
+            "code_definition",
+            "code_references",
+            "code_implementations",
+            "code_diagnostics",
+            "code_hover",
+            "code_context",
+            "code_call_hierarchy",
+            "code_type_hierarchy",
+            "code_impact",
+            "code_architecture",
+            "code_dependencies",
+            "code_related_tests",
+            "code_reindex",
         ]
         assert all(tool.get("_meta", {}).get("securitySchemes") for tool in descriptors)
         output_schema_titles: set[str] = set()

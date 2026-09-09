@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "SymbolKind": {
+      "enum": [
+        "file",
+        "module",
+        "namespace",
+        "package",
+        "class",
+        "method",
+        "property",
+        "field",
+        "constructor",
+        "enum",
+        "interface",
+        "function",
+        "variable",
+        "constant",
+        "string",
+        "number",
+        "boolean",
+        "array",
+        "object",
+        "key",
+        "null",
+        "enum_member",
+        "struct",
+        "event",
+        "operator",
+        "type_parameter",
+        "unknown"
+      ],
+      "title": "SymbolKind",
+      "type": "string"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-code-symbol-search-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "kinds": {
+      "items": {
+        "$ref": "#/$defs/SymbolKind"
+      },
+      "maxItems": 27,
+      "title": "Kinds",
+      "type": "array"
+    },
+    "max_results": {
+      "default": 50,
+      "maximum": 500,
+      "minimum": 1,
+      "title": "Max Results",
+      "type": "integer"
+    },
+    "path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Path"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "query": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Query",
+      "type": "string"
+    },
+    "scope": {
+      "default": "workspace",
+      "enum": [
+        "workspace",
+        "document"
+      ],
+      "title": "Scope",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "purpose",
+    "query"
+  ],
+  "title": "CodeSymbolSearchFacadeInput",
+  "type": "object"
+}

@@ -28,8 +28,8 @@ IDEMPOTENCY_KEY = "idemkey_01J123456789ABCDEF"
 HASH = "0" * 64
 
 
-def test_seven_legacy_wire_contracts_remain_available() -> None:
-    assert set(TOOL_CONTRACTS) == {
+def test_legacy_wire_contracts_remain_available_with_project_code() -> None:
+    legacy = {
         "project_read",
         "project_apply_patch",
         "project_shell",
@@ -38,6 +38,13 @@ def test_seven_legacy_wire_contracts_remain_available() -> None:
         "device_screenshot",
         "device_desktop",
     }
+    assert legacy.issubset(TOOL_CONTRACTS)
+    assert set(TOOL_CONTRACTS) == {*legacy, "project_code"}
+    assert TOOL_CONTRACTS["project_code"]["securitySchemes"][0]["scopes"] == [
+        "projects:read",
+        "files:read",
+        "shell:execute",
+    ]
     assert TOOL_CONTRACTS["project_read"]["securitySchemes"][0]["scopes"] == [
         "projects:read",
         "files:read",

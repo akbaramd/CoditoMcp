@@ -98,7 +98,7 @@ def test_facade_rejects_unknown_or_authority_inputs(
 
 def test_descriptors_have_precise_scopes_static_status_and_titles():
     assert list(FACADE_MODELS) == list(FACADE_CONTRACTS)
-    assert len(FACADE_MODELS) == 15
+    assert len(FACADE_MODELS) == 31  # 15 original + 16 code intelligence
     for contract in FACADE_CONTRACTS.values():
         assert contract["title"]
         for field in ("invoking", "invoked"):

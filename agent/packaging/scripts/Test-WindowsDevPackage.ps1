@@ -139,9 +139,9 @@ try {
             try {
                 $sha256 = [System.Security.Cryptography.SHA256]::Create()
                 try {
-                    $actualHash = [System.Convert]::ToHexString(
-                        $sha256.ComputeHash($payloadStream)
-                    ).ToLowerInvariant()
+                    $digestBytes = $sha256.ComputeHash($payloadStream)
+                    $actualHash = ([System.BitConverter]::ToString($digestBytes) -replace '-', '').
+                        ToLowerInvariant()
                 }
                 finally {
                     $sha256.Dispose()

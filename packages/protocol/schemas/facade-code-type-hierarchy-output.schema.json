@@ -1,0 +1,397 @@
+{
+  "$defs": {
+    "CodeLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "CodeLocation",
+      "type": "object"
+    },
+    "CodePosition": {
+      "additionalProperties": false,
+      "description": "1-based line and Unicode-scalar column (not UTF-16).",
+      "properties": {
+        "character": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Character",
+          "type": "integer"
+        },
+        "line": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "line",
+        "character"
+      ],
+      "title": "CodePosition",
+      "type": "object"
+    },
+    "CodeRange": {
+      "additionalProperties": false,
+      "description": "Half-open [start, end) range. Both endpoints are 1-based Unicode scalars.",
+      "properties": {
+        "end": {
+          "$ref": "#/$defs/CodePosition"
+        },
+        "start": {
+          "$ref": "#/$defs/CodePosition"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "CodeRange",
+      "type": "object"
+    },
+    "CodeTypeHierarchyResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_type_hierarchy",
+          "default": "code_type_hierarchy",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "root": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TypeItem"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "subtypes": {
+          "items": {
+            "$ref": "#/$defs/TypeItem"
+          },
+          "maxItems": 200,
+          "title": "Subtypes",
+          "type": "array"
+        },
+        "supertypes": {
+          "items": {
+            "$ref": "#/$defs/TypeItem"
+          },
+          "maxItems": 100,
+          "title": "Supertypes",
+          "type": "array"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeTypeHierarchyResult",
+      "type": "object"
+    },
+    "ErrorCode": {
+      "enum": [
+        "invalid_request",
+        "unauthenticated",
+        "unauthorized",
+        "resource_mismatch",
+        "scope_missing",
+        "rate_limited",
+        "project_not_found",
+        "device_offline",
+        "device_revoked",
+        "link_revoked",
+        "queue_full",
+        "deadline_exceeded",
+        "path_invalid",
+        "path_outside_project",
+        "path_changed",
+        "reparse_point_forbidden",
+        "hardlink_mutation_forbidden",
+        "file_not_found",
+        "file_too_large",
+        "encoding_unsupported",
+        "hash_mismatch",
+        "patch_invalid",
+        "patch_conflict",
+        "idempotency_conflict",
+        "approval_required",
+        "approval_denied",
+        "approval_expired",
+        "sandbox_unavailable",
+        "shell_not_found",
+        "shell_not_running",
+        "output_limit_exceeded",
+        "outcome_unknown",
+        "screenshot_unavailable",
+        "desktop_unavailable",
+        "cancelled",
+        "internal_error"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "Precision": {
+      "enum": [
+        "exact",
+        "structural",
+        "heuristic",
+        "unavailable"
+      ],
+      "title": "Precision",
+      "type": "string"
+    },
+    "ProviderKind": {
+      "enum": [
+        "lsp",
+        "graph",
+        "manifest",
+        "none"
+      ],
+      "title": "ProviderKind",
+      "type": "string"
+    },
+    "SymbolKind": {
+      "enum": [
+        "file",
+        "module",
+        "namespace",
+        "package",
+        "class",
+        "method",
+        "property",
+        "field",
+        "constructor",
+        "enum",
+        "interface",
+        "function",
+        "variable",
+        "constant",
+        "string",
+        "number",
+        "boolean",
+        "array",
+        "object",
+        "key",
+        "null",
+        "enum_member",
+        "struct",
+        "event",
+        "operator",
+        "type_parameter",
+        "unknown"
+      ],
+      "title": "SymbolKind",
+      "type": "string"
+    },
+    "ToolError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "correlation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Correlation Id"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "message": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "retryable": {
+          "default": false,
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ToolError",
+      "type": "object"
+    },
+    "TypeItem": {
+      "additionalProperties": false,
+      "properties": {
+        "depth": {
+          "default": 0,
+          "maximum": 10,
+          "minimum": 0,
+          "title": "Depth",
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/SymbolKind",
+          "default": "unknown"
+        },
+        "location": {
+          "$ref": "#/$defs/CodeLocation"
+        },
+        "name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "location"
+      ],
+      "title": "TypeItem",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-code-type-hierarchy-output.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ToolError"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "operation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Operation Id"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CodeTypeHierarchyResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "text": {
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ok",
+    "text"
+  ],
+  "title": "FacadeToolResult[CodeTypeHierarchyResult]",
+  "type": "object"
+}

@@ -1,0 +1,51 @@
+{
+  "$defs": {
+    "DiagnosticSeverity": {
+      "enum": [
+        "error",
+        "warning",
+        "information",
+        "hint"
+      ],
+      "title": "DiagnosticSeverity",
+      "type": "string"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-code-diagnostics-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "max_results": {
+      "default": 200,
+      "maximum": 1000,
+      "minimum": 1,
+      "title": "Max Results",
+      "type": "integer"
+    },
+    "path": {
+      "title": "Path",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "severity_min": {
+      "$ref": "#/$defs/DiagnosticSeverity",
+      "default": "hint"
+    }
+  },
+  "required": [
+    "project_id",
+    "purpose",
+    "path"
+  ],
+  "title": "CodeDiagnosticsFacadeInput",
+  "type": "object"
+}

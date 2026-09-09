@@ -8,6 +8,13 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
+from .code import (
+    ProjectCodeInput,
+    ProjectCodeResult,
+)
+from .code import (
+    validate_project_code as _validate_project_code,
+)
 from .desktop_action import DeviceDesktopInput, DeviceDesktopResult
 from .device_read import DeviceReadInput, DeviceReadResult
 from .envelope import TunnelEnvelope
@@ -43,6 +50,8 @@ _ADAPTERS: dict[str, TypeAdapter[Any]] = {
     "project-shell-result": TypeAdapter(ProjectShellResult),
     "project-manage-input": TypeAdapter(ProjectManageInput),
     "project-manage-result": TypeAdapter(ProjectManageResult),
+    "project-code-input": TypeAdapter(ProjectCodeInput),
+    "project-code-result": TypeAdapter(ProjectCodeResult),
     "tunnel-envelope": TypeAdapter(TunnelEnvelope),
     "tool-error": TypeAdapter(ToolError),
 }
@@ -87,3 +96,7 @@ def validate_project_shell(value: Any) -> ProjectShellInput:
 
 def validate_project_manage(value: Any) -> ProjectManageInput:
     return TypeAdapter(ProjectManageInput).validate_python(value)
+
+
+def validate_project_code(value: Any) -> ProjectCodeInput:
+    return _validate_project_code(value)

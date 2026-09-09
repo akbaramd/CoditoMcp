@@ -1,0 +1,44 @@
+{
+  "$defs": {
+    "ReindexScope": {
+      "enum": [
+        "incremental",
+        "full"
+      ],
+      "title": "ReindexScope",
+      "type": "string"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-code-reindex-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "default": "Reindex project",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "#/$defs/ReindexScope",
+      "default": "incremental"
+    },
+    "timeout_seconds": {
+      "default": 30,
+      "maximum": 30,
+      "minimum": 5,
+      "title": "Timeout Seconds",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "project_id"
+  ],
+  "title": "CodeReindexFacadeInput",
+  "type": "object"
+}

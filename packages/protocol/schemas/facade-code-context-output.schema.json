@@ -1,0 +1,885 @@
+{
+  "$defs": {
+    "CodeContextResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "definition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeDefinitionResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeDiagnosticsResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "hover": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeHoverResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "operation": {
+          "const": "code_context",
+          "default": "code_context",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "references": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeReferencesResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sections": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContextSections"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "source_lines": {
+          "anyOf": [
+            {
+              "maxLength": 65536,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Lines"
+        },
+        "source_start_line": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Start Line"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeContextResult",
+      "type": "object"
+    },
+    "CodeDefinitionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "definitions": {
+          "items": {
+            "$ref": "#/$defs/CodeLocation"
+          },
+          "maxItems": 32,
+          "title": "Definitions",
+          "type": "array"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_definition",
+          "default": "code_definition",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeDefinitionResult",
+      "type": "object"
+    },
+    "CodeDiagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code"
+        },
+        "message": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "range": {
+          "$ref": "#/$defs/CodeRange"
+        },
+        "severity": {
+          "$ref": "#/$defs/DiagnosticSeverity"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        }
+      },
+      "required": [
+        "path",
+        "range",
+        "severity",
+        "message"
+      ],
+      "title": "CodeDiagnostic",
+      "type": "object"
+    },
+    "CodeDiagnosticsResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/CodeDiagnostic"
+          },
+          "maxItems": 1000,
+          "title": "Diagnostics",
+          "type": "array"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_diagnostics",
+          "default": "code_diagnostics",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/DiagnosticState",
+          "default": "unavailable"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeDiagnosticsResult",
+      "type": "object"
+    },
+    "CodeHoverResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "content": {
+          "anyOf": [
+            {
+              "maxLength": 32768,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "enum": [
+                "markdown",
+                "plaintext"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_hover",
+          "default": "code_hover",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeHoverResult",
+      "type": "object"
+    },
+    "CodeLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "CodeLocation",
+      "type": "object"
+    },
+    "CodePosition": {
+      "additionalProperties": false,
+      "description": "1-based line and Unicode-scalar column (not UTF-16).",
+      "properties": {
+        "character": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Character",
+          "type": "integer"
+        },
+        "line": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "line",
+        "character"
+      ],
+      "title": "CodePosition",
+      "type": "object"
+    },
+    "CodeRange": {
+      "additionalProperties": false,
+      "description": "Half-open [start, end) range. Both endpoints are 1-based Unicode scalars.",
+      "properties": {
+        "end": {
+          "$ref": "#/$defs/CodePosition"
+        },
+        "start": {
+          "$ref": "#/$defs/CodePosition"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "CodeRange",
+      "type": "object"
+    },
+    "CodeReferencesResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Captured At",
+          "type": "string"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "verified",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "operation": {
+          "const": "code_references",
+          "default": "code_references",
+          "title": "Operation",
+          "type": "string"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/CodeLocation"
+          },
+          "maxItems": 1000,
+          "title": "References",
+          "type": "array"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "total_matches": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Total Matches",
+          "type": "integer"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "captured_at"
+      ],
+      "title": "CodeReferencesResult",
+      "type": "object"
+    },
+    "ContextSection": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "precision": {
+          "$ref": "#/$defs/Precision",
+          "default": "unavailable"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderKind",
+          "default": "none"
+        }
+      },
+      "required": [
+        "available"
+      ],
+      "title": "ContextSection",
+      "type": "object"
+    },
+    "ContextSections": {
+      "additionalProperties": false,
+      "properties": {
+        "definition": {
+          "$ref": "#/$defs/ContextSection"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/ContextSection"
+        },
+        "hover": {
+          "$ref": "#/$defs/ContextSection"
+        },
+        "references": {
+          "$ref": "#/$defs/ContextSection"
+        },
+        "source_lines": {
+          "$ref": "#/$defs/ContextSection"
+        }
+      },
+      "required": [
+        "definition",
+        "hover",
+        "references",
+        "diagnostics",
+        "source_lines"
+      ],
+      "title": "ContextSections",
+      "type": "object"
+    },
+    "DiagnosticSeverity": {
+      "enum": [
+        "error",
+        "warning",
+        "information",
+        "hint"
+      ],
+      "title": "DiagnosticSeverity",
+      "type": "string"
+    },
+    "DiagnosticState": {
+      "enum": [
+        "ready",
+        "stale",
+        "partial",
+        "pending",
+        "unavailable"
+      ],
+      "title": "DiagnosticState",
+      "type": "string"
+    },
+    "ErrorCode": {
+      "enum": [
+        "invalid_request",
+        "unauthenticated",
+        "unauthorized",
+        "resource_mismatch",
+        "scope_missing",
+        "rate_limited",
+        "project_not_found",
+        "device_offline",
+        "device_revoked",
+        "link_revoked",
+        "queue_full",
+        "deadline_exceeded",
+        "path_invalid",
+        "path_outside_project",
+        "path_changed",
+        "reparse_point_forbidden",
+        "hardlink_mutation_forbidden",
+        "file_not_found",
+        "file_too_large",
+        "encoding_unsupported",
+        "hash_mismatch",
+        "patch_invalid",
+        "patch_conflict",
+        "idempotency_conflict",
+        "approval_required",
+        "approval_denied",
+        "approval_expired",
+        "sandbox_unavailable",
+        "shell_not_found",
+        "shell_not_running",
+        "output_limit_exceeded",
+        "outcome_unknown",
+        "screenshot_unavailable",
+        "desktop_unavailable",
+        "cancelled",
+        "internal_error"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "Precision": {
+      "enum": [
+        "exact",
+        "structural",
+        "heuristic",
+        "unavailable"
+      ],
+      "title": "Precision",
+      "type": "string"
+    },
+    "ProviderKind": {
+      "enum": [
+        "lsp",
+        "graph",
+        "manifest",
+        "none"
+      ],
+      "title": "ProviderKind",
+      "type": "string"
+    },
+    "ToolError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "correlation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Correlation Id"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "message": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "retryable": {
+          "default": false,
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ToolError",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-code-context-output.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ToolError"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "operation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Operation Id"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CodeContextResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "text": {
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ok",
+    "text"
+  ],
+  "title": "FacadeToolResult[CodeContextResult]",
+  "type": "object"
+}

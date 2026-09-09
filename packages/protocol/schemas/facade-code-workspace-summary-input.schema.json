@@ -1,0 +1,23 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-code-workspace-summary-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "default": "Summarise workspace",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id"
+  ],
+  "title": "CodeSummaryInput",
+  "type": "object"
+}

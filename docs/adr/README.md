@@ -18,3 +18,4 @@ adds a new ADR that marks the prior one superseded.
 | [0016](0016-oauth-refresh-continuity.md) | Bounded longer OAuth continuity and safe concurrent refresh | Accepted |
 | [0017](0017-hybrid-durable-async-operations.md) | Hybrid HTTP/WSS durable async operations and approval continuation | Accepted |
 | [0018](0018-focused-tools-and-local-access.md) | Focused tool names, direct commands, three local modes and exact saved permissions | Implementation and verification |
+| [0019](0019-code-intelligence.md) | Language-neutral LSP + structural graph Code Intelligence with snapshot freshness | Accepted |

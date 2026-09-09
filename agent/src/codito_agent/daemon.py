@@ -12,7 +12,10 @@ from .code_intelligence import CodeIntelligenceManager
 from .config import AgentConfig
 from .credentials import DeviceCredentialStore
 from .db import AgentDatabase
+from .dev_servers import DevServerManager
 from .errors import AgentError
+from .frontend_playwright import PlaywrightAdapter
+from .frontend_sessions import FrontendSessionManager
 from .ipc import IpcSecretStore, NamedPipeServer, QueuedApprovalPrompt, default_pipe_name
 from .models import ProjectMode
 from .operation_gate import ProjectOperationGate
@@ -78,6 +81,21 @@ class CoditoDaemon:
             config.data_directory,
             config.data_directory / "code-intelligence" / "lsp-profiles",
         )
+        self.dev_servers = DevServerManager(
+            self.resolver,
+            self.broker,
+            config.data_directory,
+        )
+        self.frontends = FrontendSessionManager(
+            self.database,
+            self.resolver,
+            self.approvals,
+            self.dev_servers,
+            PlaywrightAdapter(),
+            config.data_directory,
+            account_id=state.account_id,
+            device_id=state.device_id,
+        )
         self.adapter = AgentProtocolAdapter(
             self.database,
             self.reads,
@@ -89,6 +107,7 @@ class CoditoDaemon:
             approvals=self.approvals,
             read_concurrency=config.read_concurrency,
             code_intelligence=self.code_intelligence,
+            frontends=self.frontends,
         )
         self.websocket = DeviceWebSocketClient(
             url=config.relay_websocket_url,
@@ -108,12 +127,14 @@ class CoditoDaemon:
         self._grant_clear_task: asyncio.Task[None] | None = None
         self._metadata_sync_task: asyncio.Task[None] | None = None
         self._notification_test_task: asyncio.Task[None] | None = None
+        self._frontend_cleanup_task: asyncio.Task[None] | None = None
         ipc_key = IpcSecretStore(config.data_directory / "ipc-key.dpapi").load_or_create()
         self.ipc = NamedPipeServer(default_pipe_name(), ipc_key, self._handle_ipc)
 
     async def run(self) -> None:
         self._loop = asyncio.get_running_loop()
         self.code_intelligence.start()
+        self.frontends.start()
         recovered = await asyncio.to_thread(self.patches.recover)
         del recovered
         self.ipc.start()
@@ -128,6 +149,7 @@ class CoditoDaemon:
                 self._metadata_sync_task.cancel()
                 tasks.append(self._metadata_sync_task)
             await asyncio.gather(*tasks, return_exceptions=True)
+            await self.frontends.close()
             await self.code_intelligence.close()
             self.approval_queue.deny_all()
             self.approvals.clear("shutdown")
@@ -167,6 +189,18 @@ class CoditoDaemon:
         deadline_at: datetime,
         reconcile_duplicate: bool,
     ) -> ToolResponse:
+        # A disconnect teardown fences native browser authority. A rapid
+        # reconnect must not start a new-epoch session while stale teardown can
+        # still close it, so frontend work crosses this cleanup barrier first.
+        if tool_name == "project_frontend":
+            while True:
+                cleanup = self._frontend_cleanup_task
+                if cleanup is None:
+                    break
+                await asyncio.shield(cleanup)
+                if self._frontend_cleanup_task is cleanup:
+                    self._frontend_cleanup_task = None
+                    break
         return await self.adapter.execute(
             tool_name,
             payload,
@@ -187,6 +221,12 @@ class CoditoDaemon:
                 self._grant_clear_task = None
         else:
             self.shells.disconnected()
+            if self._loop is not None and (
+                self._frontend_cleanup_task is None or self._frontend_cleanup_task.done()
+            ):
+                self._frontend_cleanup_task = self._loop.create_task(
+                    self.frontends.disconnected(), name="codito-frontend-disconnect"
+                )
             # A decision made in a dialog opened for a previous socket fence
             # must never authorize work after reconnect/revocation.
             self.approvals.invalidate_pending("relay_disconnect")
@@ -207,16 +247,22 @@ class CoditoDaemon:
             return
 
     def _project_metadata_changed(self) -> None:
-        if self._loop is None or not self._online:
+        loop = self._loop
+        if loop is None:
             return
 
         def schedule() -> None:
-            if self._metadata_sync_task is None or self._metadata_sync_task.done():
+            loop.create_task(
+                self.frontends.close_invalid_sessions(), name="codito-frontend-project-check"
+            )
+            if self._online and (
+                self._metadata_sync_task is None or self._metadata_sync_task.done()
+            ):
                 self._metadata_sync_task = asyncio.create_task(
                     self.websocket.sync_projects(), name="codito-project-sync"
                 )
 
-        self._loop.call_soon_threadsafe(schedule)
+        loop.call_soon_threadsafe(schedule)
 
     def _handle_ipc(self, request: dict[str, Any]) -> dict[str, Any]:
         action = request.get("action")

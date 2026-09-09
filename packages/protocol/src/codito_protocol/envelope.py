@@ -12,6 +12,7 @@ from .code import ProjectCodeInput
 from .desktop_action import DeviceDesktopInput
 from .device_read import DeviceReadInput
 from .digest import compute_action_digest
+from .frontend import ProjectFrontendInput
 from .manage import ProjectManageInput
 from .patch import ProjectApplyPatchInput
 from .read import ProjectReadInput
@@ -51,6 +52,7 @@ class OperationPayload(CoditoModel):
         "project_shell",
         "project_manage",
         "project_code",
+        "project_frontend",
         "device_read",
         "device_screenshot",
         "device_desktop",
@@ -68,6 +70,7 @@ class OperationPayload(CoditoModel):
             "project_shell": TypeAdapter(ProjectShellInput),
             "project_manage": TypeAdapter(ProjectManageInput),
             "project_code": TypeAdapter(ProjectCodeInput),
+            "project_frontend": TypeAdapter(ProjectFrontendInput),
         }
         adapters[self.tool_name].validate_python(self.input)
         return self

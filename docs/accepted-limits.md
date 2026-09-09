@@ -22,8 +22,26 @@ per call; there is no hidden conversation-wide single-project binding.
 - `full_access` deliberately grants the logged-in user's native file/shell/desktop
   authority without local prompts. Working directory is not containment. Legacy
   `native_trusted` requires explicit reselection for this new broader policy.
-- No elevation, Windows service, interactive terminal, PTY/stdin, detached process,
-  remote GUI, or offline mutation queue exists.
+- No elevation, Windows service, interactive terminal, PTY/stdin, arbitrary detached
+  process, general remote GUI, or offline mutation queue exists. ADR 0020's visible
+  agent-owned Chromium and owned dev-server tree are the only bounded exception.
+- Managed frontend profiles intentionally retain that project's cookies/local storage
+  for local-user login. They are not personal browser profiles, are never returned
+  through MCP, and remain sensitive local state below `%LOCALAPPDATA%\Codito`.
+- Exact component mapping requires development-only instrumentation and `data-*`
+  forwarding. The first adapter targets Vite JSX/TSX; other build systems and
+  components that swallow metadata report unavailable rather than exact source.
+  “Exact” validates a current in-project instrumented coordinate; it is not remote
+  attestation against project code copying a valid attribute to another DOM node.
+- Frontend snapshots return the current viewport only, no more than 500 semantic
+  elements, and a PNG below the transport cap. They are not a full DevTools export,
+  visual-diff engine, or automatic design-system review.
+- The 0.3.0 semantic registry covers the main document. Embedded frame pixels can
+  appear in the PNG, but iframe document contents are omitted from the tree and
+  targeting APIs and cause an explicit snapshot warning.
+- Managed frontend origins are HTTP loopback only in 0.3.0. HTTPS remains deferred
+  until the agent can validate an explicitly trusted local development CA; TLS
+  verification is never silently disabled.
 - A sleeping, powered-off, or disconnected device cannot stay online. Codito offers
   automatic recovery and honest offline/uncertain states, not uninterrupted access.
 - Backups are local to `/data` for MVP. They do not survive loss/compromise of that

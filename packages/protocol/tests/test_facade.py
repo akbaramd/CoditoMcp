@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from codito_protocol import (
     validate_project_apply_patch,
+    validate_project_frontend,
     validate_project_manage,
     validate_project_read,
     validate_project_shell,
@@ -17,6 +18,8 @@ PROJECT = "project_abcdefghijkl"
 KEY = "idempotency_abcdefghijkl"
 JOB = "job_abcdefghijklmnop"
 HASH = "a" * 64
+SESSION = "frontend_session_abcdef"
+SNAPSHOT = "frontend_snapshot_abcdef"
 TARGET = {"project_id": PROJECT, "purpose": "User-requested test"}
 PATCH = "*** Begin Patch\n*** Update File: a.txt\n@@\n-old\n+new\n*** End Patch\n"
 CASES = [
@@ -65,6 +68,49 @@ CASES = [
     ("screen_list", {}, "device_screenshot", "list_displays"),
     ("screenshot_capture", TARGET, "device_screenshot", "capture"),
     ("browser_open", {**TARGET, "url": "https://example.com/"}, "device_desktop", "open_browser"),
+    (
+        "frontend_session_start",
+        {**TARGET, "route": "/demos/dashboard", "idempotency_key": KEY},
+        "project_frontend",
+        "session_start",
+    ),
+    (
+        "frontend_snapshot",
+        {**TARGET, "session_id": SESSION},
+        "project_frontend",
+        "snapshot",
+    ),
+    (
+        "frontend_inspect",
+        {**TARGET, "session_id": SESSION, "snapshot_id": SNAPSHOT, "element_id": "e23"},
+        "project_frontend",
+        "inspect",
+    ),
+    (
+        "frontend_act",
+        {
+            **TARGET,
+            "session_id": SESSION,
+            "snapshot_id": SNAPSHOT,
+            "element_id": "e23",
+            "action": "hover",
+            "idempotency_key": KEY,
+        },
+        "project_frontend",
+        "act",
+    ),
+    (
+        "frontend_source",
+        {**TARGET, "session_id": SESSION, "snapshot_id": SNAPSHOT, "element_id": "e23"},
+        "project_frontend",
+        "source",
+    ),
+    (
+        "frontend_session_stop",
+        {**TARGET, "session_id": SESSION},
+        "project_frontend",
+        "session_stop",
+    ),
 ]
 
 
@@ -80,10 +126,14 @@ def test_facade_maps_to_valid_existing_wire(name, arguments, wire_name, operatio
         "project_shell": validate_project_shell,
         "device_screenshot": DeviceScreenshotInput.model_validate,
         "device_desktop": DeviceDesktopInput.model_validate,
+        "project_frontend": validate_project_frontend,
     }
     validators[wire_name](payload)
     properties = FACADE_MODELS[name].model_json_schema()["properties"]
-    assert not {"action", "operation", "approved", "trusted"}.intersection(properties)
+    forbidden_public = {"operation", "approved", "trusted"}
+    if name != "frontend_act":
+        forbidden_public.add("action")
+    assert not forbidden_public.intersection(properties)
     assert FACADE_MODELS[name].model_json_schema()["additionalProperties"] is False
 
 
@@ -98,7 +148,7 @@ def test_facade_rejects_unknown_or_authority_inputs(
 
 def test_descriptors_have_precise_scopes_static_status_and_titles():
     assert list(FACADE_MODELS) == list(FACADE_CONTRACTS)
-    assert len(FACADE_MODELS) == 31  # 15 original + 16 code intelligence
+    assert len(FACADE_MODELS) == 37  # 15 original + 6 frontend + 16 code intelligence
     for contract in FACADE_CONTRACTS.values():
         assert contract["title"]
         for field in ("invoking", "invoked"):

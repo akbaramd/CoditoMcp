@@ -21,6 +21,13 @@ from .envelope import TunnelEnvelope
 from .errors import ToolError
 from .facade import FACADE_MODELS
 from .facade_contracts import FACADE_OUTPUT_MODELS
+from .frontend import (
+    ProjectFrontendInput,
+    ProjectFrontendResult,
+)
+from .frontend import (
+    validate_project_frontend as _validate_project_frontend,
+)
 from .manage import ProjectManageInput, ProjectManageResult
 from .patch import ProjectApplyPatchInput, ProjectApplyPatchResult
 from .read import ProjectReadInput, ProjectReadResult
@@ -52,6 +59,8 @@ _ADAPTERS: dict[str, TypeAdapter[Any]] = {
     "project-manage-result": TypeAdapter(ProjectManageResult),
     "project-code-input": TypeAdapter(ProjectCodeInput),
     "project-code-result": TypeAdapter(ProjectCodeResult),
+    "project-frontend-input": TypeAdapter(ProjectFrontendInput),
+    "project-frontend-result": TypeAdapter(ProjectFrontendResult),
     "tunnel-envelope": TypeAdapter(TunnelEnvelope),
     "tool-error": TypeAdapter(ToolError),
 }
@@ -100,3 +109,7 @@ def validate_project_manage(value: Any) -> ProjectManageInput:
 
 def validate_project_code(value: Any) -> ProjectCodeInput:
     return _validate_project_code(value)
+
+
+def validate_project_frontend(value: Any) -> ProjectFrontendInput:
+    return _validate_project_frontend(value)

@@ -10,7 +10,7 @@ CODE_TOOLS = [name for name in FACADE_MODELS if name.startswith("code_")]
 
 def test_all_sixteen_tools_have_typed_outputs() -> None:
     assert len(CODE_TOOLS) == 16
-    assert len(FACADE_MODELS) == 31
+    assert len(FACADE_MODELS) == 37
     assert set(FACADE_MODELS) == set(FACADE_OUTPUT_MODELS)
 
 

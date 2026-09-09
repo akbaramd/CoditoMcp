@@ -1,0 +1,278 @@
+{
+  "$defs": {
+    "ErrorCode": {
+      "enum": [
+        "invalid_request",
+        "unauthenticated",
+        "unauthorized",
+        "resource_mismatch",
+        "scope_missing",
+        "rate_limited",
+        "project_not_found",
+        "device_offline",
+        "device_revoked",
+        "link_revoked",
+        "queue_full",
+        "deadline_exceeded",
+        "path_invalid",
+        "path_outside_project",
+        "path_changed",
+        "reparse_point_forbidden",
+        "hardlink_mutation_forbidden",
+        "file_not_found",
+        "file_too_large",
+        "encoding_unsupported",
+        "hash_mismatch",
+        "patch_invalid",
+        "patch_conflict",
+        "idempotency_conflict",
+        "approval_required",
+        "approval_denied",
+        "approval_expired",
+        "sandbox_unavailable",
+        "shell_not_found",
+        "shell_not_running",
+        "output_limit_exceeded",
+        "outcome_unknown",
+        "screenshot_unavailable",
+        "desktop_unavailable",
+        "cancelled",
+        "internal_error"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "FrontendSourceLocation": {
+      "additionalProperties": false,
+      "description": "One project-relative source location using 1-based coordinates.",
+      "properties": {
+        "character": {
+          "default": 1,
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Character",
+          "type": "integer"
+        },
+        "line": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "line"
+      ],
+      "title": "FrontendSourceLocation",
+      "type": "object"
+    },
+    "FrontendSourceReference": {
+      "additionalProperties": false,
+      "properties": {
+        "location": {
+          "$ref": "#/$defs/FrontendSourceLocation"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        }
+      },
+      "required": [
+        "location"
+      ],
+      "title": "FrontendSourceReference",
+      "type": "object"
+    },
+    "FrontendSourceResult": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "enum": [
+            "exact",
+            "heuristic",
+            "unavailable"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "consumer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrontendSourceReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "design_system": {
+          "items": {
+            "$ref": "#/$defs/FrontendSourceReference"
+          },
+          "maxItems": 32,
+          "title": "Design System",
+          "type": "array"
+        },
+        "element_id": {
+          "pattern": "^e[1-9][0-9]{0,7}$",
+          "title": "Element Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "source",
+          "default": "source",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "styles": {
+          "description": "Reserved for a future source-map-aware stylesheet adapter; empty in Codito 0.3.0.",
+          "items": {
+            "$ref": "#/$defs/FrontendSourceReference"
+          },
+          "maxItems": 0,
+          "title": "Styles",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "project_id",
+        "session_id",
+        "snapshot_id",
+        "element_id",
+        "confidence"
+      ],
+      "title": "FrontendSourceResult",
+      "type": "object"
+    },
+    "ToolError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "correlation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Correlation Id"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "message": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "retryable": {
+          "default": false,
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ToolError",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-frontend-source-output.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ToolError"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "operation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Operation Id"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FrontendSourceResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "text": {
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ok",
+    "text"
+  ],
+  "title": "FacadeToolResult[FrontendSourceResult]",
+  "type": "object"
+}

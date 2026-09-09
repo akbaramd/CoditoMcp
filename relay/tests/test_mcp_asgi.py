@@ -96,6 +96,12 @@ def test_mcp_initialization_list_and_local_tool_call(
             "screen_list",
             "screenshot_capture",
             "browser_open",
+            "frontend_session_start",
+            "frontend_snapshot",
+            "frontend_inspect",
+            "frontend_act",
+            "frontend_source",
+            "frontend_session_stop",
             "code_intelligence_status",
             "code_workspace_summary",
             "code_symbol_search",
@@ -127,9 +133,10 @@ def test_mcp_initialization_list_and_local_tool_call(
             assert result_schema["anyOf"][0]["$ref"]
             output_schema_titles.add(descriptor["outputSchema"]["title"])
             assert descriptor["inputSchema"]["additionalProperties"] is False
-            assert not {"action", "operation", "approved", "trusted"}.intersection(
-                descriptor["inputSchema"]["properties"]
-            )
+            forbidden_inputs = {"operation", "approved", "trusted"}
+            if descriptor["name"] != "frontend_act":
+                forbidden_inputs.add("action")
+            assert not forbidden_inputs.intersection(descriptor["inputSchema"]["properties"])
             for status in ("invoking", "invoked"):
                 assert 1 <= len(descriptor["_meta"][f"openai/toolInvocation/{status}"]) <= 64
         # file_patch and file_delete intentionally share the journaled patch result.

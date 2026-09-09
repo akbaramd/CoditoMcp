@@ -206,6 +206,8 @@ MCP_TOOL_SCOPES = (
     "files:write",
     "shell:execute",
     "screen:read",
+    "frontend:read",
+    "frontend:interact",
 )
 
 OAUTH2_PROVIDER = {
@@ -233,6 +235,8 @@ OAUTH2_PROVIDER = {
         "files:write": "Apply anchored file patches in registered projects",
         "shell:execute": "Run bounded commands in registered projects",
         "screen:read": "View the Windows primary display after separate local consent",
+        "frontend:read": "Inspect rendered pages in managed project browser sessions",
+        "frontend:interact": "Control managed project browser sessions",
         "device:manage": "Enroll and reconnect the signed-in user's Windows devices",
     },
     "RESOURCE_SERVER_INTROSPECTION_URL": f"{PUBLIC_BASE_URL}/o/introspect/",
@@ -288,6 +292,7 @@ DEVICE_OFFLINE_AFTER_SECONDS = int(os.getenv("DEVICE_OFFLINE_AFTER_SECONDS", "75
 DEVICE_QUEUE_LIMIT = int(os.getenv("DEVICE_QUEUE_LIMIT", "32"))
 DEVICE_STREAM_MAXLEN = int(os.getenv("DEVICE_STREAM_MAXLEN", "4096"))
 OPERATION_TIMEOUT_SECONDS = int(os.getenv("OPERATION_TIMEOUT_SECONDS", "45"))
+FRONTEND_START_TIMEOUT_SECONDS = int(os.getenv("FRONTEND_START_TIMEOUT_SECONDS", "180"))
 WS_TICKET_TTL_SECONDS = int(os.getenv("WS_TICKET_TTL_SECONDS", "60"))
 DEVICE_PROTOCOL_VERSION = 1
 

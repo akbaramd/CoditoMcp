@@ -2,7 +2,9 @@
 
 ## Status
 
-Enhancement idea. Builds on the existing `screen_list` and `screenshot_capture` capabilities.
+Partially superseded by [ADR 0020](../adr/0020-managed-frontend-inspection.md).
+Selected-display work remains here; managed web-frontend inspection is now a
+separate implemented architecture.
 
 ## Existing Capability
 
@@ -36,4 +38,6 @@ This idea must not implicitly become unrestricted desktop control. Screen readin
 
 ## Next Step
 
-Keep the current screen capture implementation as the baseline and revisit this idea when browser/process orchestration is mature enough to benefit from richer visual verification.
+Keep selected-display capture as its own consent boundary. Future work here should
+focus on bounded native-window inspection; web DOM/CSS/layout/action/source workflows
+belong to the managed frontend tools in ADR 0020.

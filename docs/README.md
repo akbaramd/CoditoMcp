@@ -16,6 +16,7 @@ same pull request.
 - [Approval policy](security/approval-policy.md)
 - [Deployment runbook](operations/deployment.md)
 - [Backup and restore runbook](operations/backup-restore.md)
+- [Managed frontend inspection guide](operations/frontend-inspection.md)
 - [MVP checklist](mvp-checklist.md)
 - [Latest verification evidence](verification/2026-09-08-mvp-scaffold.md)
 - [Accepted MVP limits](accepted-limits.md)

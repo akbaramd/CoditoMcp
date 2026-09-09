@@ -24,6 +24,7 @@ from codito_protocol import (
     validate_project_shell,
 )
 from codito_protocol.desktop_action import DeviceDesktopInput, DeviceDesktopResult
+from codito_protocol.frontend import validate_project_frontend, validate_project_frontend_result
 from codito_protocol.screenshot import DeviceScreenshotInput, ScreenshotToolResult
 from pydantic import TypeAdapter, ValidationError
 
@@ -35,6 +36,7 @@ from .desktop_actions import DesktopActionQueue, DeviceDesktopService
 from .device_read import DeviceReadService
 from .errors import AgentError
 from .file_targets import resolve_file_target
+from .frontend_sessions import FrontendSessionManager
 from .models import Project
 from .patching import PatchService
 from .project_management import ProjectManagementService
@@ -87,6 +89,7 @@ class AgentProtocolAdapter:
         approvals: ApprovalManager,
         read_concurrency: int = 4,
         code_intelligence: CodeIntelligenceManager | None = None,
+        frontends: FrontendSessionManager | None = None,
     ) -> None:
         self.database = database
         self.reads = reads
@@ -97,6 +100,7 @@ class AgentProtocolAdapter:
         self.account_id = account_id
         self.approvals = approvals
         self.code_intelligence = code_intelligence
+        self.frontends = frontends
         self.online = True
         self._read_semaphore = asyncio.Semaphore(read_concurrency)
         self._read_result: TypeAdapter[Any] = TypeAdapter(ProjectReadResult)
@@ -217,6 +221,18 @@ class AgentProtocolAdapter:
                     deadline_at=deadline_at,
                 )
                 validated = self._shell_result.validate_python(response.structured)
+            elif tool_name == "project_frontend":
+                if self.frontends is None:
+                    raise AgentError("invalid_request", "Managed frontend support is unavailable")
+                frontend_request = validate_project_frontend(payload)
+                response = await self.frontends.execute(
+                    frontend_request,
+                    grant_id=grant_id,
+                    link_id=link_id,
+                    connection_epoch=connection_epoch,
+                    deadline_at=deadline_at,
+                )
+                validated = validate_project_frontend_result(response.structured)
             elif tool_name == "project_manage":
                 if self.management is None:
                     raise AgentError("invalid_request", "Project management is unavailable")

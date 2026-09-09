@@ -1,6 +1,6 @@
 # Executable MVP checklist
 
-Last updated: 2026-09-08. A checked item needs reviewable evidence from the exact
+Last updated: 2026-09-09. A checked item needs reviewable evidence from the exact
 release commit/artifact. “Code exists” is insufficient for a security control.
 
 ## Repository and documentation
@@ -27,11 +27,11 @@ git status --short
 
 ## Protocol and MCP surface
 
-- [x] Shared Pydantic models define `project_read`, `project_apply_patch`,
-  `project_shell`, and locally governed `project_manage`; unknown fields and basic unsafe paths
-  are rejected; deterministic JSON Schemas can be exported.
+- [x] Shared Pydantic models define every canonical hidden wire operation and its
+  focused public facades; unknown fields and basic unsafe paths are rejected;
+  deterministic JSON Schemas can be exported.
 - [ ] Runtime tool schemas/annotations/security schemes byte-for-byte match the
-  shared contracts and MCP Inspector sees exactly four tools.
+  shared contracts and MCP Inspector sees exactly 37 public tools.
 - [ ] Structured success + concise text and every typed error/retry rule are tested.
 - [ ] Continuation tokens are signed, binding-preserving, expiring, and bounded.
 - [ ] Cross-version and malformed/oversized envelope corpus fails closed.
@@ -96,14 +96,47 @@ git diff --exit-code -- packages/protocol/schemas
   mismatch, expiry, spoofing, and lock/sleep/logout/restart/revoke/disconnect clear.
 - [ ] Native approval is one-shot; native trusted opt-in shows the full authority
   warning; no model/relay input can choose mode or approval.
-- [ ] No elevation, GUI, PTY/stdin, detach, or process breakaway is possible through
-  the v1 API.
+- [ ] No elevation, arbitrary GUI, PTY/stdin, detach, or process breakaway is
+  possible; ADR 0020's managed Chromium/dev-server exception remains bounded.
 
 Evidence on Windows 11 x64:
 
 ```powershell
 dotnet test agent/broker/Codito.Broker.sln --configuration Release
 uv run --package codito-agent pytest agent/tests -m windows
+```
+
+## Managed frontend inspection
+
+- [ ] The release artifact contains the Playwright-matched Chromium revision once,
+  starts it without runtime download, and never reuses a personal browser profile.
+- [ ] `frontend_session_start` uses only locally resolved config, reuses a ready
+  loopback server without owning it, or starts/stops one broker-contained process
+  tree with bounded readiness/output/lifetime.
+- [ ] Snapshot returns a viewport PNG plus no more than 500 semantic elements;
+  durable relay state omits pixels and console/network fields pass redaction/caps.
+- [ ] Element IDs fail across the wrong session/snapshot, action, HMR, navigation,
+  connection epoch, grant/link/project/root, revocation and expiry.
+- [ ] Inspect returns real CDP DOM/box/computed/matched/a11y evidence and coordinate
+  targeting never escapes the current viewport.
+- [ ] Act covers click/hover/focus/fill/allowlisted press/bounded scroll/select and
+  rejects password/file/credential fill, raw selector/JS/CDP, popup, download and
+  external top-level navigation paths.
+- [ ] The development-only Vite transform is absent from production output;
+  malformed, traversing, out-of-range or stale source attributes cannot produce
+  exact mappings. Copied valid metadata remains a documented cooperative-channel
+  risk that requires file and code-context review before mutation.
+- [ ] The `/demos/dashboard` acceptance route completes start → screenshot → find
+  “Add user” → inspect → hover → source → patch/HMR → fresh screenshot → stop through
+  a real released relay and Windows agent.
+
+Evidence on Windows 11 x64:
+
+```powershell
+uv run --package codito-agent pytest agent/tests -m "not e2e"
+pnpm --dir packages/vite-plugin-inspector install --frozen-lockfile
+pnpm --dir packages/vite-plugin-inspector test
+./agent/packaging/scripts/Build-WindowsDevPackage.ps1 -Version 0.3.0
 ```
 
 ## Observability and operations

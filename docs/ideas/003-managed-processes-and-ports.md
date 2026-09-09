@@ -2,7 +2,8 @@
 
 ## Status
 
-High-priority idea for the Codito development runtime.
+Partially realized by ADR 0020 for frontend dev-server ownership. General-purpose
+process and port tools remain an enhancement idea.
 
 ## Problem
 

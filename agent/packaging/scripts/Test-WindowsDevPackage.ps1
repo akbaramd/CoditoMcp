@@ -69,6 +69,9 @@ try {
                 $segments -contains '..' -or $segments -contains '.') {
                 throw "Unsafe ZIP entry path: $($entry.FullName)"
             }
+            if ($relativePath -match '^browsers/(?:\.links(?:/|$)|__dirlock(?:/|$))') {
+                throw "Playwright build-cache metadata leaked into the package: $relativePath"
+            }
             # ZIP stores a timezone-free DOS timestamp. Comparing UtcDateTime would
             # shift the value on hosts outside UTC (for example Asia/Tehran).
             if ($entry.LastWriteTime.DateTime -ne [datetime]::new(
@@ -88,11 +91,23 @@ try {
         foreach ($requiredPath in @(
             'cli/codito-agent.exe',
             'daemon/codito-agent-daemon.exe',
+            'daemon/_internal/playwright/driver/node.exe',
+            'daemon/_internal/playwright/driver/package/cli.js',
             'tray/codito-agent-tray.exe',
             'broker/Codito.Broker.exe',
+            'browsers',
             'install-windows.ps1',
             'SHA256SUMS'
         )) {
+            if ($requiredPath -eq 'browsers') {
+                $hasChromium = $entryByRelativePath.Keys | Where-Object {
+                    $_ -match '^browsers/chromium-[^/]+/chrome-win64/chrome\.exe$'
+                } | Select-Object -First 1
+                if (-not $hasChromium) {
+                    throw 'Packaged Playwright Chromium executable is missing.'
+                }
+                continue
+            }
             if (-not $entryByRelativePath.ContainsKey($requiredPath)) {
                 throw "Required package file is missing: $requiredPath"
             }

@@ -304,6 +304,7 @@ class Operation(models.Model):
         SHELL = "project_shell", "Project shell"
         MANAGE = "project_manage", "Project management"
         CODE = "project_code", "Project code intelligence"
+        FRONTEND = "project_frontend", "Project frontend session"
         DEVICE_READ = "device_read", "Approved device read"
         DEVICE_SCREENSHOT = "device_screenshot", "Approved screenshot"
         DEVICE_DESKTOP = "device_desktop", "Approved desktop action"

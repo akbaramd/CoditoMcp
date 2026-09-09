@@ -39,7 +39,7 @@ def test_legacy_wire_contracts_remain_available_with_project_code() -> None:
         "device_desktop",
     }
     assert legacy.issubset(TOOL_CONTRACTS)
-    assert set(TOOL_CONTRACTS) == {*legacy, "project_code"}
+    assert set(TOOL_CONTRACTS) == {*legacy, "project_code", "project_frontend"}
     assert TOOL_CONTRACTS["project_code"]["securitySchemes"][0]["scopes"] == [
         "projects:read",
         "files:read",

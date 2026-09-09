@@ -1,6 +1,6 @@
 # Codito
 
-## Native Windows work and screenshots
+## Native Windows work, screenshots, and frontend inspection
 
 Choose **Project access** locally to use installed tools (`uv`, `.NET`, Git,
 SSH, Docker) for prompt-free project work. Outside cwd / declared external paths
@@ -27,11 +27,21 @@ screenshot_capture(project_id="<project-id>", display="screen_<id>", purpose="In
 Browser opening requires `shell:execute` and separate one-shot Windows approval,
 unless **Full device access** was explicitly selected for the calling project.
 It submits the URL to Firefox or the default browser; it cannot confirm page load.
-There is no mouse/keyboard control, elevation or secure-desktop capture. Notifications
+That ordinary-browser path has no mouse/keyboard control. Neither browser path adds
+elevation or secure-desktop capture. Notifications
 do not automatically bring Codito to the foreground. See the
 [tool contracts](docs/protocol/tools.md),
 [consent decision](docs/adr/0015-selected-display-and-browser-consent.md), and
 [acceptance guide](docs/operations/2026-09-08-approval-and-screen-release.md).
+
+For local web UI work, Codito uses a separate agent-owned browser. The
+`frontend_session_start`, `frontend_snapshot`, `frontend_inspect`, `frontend_act`,
+`frontend_source`, and `frontend_session_stop` tools can start or reuse the
+configured loopback dev server, return viewport pixels plus semantic/CSS/a11y
+evidence, exercise bounded states such as hover/focus, and validate a DOM node's
+project-relative TSX source. They never reuse the user's normal browser profile or
+expose localhost through the relay. See the
+[frontend guide](docs/operations/frontend-inspection.md).
 
 Codito is a self-hosted, OAuth-protected bridge that lets ChatGPT work with
 registered projects on a user's Windows device, with Windows-approved access
@@ -49,19 +59,22 @@ WebSocket tunnel.
 agent/              Windows per-user daemon, tray UI, and .NET security broker
 relay/              Django/OAuth/MCP/ASGI relay
 packages/protocol/  Shared Pydantic wire contracts and JSON Schemas
+packages/vite-plugin-inspector/  Development-only JSX/TSX source metadata
 deploy/             Immutable container and Compose deployment assets
 docs/               Decisions, research, threat model, and runbooks
 ```
 
-The public catalog contains 31 focused tools: project list/add/rename/remove,
+The public catalog contains 37 focused tools: project list/add/rename/remove,
 directory listing, `file_read`, `text_search`, `file_patch`, `file_delete`,
 `execute_shell`, `shell_status`, `shell_cancel`, `screen_list`,
-`screenshot_capture`, `browser_open`, plus 16 language-neutral `code_*` tools for
+`screenshot_capture`, `browser_open`, six managed `frontend_*` tools, plus 16
+language-neutral `code_*` tools for
 workspace summary, symbols, definitions/references, diagnostics/hover, context,
 hierarchies, impact/architecture/dependencies/related tests and explicit reindex. Old
 names remain hidden compatibility aliases. See the
 [tool contract](docs/protocol/tools.md) and
-[Code Intelligence guide](docs/operations/code-intelligence.md).
+[Code Intelligence guide](docs/operations/code-intelligence.md), and
+[frontend inspection guide](docs/operations/frontend-inspection.md).
 
 `execute_shell` takes the full `command` string, `executor` (`powershell` or `cmd`),
 `timeout_seconds`, project ID, cwd, purpose and idempotency key. It does not need an

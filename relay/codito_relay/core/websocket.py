@@ -135,11 +135,41 @@ def _validate_operation_binding(
 @transaction.atomic
 def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelope) -> Operation:
     operation = _validate_operation_binding(connection, envelope)
-    if envelope.kind is MessageKind.OPERATION_RESULT and operation.kind == "device_desktop":
-        _normalize_desktop_terminal(operation, envelope)
+    from .dispatch import _is_replay_unsafe
+
+    operation_input = operation.request_payload.get("input", {})
+    replay_unsafe = isinstance(operation_input, dict) and _is_replay_unsafe(
+        operation.kind, operation_input
+    )
+    terminal_statuses = {
+        Operation.Status.SUCCEEDED,
+        Operation.Status.FAILED,
+        Operation.Status.CANCELLED,
+        Operation.Status.EXPIRED,
+        Operation.Status.OUTCOME_UNKNOWN,
+    }
+    stale_sequence = (
+        operation.last_device_sequence_epoch == connection.epoch
+        and envelope.sequence <= operation.last_device_sequence
+    )
+    if stale_sequence:
+        # Permit only an exact re-delivery of an already persisted terminal so
+        # the receive loop can ACK it again. A lower/equal sequence must never
+        # terminalize an operation that is still running or publish a fresh
+        # result to the relay waiter.
+        if operation.status in terminal_statuses and envelope.kind is MessageKind.OPERATION_RESULT:
+            # Device terminals are normalized before first persistence. Apply the
+            # same deterministic normalization to a replay before comparing it,
+            # otherwise an invalid replay could never equal its durable failure.
+            _normalize_operation_terminal(operation, envelope, replay_unsafe=replay_unsafe)
+            if operation.result == durable_tool_result(envelope.payload):
+                return operation
+        raise ValueError("stale operation lifecycle sequence")
+    if envelope.kind is MessageKind.OPERATION_RESULT:
+        _normalize_operation_terminal(operation, envelope, replay_unsafe=replay_unsafe)
     device_error = envelope.payload.get("error")
-    desktop_unknown = (
-        operation.kind == "device_desktop"
+    uncertain_unknown = (
+        replay_unsafe
         and isinstance(device_error, dict)
         and device_error.get("code") == "outcome_unknown"
     )
@@ -148,7 +178,7 @@ def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelop
         MessageKind.OPERATION_STARTED: Operation.Status.RUNNING,
         MessageKind.OPERATION_RESULT: (
             Operation.Status.OUTCOME_UNKNOWN
-            if desktop_unknown
+            if uncertain_unknown
             else Operation.Status.FAILED
             if envelope.payload.get("ok") is False or envelope.payload.get("error")
             else Operation.Status.SUCCEEDED
@@ -156,13 +186,6 @@ def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelop
         MessageKind.TERMINAL_ACK: operation.status,
     }
     status = states.get(envelope.kind)
-    terminal_statuses = {
-        Operation.Status.SUCCEEDED,
-        Operation.Status.FAILED,
-        Operation.Status.CANCELLED,
-        Operation.Status.EXPIRED,
-        Operation.Status.OUTCOME_UNKNOWN,
-    }
     if operation.status in terminal_statuses:
         if envelope.kind is MessageKind.OPERATION_RESULT:
             if operation.result == durable_tool_result(envelope.payload):
@@ -174,17 +197,21 @@ def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelop
                 "relay_unavailable",
             }
             if operation.result is None and operation.error_code in reconcilable_errors:
-                from .dispatch import ToolDispatchError, _validate_device_result
+                from .dispatch import ToolDispatchError, _validate_device_result_for_request
 
                 try:
-                    validated_payload = _validate_device_result(operation.kind, envelope.payload)
-                except ToolDispatchError as exc:
+                    if not isinstance(operation_input, dict):
+                        raise ValueError("operation input is unavailable")
+                    validated_payload = _validate_device_result_for_request(
+                        operation.kind, operation_input, envelope.payload
+                    )
+                except (ToolDispatchError, ValueError) as exc:
                     raise ValueError("late terminal failed its tool result contract") from exc
                 prior_status = operation.status
                 prior_error = operation.error_code
                 operation.status = (
                     Operation.Status.OUTCOME_UNKNOWN
-                    if desktop_unknown
+                    if uncertain_unknown
                     else Operation.Status.FAILED
                     if validated_payload.get("ok") is False or validated_payload.get("error")
                     else Operation.Status.SUCCEEDED
@@ -228,12 +255,6 @@ def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelop
             raise ValueError("terminal result substitution")
         return operation
 
-    if (
-        operation.last_device_sequence_epoch == connection.epoch
-        and envelope.sequence <= operation.last_device_sequence
-    ):
-        return operation
-
     state_rank: dict[str, int] = {
         Operation.Status.ACCEPTED: 0,
         Operation.Status.DISPATCHED: 1,
@@ -247,12 +268,9 @@ def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelop
         operation.status = status
     if envelope.kind is MessageKind.OPERATION_RESULT:
         operation.result = durable_tool_result(envelope.payload)
-        if operation.kind == "device_desktop":
-            operation.error_code = (
-                str(device_error.get("code", "device_error"))
-                if isinstance(device_error, dict)
-                else ""
-            )
+        operation.error_code = (
+            str(device_error.get("code", "device_error")) if isinstance(device_error, dict) else ""
+        )
     operation.connection_epoch = connection.epoch
     operation.last_device_sequence = envelope.sequence
     operation.last_device_sequence_epoch = connection.epoch
@@ -270,29 +288,42 @@ def _record_device_message(connection: DeviceConnection, envelope: TunnelEnvelop
     return operation
 
 
-def _normalize_desktop_terminal(operation: Operation, envelope: TunnelEnvelope) -> None:
-    """Never persist/publish success for an invalid possibly-executed browser action."""
-    from codito_protocol.desktop_action import DeviceDesktopInput
+def _normalize_operation_terminal(
+    operation: Operation, envelope: TunnelEnvelope, *, replay_unsafe: bool
+) -> None:
+    """Validate and request-bind every terminal before persistence or publication."""
 
-    from .dispatch import ToolDispatchError, _validate_device_result
+    from .dispatch import (
+        ToolDispatchError,
+        _uncertainty_message,
+        _validate_device_result_for_request,
+    )
 
+    operation_input = operation.request_payload.get("input", {})
     try:
-        payload = _validate_device_result(operation.kind, envelope.payload)
-        if payload.get("ok") is True:
-            expected = DeviceDesktopInput.model_validate(operation.request_payload["input"])
-            result = payload["result"]
-            if result["url"] != expected.url or result["browser"] != expected.browser:
-                raise ValueError("Browser result differs from approved request")
-    except (ToolDispatchError, ValueError, KeyError, TypeError):
-        payload = _failure_payload(
-            ErrorCode.OUTCOME_UNKNOWN,
-            "The browser returned an invalid result and may have opened; "
-            "do not automatically retry",
-            str(operation.correlation_id),
-            retryable=False,
+        if not isinstance(operation_input, dict):
+            raise ValueError("operation input is unavailable")
+        payload = _validate_device_result_for_request(
+            operation.kind, operation_input, envelope.payload
         )
+    except (ToolDispatchError, ValueError, KeyError, TypeError):
+        if replay_unsafe:
+            payload = _failure_payload(
+                ErrorCode.OUTCOME_UNKNOWN,
+                f"The device returned an invalid result. "
+                f"{_uncertainty_message(operation.kind, operation_input)}",
+                str(operation.correlation_id),
+                retryable=False,
+            )
+        else:
+            payload = _failure_payload(
+                ErrorCode.INTERNAL_ERROR,
+                "The device returned an invalid or request-mismatched result; it was discarded",
+                str(operation.correlation_id),
+                retryable=False,
+            )
     # The receive loop subsequently publishes this same envelope to Redis. Mutating
-    # it here keeps the durable state, MCP reply and terminal ACK consistent.
+    # it here keeps durable state, the MCP reply, and terminal ACK consistent.
     envelope.payload = payload
 
 
@@ -367,6 +398,12 @@ def _prepare_operation_dispatch(
     terminal_payload: dict[str, Any] | None = None
     terminal_status: str | None = None
     terminal_error = ""
+    from .dispatch import _is_replay_unsafe, _uncertainty_message
+
+    operation_input = operation.request_payload.get("input", {})
+    replay_unsafe = isinstance(operation_input, dict) and _is_replay_unsafe(
+        operation.kind, operation_input
+    )
     if operation.deadline_at <= now:
         terminal_status = Operation.Status.EXPIRED
         terminal_error = "operation_timeout"
@@ -384,12 +421,12 @@ def _prepare_operation_dispatch(
             "The OAuth device link was revoked before delivery",
             str(operation.correlation_id),
         )
-    elif operation.delivery_attempted_at is not None and operation.kind == Operation.Kind.SHELL:
+    elif operation.delivery_attempted_at is not None and replay_unsafe:
         terminal_status = Operation.Status.OUTCOME_UNKNOWN
         terminal_error = "outcome_unknown"
         terminal_payload = _failure_payload(
             ErrorCode.OUTCOME_UNKNOWN,
-            "The relay disconnected after shell delivery became uncertain; it was not replayed",
+            _uncertainty_message(operation.kind, operation_input),
             str(operation.correlation_id),
         )
     if terminal_payload is not None and terminal_status is not None:

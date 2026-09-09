@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from codito_agent.config import AgentConfig
+from codito_agent.read_tools import ToolResponse
 from codito_agent.relay_client import RelayTokenState
 
 
@@ -84,3 +88,43 @@ def test_daemon_construction_wires_dynamic_link_without_stale_constructor_argume
     )
     assert detail["ok"] is True
     assert detail["activity"]["request"]["command"] == "whoami"
+
+
+@pytest.mark.asyncio
+async def test_frontend_operation_waits_for_disconnect_cleanup_barrier() -> None:
+    from codito_agent.daemon import CoditoDaemon
+
+    cleanup_started = asyncio.Event()
+    finish_cleanup = asyncio.Event()
+    adapter_called = asyncio.Event()
+
+    async def cleanup() -> None:
+        cleanup_started.set()
+        await finish_cleanup.wait()
+
+    class Adapter:
+        async def execute(self, *_args, **_kwargs):
+            adapter_called.set()
+            return ToolResponse({}, "done")
+
+    daemon = CoditoDaemon.__new__(CoditoDaemon)
+    daemon.adapter = Adapter()
+    daemon._frontend_cleanup_task = asyncio.create_task(cleanup())
+    await cleanup_started.wait()
+    operation = asyncio.create_task(
+        daemon._execute_operation(
+            "project_frontend",
+            {},
+            "grant",
+            "link",
+            2,
+            datetime.now(UTC) + timedelta(seconds=30),
+            False,
+        )
+    )
+    await asyncio.sleep(0)
+    assert not adapter_called.is_set()
+    finish_cleanup.set()
+    await operation
+    assert adapter_called.is_set()
+    assert daemon._frontend_cleanup_task is None

@@ -86,6 +86,45 @@ sequenceDiagram
   A->>W2: Resume journal/output state for epoch 42
 ```
 
+## Managed frontend inspection loop
+
+```mermaid
+sequenceDiagram
+  participant GPT as MCP client / ChatGPT
+  participant Relay
+  participant Agent
+  participant Dev as Loopback dev server
+  participant Browser as Codito Chromium
+  GPT->>Relay: frontend_session_start(project, route, viewport)
+  Relay->>Relay: Verify project + frontend:interact + shell:execute
+  Relay->>Agent: project_frontend/session_start
+  Agent->>Agent: Resolve local config + approval/bindings
+  alt configured origin is ready
+    Agent->>Dev: Reuse; do not claim ownership
+  else not ready
+    Agent->>Dev: Start broker-contained process tree
+    Agent->>Dev: Poll bounded HTTP readiness
+  end
+  Agent->>Browser: Launch project profile + relative route
+  Agent-->>GPT: session_id + sanitized URL
+  GPT->>Relay: frontend_snapshot(session)
+  Agent->>Browser: Viewport PNG + DOMSnapshot + AX tree
+  Agent-->>GPT: MCP image + snapshot_id + e1..eN
+  GPT->>Relay: inspect/source/act(snapshot_id, eN)
+  Agent->>Agent: Recheck grant/link/project/root/epoch/generation
+  Agent->>Browser: Bounded CDP query or interaction
+  Agent-->>GPT: Evidence or completed + snapshot invalidated
+  GPT->>Relay: frontend_session_stop(session)
+  Agent->>Browser: Close context
+  opt server was agent-owned and unreferenced
+    Agent->>Dev: Terminate contained process tree
+  end
+```
+
+Navigation, HMR, every action, disconnect, expiry, or local security change makes
+an old snapshot registry unusable. Start and act are never automatically replayed
+after an uncertain outcome.
+
 ## Approval
 
 ```mermaid

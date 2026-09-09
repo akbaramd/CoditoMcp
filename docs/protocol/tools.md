@@ -1,6 +1,6 @@
 # MCP tool contracts
 
-Updated 2026-09-09. The public catalog contains 31 focused tools. Existing
+Updated 2026-09-09. The public catalog contains 37 focused tools. Existing
 authenticated legacy names remain callable for cached clients but are not listed.
 See [ADR 0018](../adr/0018-focused-tools-and-local-access.md).
 
@@ -21,6 +21,12 @@ See [ADR 0018](../adr/0018-focused-tools-and-local-access.md).
 | `screen_list` | List display metadata without capturing pixels |
 | `screenshot_capture` | Capture the selected display and return MCP image content |
 | `browser_open` | Open an HTTP/HTTPS URL in default browser or Firefox |
+| `frontend_session_start` | Start/reuse a loopback dev server and open agent-owned Chromium |
+| `frontend_snapshot` | Return a viewport PNG plus a snapshot-bound semantic UI tree |
+| `frontend_inspect` | Inspect DOM identity, layout, selected CSS rules, and accessibility |
+| `frontend_act` | Perform one bounded action on a snapshot-bound semantic element |
+| `frontend_source` | Resolve validated project-relative consumer/DOM-host JSX evidence |
+| `frontend_session_stop` | Close the browser and release agent-owned dev-server resources |
 | `code_intelligence_status` | Report provider capabilities, setup and current analysis state |
 | `code_workspace_summary` | Summarize languages, frameworks, manifests and build roots |
 | `code_symbol_search` | Search bounded document/workspace symbols |
@@ -59,6 +65,7 @@ so.
 | Continue or stop an existing process | `shell_status` / `shell_cancel` | Resubmitting `execute_shell` |
 | Inspect a Windows display | `screen_list` / `screenshot_capture` | Shell screenshot utilities |
 | Open an HTTP/HTTPS page | `browser_open` | Shell process launch |
+| Inspect or interact with a local web UI | Matching `frontend_*` tool | `browser_open`, desktop screenshots, raw selectors, or shell browser automation |
 
 The MCP initialize response carries the same routing rules plus concrete examples.
 Each tool and every public input property has a concise description explaining
@@ -216,10 +223,58 @@ It uses `shell:execute` OAuth scope and separate local browser approval unless
 Full device access was explicitly selected. It reports submission to Windows,
 not proof the page loaded.
 
+## Managed frontend browser
+
+The six `frontend_*` tools route through hidden `project_frontend` but remain
+action-specific in the public catalog. They run Playwright/Chromium on the Windows
+agent next to the registered project and its loopback dev server; localhost is not
+published by the relay.
+
+`frontend_session_start` takes `project_id`, `purpose`, an app-relative `route`, a
+320–2048 by 240–2048 `viewport`, a 5–120 second readiness timeout, and an
+`idempotency_key`. It requires `projects:read + frontend:interact + shell:execute`.
+Command, cwd, base URL, browser executable, profile, and port are local
+configuration—not remote parameters. One project has at most one active session.
+
+`frontend_snapshot` returns a PNG as MCP ImageContent plus `snapshot_id`, sanitized
+URL/title, viewport, up to 500 bounded elements (`e1`, `e2`, …), console entries,
+failed HTTP/network summaries, truncation state, and warnings. Each element includes
+tag, role/name/text, viewport box, visibility, enabled/focus state, classes, and an
+optional semantic parent. Image bytes are removed from structured results; durable
+history keeps only a non-replayable image marker.
+
+`frontend_inspect` requires the current `snapshot_id` and exactly one target:
+`element_id` or viewport `x`/`y`. It returns the resolved element, selected computed
+styles, matched declarations and accessibility fields. The API has no CSS selector,
+XPath, JavaScript, or raw CDP input.
+
+`frontend_act` requires the current snapshot/element, an idempotency key and exactly
+the fields appropriate to `click`, `hover`, `focus`, `fill`, `press`, `scroll`, or
+`select`. Press uses an enumerated key; scroll is bounded; password, file and
+credential-like inputs are refused. Completion invalidates the snapshot. Start and
+act are replay-unsafe after an uncertain device result; clients must not blindly
+resubmit them.
+
+`frontend_source` returns only validated project-relative locations with
+`exact`, `heuristic`, or `unavailable` confidence. Exact React/ODS consumer mapping
+uses development-only metadata from `@codito/vite-plugin-inspector`; the agent does
+not trust the page attribute until normal project path and coordinate checks pass.
+The v0.3.0 adapter maps consumer and DOM-host JSX only; its `styles` field is reserved
+and empty. Matched/computed CSS values are still available through
+`frontend_inspect`, while stylesheet/token source maps remain future work. Source
+lookup requires `files:read` in addition to frontend read scopes.
+
+`frontend_session_stop` is idempotent. All target calls are bound to account, grant,
+link, device, project/root, connection epoch, and local security generation. Session
+expiry, HMR/navigation staleness, revocation, disconnect and shutdown fail closed.
+See [ADR 0020](../adr/0020-managed-frontend-inspection.md) and the
+[operations guide](../operations/frontend-inspection.md).
+
 ## Compatibility
 
 Hidden aliases: `project_read`, `project_apply_patch`, `project_shell`,
-`project_manage`, `device_read`, `device_screenshot`, `device_desktop`.
+`project_manage`, `project_frontend`, `device_read`, `device_screenshot`,
+`device_desktop`.
 They use the same authorization and execution services. Unanchored legacy device
 operations keep their existing separate approval flow and never inherit a
 project's Full access setting.

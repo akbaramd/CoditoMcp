@@ -389,6 +389,93 @@ def test_late_lifecycle_message_cannot_downgrade_terminal_operation(device, link
 
 
 @pytest.mark.django_db(transaction=True)
+def test_lower_sequence_result_cannot_terminalize_running_operation(device, link) -> None:  # type: ignore[no-untyped-def]
+    device.connection_epoch = 22
+    device.save(update_fields=["connection_epoch"])
+    project = Project.objects.create(
+        account=device.account,
+        device=device,
+        title="Ordered terminal",
+        root_fingerprint="1" * 64,
+    )
+    request_payload = {
+        "tool_name": "project_read",
+        "input": {"operation": "read_file", "project_id": project.pk, "path": "README.md"},
+    }
+    operation = Operation.objects.create(
+        account=device.account,
+        oauth_grant_id="grant_0123456789abcdef",
+        device=device,
+        device_link=link,
+        project=project,
+        kind=Operation.Kind.READ,
+        status=Operation.Status.RUNNING,
+        connection_epoch=22,
+        action_digest=compute_action_digest(request_payload),
+        request_digest="1" * 64,
+        request_payload=request_payload,
+        deadline_at=timezone.now() + timedelta(minutes=1),
+        last_device_sequence=10,
+        last_device_sequence_epoch=22,
+    )
+    connection = DeviceConnection(
+        device_id=str(device.pk), account_wire_id=f"account_{device.account_id:016x}", epoch=22
+    )
+    result_payload = {
+        "ok": True,
+        "text": "Read complete",
+        "result": {
+            "operation": "read_file",
+            "project_id": project.pk,
+            "path": "README.md",
+            "numbered_text": "1: hello",
+            "encoding": "utf-8",
+            "newline": "none",
+            "size": 5,
+            "sha256": "0" * 64,
+            "first_line": 1,
+            "last_line": 1,
+            "truncated": False,
+        },
+    }
+
+    def terminal(sequence: int, message_id: str) -> TunnelEnvelope:
+        return TunnelEnvelope(
+            kind=MessageKind.OPERATION_RESULT,
+            message_id=message_id,
+            correlation_id=str(operation.correlation_id),
+            sequence=sequence,
+            connection_epoch=22,
+            bindings=TunnelBindings(
+                account_id=connection.account_wire_id,
+                device_id=str(device.pk),
+                link_id=str(link.link_id),
+                grant_id=operation.oauth_grant_id,
+                project_id=project.pk,
+            ),
+            action_digest=operation.action_digest,
+            payload=result_payload,
+        )
+
+    with pytest.raises(ValueError, match="stale operation lifecycle sequence"):
+        _record_device_message(connection, terminal(9, "lower_sequence_terminal_01"))
+    operation.refresh_from_db()
+    assert operation.status == Operation.Status.RUNNING
+    assert operation.result is None
+    assert operation.last_device_sequence == 10
+
+    persisted = _record_device_message(connection, terminal(11, "ordered_terminal_000001"))
+    operation.refresh_from_db()
+    assert operation.status == Operation.Status.SUCCEEDED
+    assert operation.last_device_sequence == 11
+    # An exact duplicate at the same sequence remains ACK-able and immutable.
+    assert (
+        _record_device_message(connection, terminal(11, "ordered_terminal_duplicate")).pk
+        == persisted.pk
+    )
+
+
+@pytest.mark.django_db(transaction=True)
 def test_late_authoritative_result_reconciles_no_result_timeout_once(device, link) -> None:  # type: ignore[no-untyped-def]
     device.connection_epoch = 31
     device.save(update_fields=["connection_epoch"])

@@ -3,6 +3,8 @@
 import os
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
 
 ROOT = Path(SPECPATH).resolve().parents[2]
 ENTRYPOINT = ROOT / "agent" / "packaging" / "entrypoints" / "daemon.py"
@@ -28,8 +30,11 @@ a = Analysis(
     [str(ENTRYPOINT)],
     pathex=PATHEX,
     binaries=[],
-    datas=[],
-    hiddenimports=[],
+    # Playwright loads its bundled Node driver and transport modules lazily. The
+    # browser itself is staged once beside the frozen applications by the build
+    # script so it is not duplicated across the CLI, daemon, and tray payloads.
+    datas=collect_data_files("playwright"),
+    hiddenimports=collect_submodules("playwright"),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

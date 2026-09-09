@@ -1,0 +1,445 @@
+{
+  "$defs": {
+    "FrontendActInput": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/FrontendAction"
+        },
+        "delta_x": {
+          "anyOf": [
+            {
+              "maximum": 2048,
+              "minimum": -2048,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delta X"
+        },
+        "delta_y": {
+          "anyOf": [
+            {
+              "maximum": 2048,
+              "minimum": -2048,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delta Y"
+        },
+        "element_id": {
+          "pattern": "^e[1-9][0-9]{0,7}$",
+          "title": "Element Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrontendKey"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "operation": {
+          "const": "act",
+          "default": "act",
+          "title": "Operation",
+          "type": "string"
+        },
+        "option": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Option"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 16384,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        }
+      },
+      "required": [
+        "project_id",
+        "session_id",
+        "purpose",
+        "snapshot_id",
+        "element_id",
+        "action",
+        "idempotency_key"
+      ],
+      "title": "FrontendActInput",
+      "type": "object"
+    },
+    "FrontendAction": {
+      "enum": [
+        "click",
+        "hover",
+        "focus",
+        "fill",
+        "press",
+        "scroll",
+        "select"
+      ],
+      "title": "FrontendAction",
+      "type": "string"
+    },
+    "FrontendInspectInput": {
+      "additionalProperties": false,
+      "properties": {
+        "element_id": {
+          "anyOf": [
+            {
+              "pattern": "^e[1-9][0-9]{0,7}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Element Id"
+        },
+        "operation": {
+          "const": "inspect",
+          "default": "inspect",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "maximum": 2047,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "maximum": 2047,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Y"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "project_id",
+        "session_id",
+        "purpose"
+      ],
+      "title": "FrontendInspectInput",
+      "type": "object"
+    },
+    "FrontendKey": {
+      "enum": [
+        "Enter",
+        "Tab",
+        "Escape",
+        "Space",
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "Home",
+        "End",
+        "PageUp",
+        "PageDown",
+        "Backspace",
+        "Delete"
+      ],
+      "title": "FrontendKey",
+      "type": "string"
+    },
+    "FrontendSessionStartInput": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "operation": {
+          "const": "session_start",
+          "default": "session_start",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        },
+        "ready_timeout_seconds": {
+          "default": 30,
+          "maximum": 120,
+          "minimum": 5,
+          "title": "Ready Timeout Seconds",
+          "type": "integer"
+        },
+        "route": {
+          "default": "/",
+          "maxLength": 2048,
+          "pattern": "^/(?!/)[^\\\\?#\\x00-\\x1f\\x7f]{0,2047}(?![\\s\\S])",
+          "title": "Route",
+          "type": "string"
+        },
+        "viewport": {
+          "$ref": "#/$defs/FrontendViewport"
+        }
+      },
+      "required": [
+        "project_id",
+        "purpose",
+        "idempotency_key"
+      ],
+      "title": "FrontendSessionStartInput",
+      "type": "object"
+    },
+    "FrontendSessionStopInput": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "session_stop",
+          "default": "session_stop",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        },
+        "reason": {
+          "default": "Frontend review complete",
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "session_id",
+        "purpose"
+      ],
+      "title": "FrontendSessionStopInput",
+      "type": "object"
+    },
+    "FrontendSnapshotInput": {
+      "additionalProperties": false,
+      "properties": {
+        "max_elements": {
+          "default": 500,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Max Elements",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "snapshot",
+          "default": "snapshot",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "session_id",
+        "purpose"
+      ],
+      "title": "FrontendSnapshotInput",
+      "type": "object"
+    },
+    "FrontendSourceInput": {
+      "additionalProperties": false,
+      "properties": {
+        "element_id": {
+          "pattern": "^e[1-9][0-9]{0,7}$",
+          "title": "Element Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "source",
+          "default": "source",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "title": "Snapshot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "session_id",
+        "purpose",
+        "snapshot_id",
+        "element_id"
+      ],
+      "title": "FrontendSourceInput",
+      "type": "object"
+    },
+    "FrontendViewport": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "default": 900,
+          "maximum": 2048,
+          "minimum": 240,
+          "title": "Height",
+          "type": "integer"
+        },
+        "width": {
+          "default": 1440,
+          "maximum": 2048,
+          "minimum": 320,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "title": "FrontendViewport",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/project-frontend-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/FrontendSessionStartInput"
+    },
+    {
+      "$ref": "#/$defs/FrontendSnapshotInput"
+    },
+    {
+      "$ref": "#/$defs/FrontendInspectInput"
+    },
+    {
+      "$ref": "#/$defs/FrontendActInput"
+    },
+    {
+      "$ref": "#/$defs/FrontendSourceInput"
+    },
+    {
+      "$ref": "#/$defs/FrontendSessionStopInput"
+    }
+  ]
+}

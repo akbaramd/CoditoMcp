@@ -31,6 +31,10 @@ queries include the current account and grant from the beginning.
 | Absolute project root | **Never** | **Never** | Yes | No |
 | Operation metadata/state/digest/deadline | Yes | Live envelope refs | Yes | No |
 | Patch body/command/output | Avoid; encrypted short-lived payload only if required | Bounded TTL | Bounded journal/output | No |
+| Frontend PNG | No durable pixels | Bounded live TTL | No durable pixels | No |
+| Frontend semantic/style/a11y summaries | Non-image results only; snapshot replay marker | Bounded live TTL | Non-image results only; snapshot replay marker | No |
+| Browser cookies/local storage/profile | **Never** | **Never** | Separate agent profile directory, not operation DB | No |
+| Dev-server output and absolute config paths | **Never** | **Never** | Bounded in memory only | No |
 | Audit record | Sanitized 30-day record | No | Local history | No |
 
 ## Sensitive data controls

@@ -1,0 +1,160 @@
+{
+  "$defs": {
+    "FrontendAction": {
+      "enum": [
+        "click",
+        "hover",
+        "focus",
+        "fill",
+        "press",
+        "scroll",
+        "select"
+      ],
+      "title": "FrontendAction",
+      "type": "string"
+    },
+    "FrontendKey": {
+      "enum": [
+        "Enter",
+        "Tab",
+        "Escape",
+        "Space",
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "Home",
+        "End",
+        "PageUp",
+        "PageDown",
+        "Backspace",
+        "Delete"
+      ],
+      "title": "FrontendKey",
+      "type": "string"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-frontend-act-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/FrontendAction",
+      "description": "Bounded interaction: click, hover, focus, fill, press, scroll, or select."
+    },
+    "delta_x": {
+      "anyOf": [
+        {
+          "maximum": 2048,
+          "minimum": -2048,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Horizontal delta used only for scroll.",
+      "title": "Delta X"
+    },
+    "delta_y": {
+      "anyOf": [
+        {
+          "maximum": 2048,
+          "minimum": -2048,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Vertical delta used only for scroll.",
+      "title": "Delta Y"
+    },
+    "element_id": {
+      "description": "Semantic element ID returned by the identified frontend snapshot.",
+      "pattern": "^e[1-9][0-9]{0,7}$",
+      "title": "Element Id",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Caller-generated stable unique key for this logical mutation or command. Reuse only when retrying that exact same request.",
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "key": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FrontendKey"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Allowlisted key required only for press; shortcuts are forbidden."
+    },
+    "option": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Visible/value option required only for select.",
+      "title": "Option"
+    },
+    "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "session_id": {
+      "description": "Frontend session ID returned by frontend_session_start.",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "description": "Snapshot ID that minted element_id; stale IDs fail.",
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "text": {
+      "anyOf": [
+        {
+          "maxLength": 16384,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Text required only for fill; password targets are refused by the agent.",
+      "title": "Text"
+    }
+  },
+  "required": [
+    "project_id",
+    "session_id",
+    "purpose",
+    "snapshot_id",
+    "element_id",
+    "action",
+    "idempotency_key"
+  ],
+  "title": "FrontendActFacadeInput",
+  "type": "object"
+}

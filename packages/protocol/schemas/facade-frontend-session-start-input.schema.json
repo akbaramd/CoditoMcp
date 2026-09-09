@@ -1,0 +1,74 @@
+{
+  "$defs": {
+    "FrontendViewport": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "default": 900,
+          "maximum": 2048,
+          "minimum": 240,
+          "title": "Height",
+          "type": "integer"
+        },
+        "width": {
+          "default": 1440,
+          "maximum": 2048,
+          "minimum": 320,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "title": "FrontendViewport",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-frontend-session-start-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "idempotency_key": {
+      "description": "Caller-generated stable unique key for this logical mutation or command. Reuse only when retrying that exact same request.",
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "ready_timeout_seconds": {
+      "default": 30,
+      "description": "Maximum wait for the configured or detected local development server.",
+      "maximum": 120,
+      "minimum": 5,
+      "title": "Ready Timeout Seconds",
+      "type": "integer"
+    },
+    "route": {
+      "default": "/",
+      "description": "App-relative path beginning with /; origins, absolute URLs, queries, and fragments are forbidden. Navigate to parameterized state through the UI.",
+      "maxLength": 2048,
+      "pattern": "^/(?!/)[^\\\\?#\\x00-\\x1f\\x7f]{0,2047}(?![\\s\\S])",
+      "title": "Route",
+      "type": "string"
+    },
+    "viewport": {
+      "$ref": "#/$defs/FrontendViewport",
+      "description": "Managed Chromium viewport used for screenshots and coordinate targeting."
+    }
+  },
+  "required": [
+    "project_id",
+    "purpose",
+    "idempotency_key"
+  ],
+  "title": "FrontendSessionStartFacadeInput",
+  "type": "object"
+}

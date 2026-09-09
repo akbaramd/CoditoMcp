@@ -56,17 +56,29 @@ class DeviceDisplaysResult(DisplayCatalog):
     action: Literal["list_displays"] = "list_displays"
 
 
-class DeviceScreenshotResult(CoditoModel):
+class PngImageMetadata(CoditoModel):
+    """Bounded PNG metadata shared by display and managed-page captures."""
+
     mime_type: Literal["image/png"] = "image/png"
-    display: DisplaySelector = "primary"
     width: int = Field(ge=1, le=2048)
     height: int = Field(ge=1, le=2048)
     captured_at: datetime
     sha256: Sha256
+
+    @model_validator(mode="after")
+    def valid_timestamp(self) -> PngImageMetadata:
+        if self.captured_at.tzinfo is None or self.captured_at.utcoffset() is None:
+            raise ValueError("PNG timestamp requires timezone")
+        return self
+
+
+class PngImageResult(PngImageMetadata):
+    """Inline PNG bytes plus integrity metadata for transient MCP image delivery."""
+
     image_base64: str = Field(min_length=1, max_length=800000)
 
     @model_validator(mode="after")
-    def valid_image(self) -> DeviceScreenshotResult:
+    def valid_image(self) -> PngImageResult:
         try:
             raw = base64.b64decode(self.image_base64, validate=True)
         except (ValueError, binascii.Error) as exc:
@@ -81,9 +93,11 @@ class DeviceScreenshotResult(CoditoModel):
             or int.from_bytes(raw[20:24], "big") != self.height
         ):
             raise ValueError("Invalid screenshot dimensions, type, size or digest")
-        if self.captured_at.tzinfo is None:
-            raise ValueError("Screenshot timestamp requires timezone")
         return self
+
+
+class DeviceScreenshotResult(PngImageResult):
+    display: DisplaySelector = "primary"
 
 
 ScreenshotToolResult = DeviceScreenshotResult | DeviceDisplaysResult

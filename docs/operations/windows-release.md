@@ -7,6 +7,11 @@ The Windows release is a per-user application, never a service. Python 3.12 and
 
 - Python is provisioned by `uv`; `uv.lock` is mandatory.
 - PyInstaller is exactly `6.22.2` in the agent's `package` extra.
+- Playwright is exactly `1.62.0`. Every package build clears
+  `installer-output/playwright-browser`, neutralizes Playwright download-host and
+  Node override variables, downloads the matching Chromium over the normal trusted
+  TLS path, and packages only that exact revision. The installed agent never
+  downloads a browser.
 - The broker is published self-contained, single-file for `win-x64`.
 - WiX is the MSBuild SDK exactly `6.0.2` in
   `agent/packaging/wix/Codito.Agent.wixproj`.
@@ -26,12 +31,12 @@ From a clean Windows 11 x64 checkout:
 uv sync --frozen --package codito-agent --extra ui --extra package
 dotnet test agent/broker/Codito.Broker.sln --configuration Release --maxcpucount:1
 ./agent/packaging/scripts/Test-PackagingConfig.ps1
-./agent/packaging/scripts/Build-WindowsDevPackage.ps1 -Version 0.1.1
+./agent/packaging/scripts/Build-WindowsDevPackage.ps1 -Version 0.3.0
 ./agent/packaging/scripts/Test-WindowsDevPackage.ps1 `
-    -ArchivePath installer-output/Codito-0.1.1-win-x64-dev.zip
+    -ArchivePath installer-output/Codito-0.3.0-win-x64-dev.zip
 ```
 
-The build produces `installer-output/Codito-0.1.1-win-x64-dev.zip` and its outer
+The build produces `installer-output/Codito-0.3.0-win-x64-dev.zip` and its outer
 `.sha256` file. The ZIP contains a sorted `SHA256SUMS` manifest, three separate
 entrypoints, and the broker:
 
@@ -39,20 +44,34 @@ entrypoints, and the broker:
 - `daemon/codito-agent-daemon.exe` is windowless and discovers the sibling broker.
 - `tray/codito-agent-tray.exe` is the windowless PySide6 tray/approval UI.
 - `broker/Codito.Broker.exe` is the exact self-contained broker used by the daemon.
+- `browsers/` contains one matching agent-owned Chromium plus Playwright support
+  binaries; the CLI and tray do not duplicate it.
 
 The archive writer sorts entries and gives them a fixed timestamp. The build also
 sets `SOURCE_DATE_EPOCH` and `PYTHONHASHSEED`; identical source and locked tools
-are therefore the reproducibility boundary. Always compare the published outer
-hash and the inner manifest instead of trusting a filename.
+plus byte-identical upstream Chromium input are the reproducibility boundary.
+Always compare the published outer hash and the inner manifest instead of trusting
+a filename. Offline/preseeded browser directories are intentionally unsupported,
+because they would bypass the fresh-download release boundary.
 
 ## GitHub release and bootstrap
 
 Every ordinary push to `main` runs `.github/workflows/windows-release.yml` on a
 GitHub-hosted Windows runner. If the repository declares a valid SemVer greater than
-the latest release tag (for example `0.2.0` after `v0.1.14`), that explicit version is
+the latest release tag (for example `0.3.0` after `v0.2.3`), that explicit version is
 released. Otherwise the workflow increments the latest patch version. It updates the
 version files and lockfile, repeats the release gates, commits/tags the synchronized
-version, and publishes an unsigned stable ZIP. It can be installed with:
+version, and publishes an unsigned stable ZIP. Build and test run with read-only
+repository permissions. A pinned artifact transfer carries the synchronized files,
+four release assets, and their digests into a separate native publish job. That job
+rechecks all four bytes, binds a retry only to the input commit or its direct release
+child with the identical tree, atomically pushes `main` and the tag, and creates or
+repairs the GitHub release idempotently. It then verifies that the release contains
+exactly the four intended assets with matching GitHub SHA-256 digests.
+
+The same release includes a checksummed
+`codito-vite-plugin-inspector-X.Y.Z.tgz` for opt-in development source mapping. It
+can be installed with:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/akbaramd/CoditoMcp/main/scripts/bootstrap-windows.ps1)))
@@ -60,9 +79,13 @@ version, and publishes an unsigned stable ZIP. It can be installed with:
 
 The bootstrap accepts only an HTTPS asset hosted by GitHub whose exact filename
 matches the release type and whose GitHub release metadata contains a SHA-256
-digest. The package installer verifies the inner `SHA256SUMS`, stages a versioned
-copy below `%LOCALAPPDATA%\Codito\app`, and changes only the current user's startup
-entries. The package includes Python and .NET; it requests neither elevation nor a
+digest. The package installer rejects reparse points, duplicate or incomplete
+manifest entries, unmanifested files, extra manifest paths, missing Playwright
+driver files, and any browser layout other than one
+`browsers/chromium-REVISION/chrome-win64/chrome.exe` tree. After that complete
+`SHA256SUMS` verification it stages a versioned copy below
+`%LOCALAPPDATA%\Codito\app` and changes only the current user's startup entries.
+The package includes Python and .NET; it requests neither elevation nor a
 system-wide runtime installation.
 
 ## In-app update checks
@@ -88,7 +111,7 @@ After the authorized WiX/OSMF review:
 
 ```powershell
 $env:CODITO_WIX_OSMF_REVIEWED = "1"
-./agent/packaging/scripts/Build-WindowsInstaller.ps1 -Version 0.1.1
+./agent/packaging/scripts/Build-WindowsInstaller.ps1 -Version 0.3.0
 Remove-Item Env:CODITO_WIX_OSMF_REVIEWED
 ```
 
@@ -113,7 +136,8 @@ Before publishing a production artifact:
 1. Run Python quality gates and broker analyzers/xUnit.
 2. Build the developer payload and validate both SHA-256 manifests.
 3. On a clean Windows 11 VM, test enrollment, packaged broker probe, tray approval,
-   read/patch/shell lifecycle, upgrade, uninstall, and retained user state.
+   read/patch/shell lifecycle, managed Chromium/frontend lifecycle, upgrade,
+   uninstall, and retained user state.
 4. Confirm the broker's isolated-mode self-test passes. Until AppContainer ACL and
    network-denial proof exists, isolated shell correctly fails closed.
 5. Sign broker, Python executables/DLLs, and MSI with timestamping; then rebuild the

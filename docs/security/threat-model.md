@@ -1,10 +1,10 @@
 # Threat model
 
-- Review date: 2026-09-08
+- Review date: 2026-09-09
 - Method: trust-boundary/abuse-case analysis informed by STRIDE
 - Protected assets: accounts, OAuth grants/tokens, device identity, local files,
   command authority, approval intent, operation integrity, audit history, service
-  availability
+  availability, managed-browser profiles and local web-session state
 
 This document specifies required controls. A control is not considered implemented
 until its checklist test passes on the release artifact.
@@ -20,6 +20,7 @@ until its checklist test passes on the release artifact.
 | Project content/dependencies | Hostile; filenames, patches, build scripts, and output may attack parsers/UI |
 | Network/edge | Hostile outside TLS; configured proxy can observe plaintext relay traffic |
 | Local process in same user session | Potentially hostile; named-pipe and approval spoofing are in scope |
+| Project dev server and rendered page | Hostile; can emit deceptive DOM/source metadata, redirect, open windows, download, or flood events |
 
 The MVP does not defend against a fully compromised Windows account, relay root,
 malicious trusted code-signing key, hardware/firmware compromise, or attacks after a
@@ -34,6 +35,7 @@ user explicitly enables `native_trusted` and runs hostile code.
 5. Agent daemon ↔ UI named pipe.
 6. Agent ↔ .NET broker.
 7. Broker/AppContainer ↔ registered project and Windows host.
+8. Managed Chromium ↔ loopback project server and external resources loaded by that page.
 
 ## Abuse cases and required controls
 
@@ -65,12 +67,20 @@ user explicitly enables `native_trusted` and runs hostile code.
 | T24 | Redis/PostgreSQL interruption | Inconsistent state | DB conditional transitions, readiness failure, pause admission/routing, reconciliation and restart matrix |
 | T25 | Malicious update/dependency | Supply-chain compromise | Locked hashes, reviews, Dependabot/audit, SBOM, Trivy, secret scan, immutable signed release hooks |
 | T26 | Backup loss/disclosure | Permanent loss or credential leak | Restricted permissions, encrypted/off-host post-MVP, restore drill, exclude ephemeral plaintext secrets |
+| T27 | Frontend session substitution/stale element | Act on another project or changed DOM node | Bind session to account/grant/link/device/project/root/security generation; require snapshot ID; invalidate registry on action/navigation/HMR |
+| T28 | Malicious source metadata | Read or edit outside project; false source certainty | Treat DOM attributes as untrusted; project-relative parsing; resolver containment and file/coordinate verification; explicit exact/heuristic/unavailable |
+| T29 | Browser escape/navigation abuse | General remote browser or desktop control | Agent-owned profile/executable; Chromium sandbox required and package-smoke tested; loopback configured origin only; relative start route; block popups/downloads/external top-level navigation; no raw selectors/JS/CDP/uploads/clipboard/permissions |
+| T30 | Credential capture through fill/profile reuse | Account compromise | Never reuse personal browser profiles; reject password and credential-like fills; visible browser for local-user login; never return cookies/storage/headers/bodies |
+| T31 | Console/network/image exfiltration or frame exhaustion | Secret exposure or denial of service | Redact and cap console entries; strip network query/headers/body; cap tree/image/frame; omit pixels from durable journal |
+| T32 | Orphaned dev server/browser | Persistent native process or resource exhaustion | Broker-owned process tree; one session per project; reference ownership; TTL/security-generation/shutdown cleanup; never kill a reused server |
 
 ## Hard denials
 
-These never become session grants in v1: elevation; OS/device namespaces; external
-mutation; secret/credential locations; network capability; native shell; deletion;
-reparse or hardlink mutation; interactive/PTY/GUI/detached execution. A future
+These never become generic session grants in v1: elevation; OS/device namespaces;
+external mutation; secret/credential locations; deletion; reparse or hardlink
+mutation; arbitrary interactive/PTY/GUI/detached execution. ADR 0020 adds only an
+agent-owned Chromium and an owned project dev-server tree behind separate frontend
+and shell scopes; it does not grant general GUI or process control. Any broader
 exception needs a new ADR and explicit local UX.
 
 ## Security test corpus
@@ -92,6 +102,9 @@ Release tests must include:
   no cross-routing.
 - Relay worker, Redis, PostgreSQL, agent, and network restart at each operation
   transition.
+- Frontend route/origin tricks, popup/download/external-navigation attempts,
+  password fills, forged/traversing source attributes, stale element IDs, HMR
+  invalidation, event/image/frame floods, reused-server cleanup, and profile isolation.
 
 ## Residual risk
 
@@ -102,3 +115,7 @@ Release tests must include:
 - Local malware running as the same user may attack UI or files despite IPC
   authentication; OS account integrity remains an assumption.
 - Novel Windows sandbox escapes require patching and possibly device/link revocation.
+- An exact frontend source result proves that development instrumentation named a
+  current in-project coordinate; it cannot prove hostile page code never copied a
+  valid attribute between nodes. Hash-verified reads/patches and human/code context
+  remain required before mutation.

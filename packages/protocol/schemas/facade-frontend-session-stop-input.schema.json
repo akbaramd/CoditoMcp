@@ -1,0 +1,39 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-frontend-session-stop-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "reason": {
+      "default": "Frontend review complete",
+      "description": "Short audit reason for closing the managed browser session.",
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "session_id": {
+      "description": "Frontend session ID returned by frontend_session_start.",
+      "title": "Session Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "session_id",
+    "purpose"
+  ],
+  "title": "FrontendSessionStopFacadeInput",
+  "type": "object"
+}

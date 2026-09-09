@@ -1,0 +1,934 @@
+{
+  "$defs": {
+    "FrontendAccessibility": {
+      "additionalProperties": false,
+      "properties": {
+        "checked": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "mixed",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "disabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Disabled"
+        },
+        "expanded": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expanded"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        }
+      },
+      "title": "FrontendAccessibility",
+      "type": "object"
+    },
+    "FrontendActResult": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/FrontendAction"
+        },
+        "element_id": {
+          "pattern": "^e[1-9][0-9]{0,7}$",
+          "title": "Element Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "act",
+          "default": "act",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "snapshot_invalidated": {
+          "const": true,
+          "default": true,
+          "title": "Snapshot Invalidated",
+          "type": "boolean"
+        },
+        "status": {
+          "const": "completed",
+          "default": "completed",
+          "title": "Status",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "project_id",
+        "session_id",
+        "snapshot_id",
+        "element_id",
+        "action"
+      ],
+      "title": "FrontendActResult",
+      "type": "object"
+    },
+    "FrontendAction": {
+      "enum": [
+        "click",
+        "hover",
+        "focus",
+        "fill",
+        "press",
+        "scroll",
+        "select"
+      ],
+      "title": "FrontendAction",
+      "type": "string"
+    },
+    "FrontendConsoleEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "enum": [
+            "debug",
+            "info",
+            "warning",
+            "error"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "text"
+      ],
+      "title": "FrontendConsoleEntry",
+      "type": "object"
+    },
+    "FrontendDevServerInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "health": {
+          "const": "ready",
+          "default": "ready",
+          "title": "Health",
+          "type": "string"
+        },
+        "ownership": {
+          "enum": [
+            "managed",
+            "reused"
+          ],
+          "title": "Ownership",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ownership"
+      ],
+      "title": "FrontendDevServerInfo",
+      "type": "object"
+    },
+    "FrontendElement": {
+      "additionalProperties": false,
+      "properties": {
+        "box": {
+          "$ref": "#/$defs/FrontendRect"
+        },
+        "classes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Classes",
+          "type": "array"
+        },
+        "element_id": {
+          "pattern": "^e[1-9][0-9]{0,7}$",
+          "title": "Element Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "focused": {
+          "default": false,
+          "title": "Focused",
+          "type": "boolean"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "pattern": "^e[1-9][0-9]{0,7}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "tag": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9-]*$",
+          "title": "Tag",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 16384,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "visible": {
+          "title": "Visible",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "element_id",
+        "tag",
+        "box",
+        "visible"
+      ],
+      "title": "FrontendElement",
+      "type": "object"
+    },
+    "FrontendInspectResult": {
+      "additionalProperties": false,
+      "properties": {
+        "accessibility": {
+          "$ref": "#/$defs/FrontendAccessibility"
+        },
+        "computed_styles": {
+          "items": {
+            "$ref": "#/$defs/FrontendStyleProperty"
+          },
+          "maxItems": 128,
+          "title": "Computed Styles",
+          "type": "array"
+        },
+        "element": {
+          "$ref": "#/$defs/FrontendElement"
+        },
+        "matched_rules": {
+          "items": {
+            "$ref": "#/$defs/FrontendMatchedRule"
+          },
+          "maxItems": 128,
+          "title": "Matched Rules",
+          "type": "array"
+        },
+        "operation": {
+          "const": "inspect",
+          "default": "inspect",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "project_id",
+        "session_id",
+        "snapshot_id",
+        "element",
+        "accessibility"
+      ],
+      "title": "FrontendInspectResult",
+      "type": "object"
+    },
+    "FrontendMatchedRule": {
+      "additionalProperties": false,
+      "properties": {
+        "declarations": {
+          "items": {
+            "$ref": "#/$defs/FrontendStyleProperty"
+          },
+          "maxItems": 128,
+          "title": "Declarations",
+          "type": "array"
+        },
+        "selector": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Selector",
+          "type": "string"
+        },
+        "source": {
+          "default": null,
+          "description": "Reserved for future stylesheet source maps; always null in Codito 0.3.0.",
+          "title": "Source",
+          "type": "null"
+        }
+      },
+      "required": [
+        "selector"
+      ],
+      "title": "FrontendMatchedRule",
+      "type": "object"
+    },
+    "FrontendNetworkIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "failure": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failure"
+        },
+        "method": {
+          "enum": [
+            "GET",
+            "HEAD",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "OPTIONS"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "maximum": 599,
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "url": {
+          "description": "HTTP(S) URL or relative resource path with query and fragment redacted.",
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "url"
+      ],
+      "title": "FrontendNetworkIssue",
+      "type": "object"
+    },
+    "FrontendRect": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Height",
+          "type": "number"
+        },
+        "width": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Width",
+          "type": "number"
+        },
+        "x": {
+          "maximum": 100000,
+          "minimum": -100000,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "maximum": 100000,
+          "minimum": -100000,
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "FrontendRect",
+      "type": "object"
+    },
+    "FrontendSessionStartResult": {
+      "additionalProperties": false,
+      "properties": {
+        "base_url": {
+          "description": "Bare HTTP loopback origin selected by the Windows agent.",
+          "maxLength": 2048,
+          "pattern": "^http://(?:[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]\\.?|127(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}|\\[(?:(?:0{1,4}:){7}0{0,3}1|(?:0{1,4}(?::0{1,4}){0,5})?::0{0,3}1)\\])(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?/?(?![\\s\\S])",
+          "title": "Base Url",
+          "type": "string"
+        },
+        "dev_server": {
+          "$ref": "#/$defs/FrontendDevServerInfo"
+        },
+        "operation": {
+          "const": "session_start",
+          "default": "session_start",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "url": {
+          "description": "Current HTTP loopback page URL without query or fragment.",
+          "maxLength": 2048,
+          "pattern": "^http://(?:[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]\\.?|127(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}|\\[(?:(?:0{1,4}:){7}0{0,3}1|(?:0{1,4}(?::0{1,4}){0,5})?::0{0,3}1)\\])(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:/[^\\\\?#\\x00-\\x1f\\x7f]*)?(?![\\s\\S])",
+          "title": "Url",
+          "type": "string"
+        },
+        "viewport": {
+          "$ref": "#/$defs/FrontendViewport"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "project_id",
+        "session_id",
+        "base_url",
+        "url",
+        "viewport",
+        "dev_server"
+      ],
+      "title": "FrontendSessionStartResult",
+      "type": "object"
+    },
+    "FrontendSessionStopResult": {
+      "additionalProperties": false,
+      "properties": {
+        "dev_server_stopped": {
+          "title": "Dev Server Stopped",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "session_stop",
+          "default": "session_stop",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "stopped",
+            "already_stopped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "project_id",
+        "session_id",
+        "status",
+        "dev_server_stopped"
+      ],
+      "title": "FrontendSessionStopResult",
+      "type": "object"
+    },
+    "FrontendSnapshotResult": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "console": {
+          "items": {
+            "$ref": "#/$defs/FrontendConsoleEntry"
+          },
+          "maxItems": 100,
+          "title": "Console",
+          "type": "array"
+        },
+        "elements": {
+          "items": {
+            "$ref": "#/$defs/FrontendElement"
+          },
+          "maxItems": 500,
+          "title": "Elements",
+          "type": "array"
+        },
+        "height": {
+          "maximum": 2048,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "image_base64": {
+          "maxLength": 800000,
+          "minLength": 1,
+          "title": "Image Base64",
+          "type": "string"
+        },
+        "mime_type": {
+          "const": "image/png",
+          "default": "image/png",
+          "title": "Mime Type",
+          "type": "string"
+        },
+        "network": {
+          "items": {
+            "$ref": "#/$defs/FrontendNetworkIssue"
+          },
+          "maxItems": 100,
+          "title": "Network",
+          "type": "array"
+        },
+        "operation": {
+          "const": "snapshot",
+          "default": "snapshot",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 1024,
+          "title": "Title",
+          "type": "string"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "url": {
+          "description": "Current HTTP loopback page URL without query or fragment.",
+          "maxLength": 2048,
+          "pattern": "^http://(?:[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]\\.?|127(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}|\\[(?:(?:0{1,4}:){7}0{0,3}1|(?:0{1,4}(?::0{1,4}){0,5})?::0{0,3}1)\\])(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:/[^\\\\?#\\x00-\\x1f\\x7f]*)?(?![\\s\\S])",
+          "title": "Url",
+          "type": "string"
+        },
+        "viewport": {
+          "$ref": "#/$defs/FrontendViewport"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        },
+        "width": {
+          "maximum": 2048,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "captured_at",
+        "sha256",
+        "image_base64",
+        "project_id",
+        "session_id",
+        "snapshot_id",
+        "url",
+        "title",
+        "viewport",
+        "elements"
+      ],
+      "title": "FrontendSnapshotResult",
+      "type": "object"
+    },
+    "FrontendSourceLocation": {
+      "additionalProperties": false,
+      "description": "One project-relative source location using 1-based coordinates.",
+      "properties": {
+        "character": {
+          "default": 1,
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Character",
+          "type": "integer"
+        },
+        "line": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "line"
+      ],
+      "title": "FrontendSourceLocation",
+      "type": "object"
+    },
+    "FrontendSourceReference": {
+      "additionalProperties": false,
+      "properties": {
+        "location": {
+          "$ref": "#/$defs/FrontendSourceLocation"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        }
+      },
+      "required": [
+        "location"
+      ],
+      "title": "FrontendSourceReference",
+      "type": "object"
+    },
+    "FrontendSourceResult": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "enum": [
+            "exact",
+            "heuristic",
+            "unavailable"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "consumer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrontendSourceReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "design_system": {
+          "items": {
+            "$ref": "#/$defs/FrontendSourceReference"
+          },
+          "maxItems": 32,
+          "title": "Design System",
+          "type": "array"
+        },
+        "element_id": {
+          "pattern": "^e[1-9][0-9]{0,7}$",
+          "title": "Element Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "source",
+          "default": "source",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "styles": {
+          "description": "Reserved for a future source-map-aware stylesheet adapter; empty in Codito 0.3.0.",
+          "items": {
+            "$ref": "#/$defs/FrontendSourceReference"
+          },
+          "maxItems": 0,
+          "title": "Styles",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "project_id",
+        "session_id",
+        "snapshot_id",
+        "element_id",
+        "confidence"
+      ],
+      "title": "FrontendSourceResult",
+      "type": "object"
+    },
+    "FrontendStyleProperty": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^--?[A-Za-z][A-Za-z0-9_-]*$|^[A-Za-z][A-Za-z0-9_-]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 2048,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "FrontendStyleProperty",
+      "type": "object"
+    },
+    "FrontendViewport": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "default": 900,
+          "maximum": 2048,
+          "minimum": 240,
+          "title": "Height",
+          "type": "integer"
+        },
+        "width": {
+          "default": 1440,
+          "maximum": 2048,
+          "minimum": 320,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "title": "FrontendViewport",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/project-frontend-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/FrontendSessionStartResult"
+    },
+    {
+      "$ref": "#/$defs/FrontendSnapshotResult"
+    },
+    {
+      "$ref": "#/$defs/FrontendInspectResult"
+    },
+    {
+      "$ref": "#/$defs/FrontendActResult"
+    },
+    {
+      "$ref": "#/$defs/FrontendSourceResult"
+    },
+    {
+      "$ref": "#/$defs/FrontendSessionStopResult"
+    }
+  ]
+}

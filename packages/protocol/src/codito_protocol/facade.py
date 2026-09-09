@@ -20,6 +20,17 @@ from .code import (
 )
 from .desktop_action import DeviceDesktopInput
 from .device_read import normalize_read_scope
+from .frontend import (
+    FRONTEND_ROUTE_PATTERN,
+    MAX_FRONTEND_URL_CHARS,
+    FrontendActInput,
+    FrontendAction,
+    FrontendKey,
+    FrontendSessionStartInput,
+    FrontendTarget,
+    FrontendViewport,
+    validate_frontend_route,
+)
 from .patch import ProjectApplyPatchInput
 from .screenshot import DisplaySelector
 from .shell import ScriptCommand
@@ -315,6 +326,159 @@ class BrowserOpenInput(CoditoModel):
 
 
 # ---------------------------------------------------------------------------
+# Managed frontend public inputs (all route to project_frontend)
+# ---------------------------------------------------------------------------
+
+
+class FrontendSessionStartFacadeInput(CoditoModel):
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    purpose: Purpose = Field(description=_PURPOSE)
+    route: str = Field(
+        default="/",
+        max_length=MAX_FRONTEND_URL_CHARS,
+        json_schema_extra={"pattern": FRONTEND_ROUTE_PATTERN},
+        description=(
+            "App-relative path beginning with /; origins, absolute URLs, queries, and fragments "
+            "are forbidden. Navigate to parameterized state through the UI."
+        ),
+    )
+    viewport: FrontendViewport = Field(
+        default_factory=FrontendViewport,
+        description="Managed Chromium viewport used for screenshots and coordinate targeting.",
+    )
+    ready_timeout_seconds: int = Field(
+        default=30,
+        ge=5,
+        le=120,
+        description="Maximum wait for the configured or detected local development server.",
+    )
+    idempotency_key: OpaqueId = Field(description=_IDEMPOTENCY)
+
+    _valid_route = field_validator("route")(validate_frontend_route)
+
+    @model_validator(mode="after")
+    def valid_start(self) -> FrontendSessionStartFacadeInput:
+        FrontendSessionStartInput.model_validate(
+            {"operation": "session_start", **self.model_dump()}
+        )
+        return self
+
+
+class FrontendSnapshotFacadeInput(CoditoModel):
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    session_id: OpaqueId = Field(
+        description="Frontend session ID returned by frontend_session_start."
+    )
+    purpose: Purpose = Field(description=_PURPOSE)
+    max_elements: int = Field(
+        default=500,
+        ge=1,
+        le=500,
+        description="Maximum semantic elements returned with the viewport PNG.",
+    )
+
+
+class FrontendInspectFacadeInput(CoditoModel):
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    session_id: OpaqueId = Field(
+        description="Frontend session ID returned by frontend_session_start."
+    )
+    purpose: Purpose = Field(description=_PURPOSE)
+    snapshot_id: OpaqueId = Field(description="Snapshot ID that minted this target registry.")
+    element_id: str | None = Field(
+        default=None,
+        pattern=r"^e[1-9][0-9]{0,7}$",
+        description="Semantic element ID from that snapshot; use this or x/y, never both.",
+    )
+    x: int | None = Field(
+        default=None,
+        ge=0,
+        le=2047,
+        description="Viewport x coordinate from that snapshot; requires y and excludes element_id.",
+    )
+    y: int | None = Field(
+        default=None,
+        ge=0,
+        le=2047,
+        description="Viewport y coordinate from that snapshot; requires x and excludes element_id.",
+    )
+
+    @model_validator(mode="after")
+    def valid_target(self) -> FrontendInspectFacadeInput:
+        FrontendTarget.model_validate(
+            self.model_dump(include={"snapshot_id", "element_id", "x", "y"})
+        )
+        return self
+
+
+class FrontendActFacadeInput(CoditoModel):
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    session_id: OpaqueId = Field(
+        description="Frontend session ID returned by frontend_session_start."
+    )
+    purpose: Purpose = Field(description=_PURPOSE)
+    snapshot_id: OpaqueId = Field(description="Snapshot ID that minted element_id; stale IDs fail.")
+    element_id: str = Field(
+        pattern=r"^e[1-9][0-9]{0,7}$",
+        description="Semantic element ID returned by the identified frontend snapshot.",
+    )
+    action: FrontendAction = Field(
+        description="Bounded interaction: click, hover, focus, fill, press, scroll, or select."
+    )
+    text: str | None = Field(
+        default=None,
+        max_length=16_384,
+        description="Text required only for fill; password targets are refused by the agent.",
+    )
+    key: FrontendKey | None = Field(
+        default=None,
+        description="Allowlisted key required only for press; shortcuts are forbidden.",
+    )
+    option: str | None = Field(
+        default=None, max_length=1_024, description="Visible/value option required only for select."
+    )
+    delta_x: int | None = Field(
+        default=None, ge=-2_048, le=2_048, description="Horizontal delta used only for scroll."
+    )
+    delta_y: int | None = Field(
+        default=None, ge=-2_048, le=2_048, description="Vertical delta used only for scroll."
+    )
+    idempotency_key: OpaqueId = Field(description=_IDEMPOTENCY)
+
+    @model_validator(mode="after")
+    def valid_action(self) -> FrontendActFacadeInput:
+        FrontendActInput.model_validate({"operation": "act", **self.model_dump()})
+        return self
+
+
+class FrontendSourceFacadeInput(CoditoModel):
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    session_id: OpaqueId = Field(
+        description="Frontend session ID returned by frontend_session_start."
+    )
+    purpose: Purpose = Field(description=_PURPOSE)
+    snapshot_id: OpaqueId = Field(description="Snapshot ID that minted element_id; stale IDs fail.")
+    element_id: str = Field(
+        pattern=r"^e[1-9][0-9]{0,7}$",
+        description="Semantic element ID whose project-relative source locations are requested.",
+    )
+
+
+class FrontendSessionStopFacadeInput(CoditoModel):
+    project_id: OpaqueId = Field(description=_PROJECT_ID)
+    session_id: OpaqueId = Field(
+        description="Frontend session ID returned by frontend_session_start."
+    )
+    purpose: Purpose = Field(description=_PURPOSE)
+    reason: str = Field(
+        default="Frontend review complete",
+        min_length=1,
+        max_length=500,
+        description="Short audit reason for closing the managed browser session.",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Code intelligence public inputs (language-neutral; 1-based lines, Unicode scalars)
 # ---------------------------------------------------------------------------
 
@@ -524,6 +688,15 @@ _CODE_FACADE_TO_OPERATION: dict[str, str] = {
     "code_reindex": "code_reindex",
 }
 
+_FRONTEND_FACADE_TO_OPERATION: dict[str, str] = {
+    "frontend_session_start": "session_start",
+    "frontend_snapshot": "snapshot",
+    "frontend_inspect": "inspect",
+    "frontend_act": "act",
+    "frontend_source": "source",
+    "frontend_session_stop": "session_stop",
+}
+
 
 FACADE_MODELS: dict[str, type[CoditoModel]] = {
     "projects_list": ProjectsListInput,
@@ -541,6 +714,13 @@ FACADE_MODELS: dict[str, type[CoditoModel]] = {
     "screen_list": ScreenListInput,
     "screenshot_capture": ScreenshotCaptureInput,
     "browser_open": BrowserOpenInput,
+    # Managed local Chromium tools (all route to project_frontend wire tool)
+    "frontend_session_start": FrontendSessionStartFacadeInput,
+    "frontend_snapshot": FrontendSnapshotFacadeInput,
+    "frontend_inspect": FrontendInspectFacadeInput,
+    "frontend_act": FrontendActFacadeInput,
+    "frontend_source": FrontendSourceFacadeInput,
+    "frontend_session_stop": FrontendSessionStopFacadeInput,
     # Code intelligence tools (language-neutral, all route to project_code wire tool)
     "code_intelligence_status": CodeStatusInput,
     "code_workspace_summary": CodeSummaryInput,
@@ -605,6 +785,11 @@ def facade_wire_request(  # noqa: PLR0911 - explicit bounded public-to-wire mapp
     if name in {"screen_list", "screenshot_capture"}:
         return "device_screenshot", {
             "action": "list_displays" if name == "screen_list" else "capture",
+            **data,
+        }
+    if name in _FRONTEND_FACADE_TO_OPERATION:
+        return "project_frontend", {
+            "operation": _FRONTEND_FACADE_TO_OPERATION[name],
             **data,
         }
     if name in _CODE_FACADE_TO_OPERATION:

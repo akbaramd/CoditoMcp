@@ -29,6 +29,17 @@ logger = logging.getLogger(__name__)
 _JITTER = secrets.SystemRandom()
 
 
+def _is_uncertain_native_action(tool_name: str, tool_input: dict[str, Any]) -> bool:
+    return (
+        tool_name == "device_desktop"
+        or (tool_name == "project_shell" and tool_input.get("action") == "start")
+        or (
+            tool_name == "project_frontend"
+            and tool_input.get("operation") in {"session_start", "act"}
+        )
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class WebSocketTicket:
     value: str
@@ -399,9 +410,7 @@ class DeviceWebSocketClient:
                 # The original coroutine survives transient socket loss and will
                 # publish its terminal result using the new connection fence.
                 return
-            if tool_name == "device_desktop" or (
-                tool_name == "project_shell" and tool_input.get("action") == "start"
-            ):
+            if _is_uncertain_native_action(tool_name, tool_input):
                 await self._terminalize_uncertain_action(envelope)
                 return
             budget = _ExecutionBudget.from_envelope(
@@ -500,9 +509,7 @@ class DeviceWebSocketClient:
     ) -> None:
         self.database.transition_operation(envelope.message_id, OperationState.RUNNING)
         handler_started = False
-        native_action = tool_name == "device_desktop" or (
-            tool_name == "project_shell" and tool_input.get("action") == "start"
-        )
+        native_action = _is_uncertain_native_action(tool_name, tool_input)
 
         def deadline_error() -> AgentError:
             if native_action and handler_started:

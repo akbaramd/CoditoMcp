@@ -1,6 +1,6 @@
 # Local approval policy
 
-Updated 2026-09-08. [ADR 0018](../adr/0018-focused-tools-and-local-access.md)
+Updated 2026-09-09. [ADR 0018](../adr/0018-focused-tools-and-local-access.md)
 supersedes the earlier project-mode matrix. OAuth authorization and Windows
 consent are separate; neither tool metadata nor model-supplied fields confer
 local trust.
@@ -57,6 +57,27 @@ Always allow appears only for capabilities with a defined persisted scope:
 Patch/deletion and browser-opening approvals remain one-shot outside explicit
 Full access. A saved read permission cannot become a write permission.
 
+## Managed frontend sessions
+
+[ADR 0020](../adr/0020-managed-frontend-inspection.md) governs a separate
+agent-owned browser capability. `screen:read`, `browser_open`, and their saved
+permissions never authorize it. OAuth requires `frontend:read` for snapshots,
+inspection and source evidence, `frontend:interact` for managed interaction, and
+`shell:execute` when session start may run the configured project dev command.
+
+In both Ask every time and Project access, session start requires one local approval
+covering the resolved browser/config and potential native dev-server start. It is
+not eligible for Always allow. Full device access remains an explicit local choice.
+The MCP caller cannot provide or override the command, cwd, port, executable,
+profile, or absolute URL. Reusing an already-ready loopback server does not grant
+permission to terminate it.
+
+Browser session authority is short-lived and bound to the same account/grant/link/
+device/project/root and local security generation. It is not an Always allow grant.
+Every interaction still rechecks those bindings. Password entry, uploads, clipboard,
+downloads, external top-level navigation, raw selectors/JavaScript/CDP and browser
+permission prompts are outside the approved surface.
+
 Settings shows saved permission scope, capability, action identity and account/
 link. Refresh, Revoke selected and Revoke category are local authenticated
 operations. Revocation invalidates pending requests. Full access is an independent
@@ -67,6 +88,6 @@ Sign-out/re-enrollment clears the existing saved permissions.
 
 Show the requesting account/link, project, target root/cwd, exact command or patch,
 purpose, executable/environment details and risk reason. Never log OAuth secrets,
-activation tokens or screenshot pixels. Main-window activation is not required
+activation tokens, browser profile state or screenshot pixels. Main-window activation is not required
 for approval or image capture. Generation/deadline checks remain mandatory before
 data release or execution, including operations exempted from a local prompt.

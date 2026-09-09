@@ -130,7 +130,7 @@ After the owner configures DNS/TLS/proxy:
   the trusted header scheme, and suitable idle timeout.
 - OAuth metadata, authorization/consent/token flow, JWKS, revocation, introspection,
   and per-device resource metadata work through the public host.
-- MCP Inspector can initialize and see exactly four tools with matching schemes.
+- MCP Inspector can initialize and see exactly 37 public tools with matching schemes.
 - A real private ChatGPT developer-mode connection completes acceptance tests.
 
 ## Routine operations

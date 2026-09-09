@@ -1,0 +1,481 @@
+{
+  "$defs": {
+    "ErrorCode": {
+      "enum": [
+        "invalid_request",
+        "unauthenticated",
+        "unauthorized",
+        "resource_mismatch",
+        "scope_missing",
+        "rate_limited",
+        "project_not_found",
+        "device_offline",
+        "device_revoked",
+        "link_revoked",
+        "queue_full",
+        "deadline_exceeded",
+        "path_invalid",
+        "path_outside_project",
+        "path_changed",
+        "reparse_point_forbidden",
+        "hardlink_mutation_forbidden",
+        "file_not_found",
+        "file_too_large",
+        "encoding_unsupported",
+        "hash_mismatch",
+        "patch_invalid",
+        "patch_conflict",
+        "idempotency_conflict",
+        "approval_required",
+        "approval_denied",
+        "approval_expired",
+        "sandbox_unavailable",
+        "shell_not_found",
+        "shell_not_running",
+        "output_limit_exceeded",
+        "outcome_unknown",
+        "screenshot_unavailable",
+        "desktop_unavailable",
+        "cancelled",
+        "internal_error"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "FrontendAccessibility": {
+      "additionalProperties": false,
+      "properties": {
+        "checked": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "mixed",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "disabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Disabled"
+        },
+        "expanded": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expanded"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        }
+      },
+      "title": "FrontendAccessibility",
+      "type": "object"
+    },
+    "FrontendElement": {
+      "additionalProperties": false,
+      "properties": {
+        "box": {
+          "$ref": "#/$defs/FrontendRect"
+        },
+        "classes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Classes",
+          "type": "array"
+        },
+        "element_id": {
+          "pattern": "^e[1-9][0-9]{0,7}$",
+          "title": "Element Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "focused": {
+          "default": false,
+          "title": "Focused",
+          "type": "boolean"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "pattern": "^e[1-9][0-9]{0,7}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "tag": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9-]*$",
+          "title": "Tag",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 16384,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "visible": {
+          "title": "Visible",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "element_id",
+        "tag",
+        "box",
+        "visible"
+      ],
+      "title": "FrontendElement",
+      "type": "object"
+    },
+    "FrontendInspectResult": {
+      "additionalProperties": false,
+      "properties": {
+        "accessibility": {
+          "$ref": "#/$defs/FrontendAccessibility"
+        },
+        "computed_styles": {
+          "items": {
+            "$ref": "#/$defs/FrontendStyleProperty"
+          },
+          "maxItems": 128,
+          "title": "Computed Styles",
+          "type": "array"
+        },
+        "element": {
+          "$ref": "#/$defs/FrontendElement"
+        },
+        "matched_rules": {
+          "items": {
+            "$ref": "#/$defs/FrontendMatchedRule"
+          },
+          "maxItems": 128,
+          "title": "Matched Rules",
+          "type": "array"
+        },
+        "operation": {
+          "const": "inspect",
+          "default": "inspect",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "title": "Project Id",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "project_id",
+        "session_id",
+        "snapshot_id",
+        "element",
+        "accessibility"
+      ],
+      "title": "FrontendInspectResult",
+      "type": "object"
+    },
+    "FrontendMatchedRule": {
+      "additionalProperties": false,
+      "properties": {
+        "declarations": {
+          "items": {
+            "$ref": "#/$defs/FrontendStyleProperty"
+          },
+          "maxItems": 128,
+          "title": "Declarations",
+          "type": "array"
+        },
+        "selector": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Selector",
+          "type": "string"
+        },
+        "source": {
+          "default": null,
+          "description": "Reserved for future stylesheet source maps; always null in Codito 0.3.0.",
+          "title": "Source",
+          "type": "null"
+        }
+      },
+      "required": [
+        "selector"
+      ],
+      "title": "FrontendMatchedRule",
+      "type": "object"
+    },
+    "FrontendRect": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Height",
+          "type": "number"
+        },
+        "width": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Width",
+          "type": "number"
+        },
+        "x": {
+          "maximum": 100000,
+          "minimum": -100000,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "maximum": 100000,
+          "minimum": -100000,
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "FrontendRect",
+      "type": "object"
+    },
+    "FrontendStyleProperty": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^--?[A-Za-z][A-Za-z0-9_-]*$|^[A-Za-z][A-Za-z0-9_-]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 2048,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "FrontendStyleProperty",
+      "type": "object"
+    },
+    "ToolError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "correlation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Correlation Id"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "message": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "retryable": {
+          "default": false,
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ToolError",
+      "type": "object"
+    }
+  },
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-frontend-inspect-output.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ToolError"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "operation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Operation Id"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FrontendInspectResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "text": {
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ok",
+    "text"
+  ],
+  "title": "FacadeToolResult[FrontendInspectResult]",
+  "type": "object"
+}

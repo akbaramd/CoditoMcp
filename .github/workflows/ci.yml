@@ -13,6 +13,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  frontend-inspector:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: packages/vite-plugin-inspector
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.22.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: packages/vite-plugin-inspector/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level high
+      - run: pnpm run typecheck
+      - run: pnpm test
+      - run: pnpm run build
+
   python-quality:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -109,6 +131,12 @@ jobs:
           $env:MYPYPATH = 'packages/protocol/src;relay;agent/src'
           uv run mypy -p codito_agent
       - run: uv run --package codito-agent pytest agent/tests -m "not e2e"
+      - name: Managed frontend browser regression
+        env:
+          CODITO_REAL_BROWSER_TESTS: "1"
+        run: >-
+          uv run --package codito-agent pytest
+          agent/tests/test_frontend_playwright_real.py -q
 
   dependency-audit:
     runs-on: ubuntu-24.04

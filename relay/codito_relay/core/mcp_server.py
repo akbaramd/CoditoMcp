@@ -398,6 +398,83 @@ async def device_desktop(
     )
 
 
+async def project_frontend(
+    context: Context,
+    operation: Literal["session_start", "snapshot", "inspect", "act", "source", "session_stop"],
+    project_id: str,
+    purpose: str,
+    session_id: str | None = None,
+    route: str = "/",
+    viewport: dict[str, int] | None = None,
+    ready_timeout_seconds: int = 30,
+    max_elements: int = 500,
+    snapshot_id: str | None = None,
+    element_id: str | None = None,
+    x: int | None = None,
+    y: int | None = None,
+    action: Literal["click", "hover", "focus", "fill", "press", "scroll", "select"] | None = None,
+    text: str | None = None,
+    key: str | None = None,
+    option: str | None = None,
+    delta_x: int | None = None,
+    delta_y: int | None = None,
+    idempotency_key: str | None = None,
+    reason: str = "Frontend review complete",
+) -> CallToolResult:
+    common: dict[str, Any] = {
+        "operation": operation,
+        "project_id": project_id,
+        "purpose": purpose,
+    }
+    if operation == "session_start":
+        arguments = {
+            **common,
+            "route": route,
+            "viewport": viewport,
+            "ready_timeout_seconds": ready_timeout_seconds,
+            "idempotency_key": idempotency_key,
+        }
+    elif operation == "snapshot":
+        arguments = {**common, "session_id": session_id, "max_elements": max_elements}
+    elif operation == "inspect":
+        arguments = {
+            **common,
+            "session_id": session_id,
+            "snapshot_id": snapshot_id,
+            "element_id": element_id,
+            "x": x,
+            "y": y,
+        }
+    elif operation == "act":
+        arguments = {
+            **common,
+            "session_id": session_id,
+            "snapshot_id": snapshot_id,
+            "element_id": element_id,
+            "action": action,
+            "text": text,
+            "key": key,
+            "option": option,
+            "delta_x": delta_x,
+            "delta_y": delta_y,
+            "idempotency_key": idempotency_key,
+        }
+    elif operation == "source":
+        arguments = {
+            **common,
+            "session_id": session_id,
+            "snapshot_id": snapshot_id,
+            "element_id": element_id,
+        }
+    else:
+        arguments = {**common, "session_id": session_id, "reason": reason}
+    return await _run(
+        context,
+        "project_frontend",
+        {key: value for key, value in arguments.items() if value is not None},
+    )
+
+
 def _register_tool(name: str, function: Any) -> None:
     contract = TOOL_CONTRACTS[name]
     annotations = ToolAnnotations(**contract["annotations"])
@@ -419,6 +496,7 @@ _register_tool("project_manage", project_manage)
 _register_tool("device_read", device_read)
 _register_tool("device_screenshot", device_screenshot)
 _register_tool("device_desktop", device_desktop)
+_register_tool("project_frontend", project_frontend)
 
 mcp_http_app = mcp.streamable_http_app(
     streamable_http_path="/",

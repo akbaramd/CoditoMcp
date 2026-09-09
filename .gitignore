@@ -20,6 +20,7 @@ coverage.xml
 htmlcov/
 dist/
 build/
+node_modules/
 *.egg-info/
 
 # Local configuration and secrets

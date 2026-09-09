@@ -6,7 +6,6 @@ on:
       version:
         description: Three-part package version
         required: true
-        default: 0.1.1
         type: string
       build_msi:
         description: Build the unsigned WiX MSI after OSMF review
@@ -22,37 +21,58 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
         with:
           version: "0.12.5"
           enable-cache: true
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: 8.0.x
+      - name: Validate package version
+        id: version
+        shell: pwsh
+        env:
+          CODITO_INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if ($env:CODITO_INPUT_VERSION -notmatch '\A(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\z') {
+            throw 'Version must be one canonical three-part numeric SemVer.'
+          }
+          try {
+            [void][version]::Parse($env:CODITO_INPUT_VERSION)
+          }
+          catch {
+            throw 'Version components must fit the supported Windows version range.'
+          }
+          "value=$env:CODITO_INPUT_VERSION" >> $env:GITHUB_OUTPUT
       - run: uv python install 3.12
       - run: uv sync --frozen --package codito-agent --extra ui --extra package
       - shell: pwsh
         run: ./agent/packaging/scripts/Test-PackagingConfig.ps1
       - shell: pwsh
+        env:
+          CODITO_PACKAGE_VERSION: ${{ steps.version.outputs.value }}
         run: >-
           ./agent/packaging/scripts/Build-WindowsDevPackage.ps1
-          -Version '${{ inputs.version }}'
+          -Version $env:CODITO_PACKAGE_VERSION
       - name: Build WiX MSI only after repository owner records OSMF review
         if: inputs.build_msi && vars.WIX_OSMF_REVIEWED == 'true'
         shell: pwsh
         env:
           CODITO_WIX_OSMF_REVIEWED: "1"
+          CODITO_PACKAGE_VERSION: ${{ steps.version.outputs.value }}
         run: >-
           ./agent/packaging/scripts/Build-WindowsInstaller.ps1
-          -Version '${{ inputs.version }}'
+          -Version $env:CODITO_PACKAGE_VERSION
       - name: Refuse an MSI request without recorded OSMF review
         if: inputs.build_msi && vars.WIX_OSMF_REVIEWED != 'true'
         shell: pwsh
         run: throw 'Set repository variable WIX_OSMF_REVIEWED=true only after an authorized OSMF review.'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: codito-${{ inputs.version }}-windows-unsigned
+          name: codito-${{ steps.version.outputs.value }}-windows-unsigned
           path: |
             installer-output/*.zip
             installer-output/*.sha256

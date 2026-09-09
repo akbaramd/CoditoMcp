@@ -13,7 +13,16 @@ from .models import DeviceLink, OAuthGrantBinding, OAuthGrantFamily
 from .oauth import is_allowed_mcp_application
 
 MCP_SCOPES = frozenset(
-    {"projects:read", "projects:write", "files:read", "files:write", "shell:execute", "screen:read"}
+    {
+        "projects:read",
+        "projects:write",
+        "files:read",
+        "files:write",
+        "shell:execute",
+        "screen:read",
+        "frontend:read",
+        "frontend:interact",
+    }
 )
 
 

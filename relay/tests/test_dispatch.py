@@ -30,7 +30,15 @@ def principal_for(device: Device, link) -> MCPPrincipal:  # type: ignore[no-unty
         link_id=link.link_id,
         resource=link.resource,
         scopes=frozenset(
-            {"projects:read", "projects:write", "files:read", "files:write", "shell:execute"}
+            {
+                "projects:read",
+                "projects:write",
+                "files:read",
+                "files:write",
+                "shell:execute",
+                "frontend:read",
+                "frontend:interact",
+            }
         ),
     )
 

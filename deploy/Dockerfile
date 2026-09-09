@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-ARG PYTHON_IMAGE=python:3.12.11-slim-bookworm
+ARG PYTHON_IMAGE=python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
 FROM ${PYTHON_IMAGE} AS builder
 
 ARG UV_VERSION=0.12.5
@@ -22,7 +22,7 @@ COPY relay relay
 RUN uv sync --frozen --no-dev --package codito-relay --no-editable \
     && /opt/codito-venv/bin/python relay/manage.py collectstatic --noinput
 
-ARG PYTHON_IMAGE=python:3.12.11-slim-bookworm
+ARG PYTHON_IMAGE=python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
 FROM ${PYTHON_IMAGE} AS runtime
 
 ARG VERSION=0.0.0-dev

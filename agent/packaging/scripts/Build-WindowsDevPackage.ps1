@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+$')]
-    [string]$Version = '0.1.1',
+    [string]$Version = '0.3.0',
     [string]$OutputDirectory,
     [long]$SourceDateEpoch = 946684800,
     [switch]$Release
@@ -80,6 +80,7 @@ if ($LASTEXITCODE -ne 0 -or $pyInstallerVersion -ne '6.22.2') {
 
 $buildRoot = Join-Path $outputRoot 'build'
 $distRoot = Join-Path $outputRoot 'dist'
+$playwrightBrowserRoot = Join-Path $outputRoot 'playwright-browser'
 $packageName = if ($Release) { "Codito-$Version-win-x64" } else {
     "Codito-$Version-win-x64-dev"
 }
@@ -87,6 +88,7 @@ $stageRoot = Join-Path (Join-Path $outputRoot 'staging') $packageName
 Reset-RepositoryDirectory -Path $buildRoot
 Reset-RepositoryDirectory -Path $distRoot
 Reset-RepositoryDirectory -Path $stageRoot
+Reset-RepositoryDirectory -Path $playwrightBrowserRoot
 
 $versionParts = $Version.Split('.')
 $versionTuple = "$($versionParts[0]), $($versionParts[1]), $($versionParts[2]), 0"
@@ -116,10 +118,46 @@ VSVersionInfo(
 $previousSourceDateEpoch = $env:SOURCE_DATE_EPOCH
 $previousPythonHashSeed = $env:PYTHONHASHSEED
 $previousVersionFile = $env:CODITO_VERSION_FILE
+$previousPlaywrightBrowserPath = $env:PLAYWRIGHT_BROWSERS_PATH
+$previousPlaywrightNodePath = $env:PLAYWRIGHT_NODEJS_PATH
+$previousPlaywrightDownloadHost = $env:PLAYWRIGHT_DOWNLOAD_HOST
+$previousPlaywrightChromiumDownloadHost = $env:PLAYWRIGHT_CHROMIUM_DOWNLOAD_HOST
+$previousNodeOptions = $env:NODE_OPTIONS
+$previousNodeTlsRejectUnauthorized = $env:NODE_TLS_REJECT_UNAUTHORIZED
+$previousNodeExtraCaCerts = $env:NODE_EXTRA_CA_CERTS
 try {
     $env:SOURCE_DATE_EPOCH = [string]$SourceDateEpoch
     $env:PYTHONHASHSEED = '0'
     $env:CODITO_VERSION_FILE = $versionFile
+    $env:PLAYWRIGHT_BROWSERS_PATH = $playwrightBrowserRoot
+    $env:PLAYWRIGHT_NODEJS_PATH = $null
+    $env:PLAYWRIGHT_DOWNLOAD_HOST = $null
+    $env:PLAYWRIGHT_CHROMIUM_DOWNLOAD_HOST = $null
+    $env:NODE_OPTIONS = $null
+    $env:NODE_TLS_REJECT_UNAUTHORIZED = $null
+    $env:NODE_EXTRA_CA_CERTS = $null
+    & $pythonExecutable -m playwright install chromium --no-shell
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Playwright Chromium installation failed.'
+    }
+    $chromiumRevision = (& $pythonExecutable -c `
+        "import json,pathlib,playwright; data=json.loads((pathlib.Path(playwright.__file__).parent/'driver/package/browsers.json').read_text(encoding='utf-8')); print(next(item['revision'] for item in data['browsers'] if item['name']=='chromium'))").Trim()
+    if ($LASTEXITCODE -ne 0 -or $chromiumRevision -notmatch '^\d+$') {
+        throw "Could not resolve the pinned Playwright Chromium revision: '$chromiumRevision'."
+    }
+    $playwrightChromiumRoot = Join-Path $playwrightBrowserRoot "chromium-$chromiumRevision"
+    $expectedChromiumExecutable = Join-Path $playwrightChromiumRoot 'chrome-win64\chrome.exe'
+    $downloadedChromiumExecutables = @(Get-ChildItem -LiteralPath $playwrightBrowserRoot `
+        -Filter 'chrome.exe' -File -Recurse -ErrorAction SilentlyContinue)
+    if ($downloadedChromiumExecutables.Count -ne 1 -or
+        -not $downloadedChromiumExecutables[0].FullName.Equals(
+            $expectedChromiumExecutable,
+            [System.StringComparison]::OrdinalIgnoreCase
+        )) {
+        throw ('Expected exactly one Chrome executable for pinned Playwright Chromium revision ' +
+            "$chromiumRevision at $expectedChromiumExecutable; found " +
+            "$($downloadedChromiumExecutables.Count).")
+    }
     $specifications = @(
         'codito-agent.spec',
         'codito-agent-daemon.spec',
@@ -141,6 +179,13 @@ finally {
     $env:SOURCE_DATE_EPOCH = $previousSourceDateEpoch
     $env:PYTHONHASHSEED = $previousPythonHashSeed
     $env:CODITO_VERSION_FILE = $previousVersionFile
+    $env:PLAYWRIGHT_BROWSERS_PATH = $previousPlaywrightBrowserPath
+    $env:PLAYWRIGHT_NODEJS_PATH = $previousPlaywrightNodePath
+    $env:PLAYWRIGHT_DOWNLOAD_HOST = $previousPlaywrightDownloadHost
+    $env:PLAYWRIGHT_CHROMIUM_DOWNLOAD_HOST = $previousPlaywrightChromiumDownloadHost
+    $env:NODE_OPTIONS = $previousNodeOptions
+    $env:NODE_TLS_REJECT_UNAUTHORIZED = $previousNodeTlsRejectUnauthorized
+    $env:NODE_EXTRA_CA_CERTS = $previousNodeExtraCaCerts
 }
 
 $brokerPublish = Join-Path $buildRoot 'broker-publish'
@@ -168,6 +213,10 @@ Copy-DirectoryContents -Source (Join-Path $distRoot 'codito-agent-daemon') `
     -Destination (Join-Path $stageRoot 'daemon')
 Copy-DirectoryContents -Source (Join-Path $distRoot 'codito-agent-tray') `
     -Destination (Join-Path $stageRoot 'tray')
+$browserStageRoot = Join-Path $stageRoot 'browsers'
+New-Item -ItemType Directory -Path $browserStageRoot -Force | Out-Null
+Copy-DirectoryContents -Source $playwrightChromiumRoot `
+    -Destination (Join-Path $browserStageRoot (Split-Path -Leaf $playwrightChromiumRoot))
 $brokerStage = Join-Path $stageRoot 'broker'
 New-Item -ItemType Directory -Path $brokerStage | Out-Null
 Copy-Item -LiteralPath (Join-Path $brokerPublish 'Codito.Broker.exe') -Destination $brokerStage
@@ -191,6 +240,24 @@ if ($LASTEXITCODE -ne 0) {
 & (Join-Path $stageRoot 'daemon\codito-agent-daemon.exe') --help | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw 'Packaged daemon smoke test failed.'
+}
+$chromiumExecutables = @(Get-ChildItem -LiteralPath (Join-Path $stageRoot 'browsers') `
+    -Filter 'chrome.exe' -File -Recurse)
+if ($chromiumExecutables.Count -ne 1) {
+    throw "Expected exactly one packaged Playwright Chromium executable; found $($chromiumExecutables.Count)."
+}
+$playwrightDriverPaths = @(
+    'daemon\_internal\playwright\driver\node.exe',
+    'daemon\_internal\playwright\driver\package\cli.js'
+)
+foreach ($relativePath in $playwrightDriverPaths) {
+    if (-not (Test-Path -LiteralPath (Join-Path $stageRoot $relativePath) -PathType Leaf)) {
+        throw "Packaged Playwright driver file is missing: $relativePath"
+    }
+}
+& (Join-Path $stageRoot 'daemon\codito-agent-daemon.exe') --packaged-browser-smoke
+if ($LASTEXITCODE -ne 0) {
+    throw 'Packaged Playwright browser smoke test failed.'
 }
 
 $brokerInput = '{"version":1,"operation":"probe"}'

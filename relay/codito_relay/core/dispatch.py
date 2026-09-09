@@ -8,11 +8,13 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 from asgiref.sync import sync_to_async
 from codito_protocol import (
     DeviceReadInput,
     DeviceReadResult,
+    FrontendSnapshotResult,
     ProjectApplyPatchResult,
     ProjectCodeResult,
     ProjectManageResult,
@@ -21,6 +23,8 @@ from codito_protocol import (
     compute_action_digest,
     validate_project_apply_patch,
     validate_project_code,
+    validate_project_frontend,
+    validate_project_frontend_result,
     validate_project_manage,
     validate_project_read,
     validate_project_shell,
@@ -243,6 +247,8 @@ def _validate_device_result(tool_name: str, payload: dict[str, Any]) -> dict[str
             validated_result = TypeAdapter(ProjectManageResult).validate_python(payload["result"])
         elif tool_name == "project_code":
             validated_result = TypeAdapter(ProjectCodeResult).validate_python(payload["result"])
+        elif tool_name == "project_frontend":
+            validated_result = validate_project_frontend_result(payload["result"])
         else:
             raise KeyError(tool_name)
     except (ImportError, KeyError, ValidationError) as exc:
@@ -251,6 +257,86 @@ def _validate_device_result(tool_name: str, payload: dict[str, Any]) -> dict[str
         ) from exc
     normalized = dict(payload)
     normalized["result"] = validated_result.model_dump(mode="json", exclude_none=True)
+    return normalized
+
+
+_RESULT_ECHO_FIELDS = (
+    "operation",
+    "action",
+    "project_id",
+    "session_id",
+    "snapshot_id",
+    "element_id",
+    "job_id",
+    "idempotency_key",
+    "path",
+    "scope_path",
+    "browser",
+    "url",
+    "display",
+    "viewport",
+    "dry_run",
+    "title",
+)
+
+
+def _result_binding_error() -> ToolDispatchError:
+    return ToolDispatchError(
+        "protocol_error", "Device result does not match the authorized request"
+    )
+
+
+def _normalized_http_origin(value: str) -> tuple[str, str, int] | None:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return None
+    if parsed.scheme.casefold() != "http" or not parsed.hostname:
+        return None
+    hostname = parsed.hostname.casefold()
+    if hostname.endswith(".."):
+        return None
+    return ("http", hostname.removesuffix("."), port or 80)
+
+
+def _validate_device_result_for_request(
+    tool_name: str,
+    arguments: Mapping[str, Any],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate result shape and every request identity the result promises to echo."""
+
+    normalized = _validate_device_result(tool_name, payload)
+    if normalized.get("ok") is not True:
+        return normalized
+    result = normalized.get("result")
+    if not isinstance(result, dict):
+        raise _result_binding_error()
+    for field in _RESULT_ECHO_FIELDS:
+        if field in arguments and field in result and result[field] != arguments[field]:
+            raise _result_binding_error()
+
+    if tool_name == "project_frontend":
+        operation = arguments.get("operation")
+        if operation == "session_start":
+            base_url = result.get("base_url")
+            page_url = result.get("url")
+            if not isinstance(base_url, str) or not isinstance(page_url, str):
+                raise _result_binding_error()
+            # Same-origin dev-server redirects (commonly /dashboard -> /login)
+            # are legitimate. The shared result model has already rejected
+            # credentials, queries, fragments, non-loopback hosts, and HTTPS.
+            base_origin = _normalized_http_origin(base_url)
+            if base_origin is None or _normalized_http_origin(page_url) != base_origin:
+                raise _result_binding_error()
+        elif operation == "inspect" and isinstance(arguments.get("element_id"), str):
+            element = result.get("element")
+            if (
+                not isinstance(element, dict)
+                or element.get("element_id") != arguments["element_id"]
+            ):
+                raise _result_binding_error()
     return normalized
 
 
@@ -281,6 +367,17 @@ def _required_scopes(tool_name: str, operation: str) -> frozenset[str]:
         scopes = {"projects:read", "files:read"}
         if operation not in {"code_intelligence_status", "code_workspace_summary"}:
             scopes.add("shell:execute")
+        return frozenset(scopes)
+    if tool_name == "project_frontend":
+        scopes = {"projects:read"}
+        if operation == "session_start":
+            scopes.update({"frontend:interact", "shell:execute"})
+        elif operation in {"snapshot", "inspect"}:
+            scopes.add("frontend:read")
+        elif operation == "source":
+            scopes.update({"frontend:read", "files:read"})
+        elif operation in {"act", "session_stop"}:
+            scopes.add("frontend:interact")
         return frozenset(scopes)
     raise ToolDispatchError("unknown_tool", f"Unknown tool {tool_name}")
 
@@ -321,6 +418,9 @@ def _validate_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, 
             return validate_project_manage(arguments).model_dump(mode="json", exclude_none=True)
         if tool_name == "project_code":
             return validate_project_code(arguments).model_dump(mode="json", exclude_none=True)
+        if tool_name == "project_frontend":
+            validated_frontend = validate_project_frontend(arguments)
+            return validated_frontend.model_dump(mode="json", exclude_none=True)
     except (ValueError, TypeError) as exc:
         raise ToolDispatchError("invalid_request", str(exc)) from exc
     if tool_name == "project_read" and "operation" not in arguments:
@@ -329,7 +429,32 @@ def _validate_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, 
         raise ToolDispatchError("invalid_request", "action is required")
     if tool_name == "project_code" and "operation" not in arguments:
         raise ToolDispatchError("invalid_request", "operation is required")
+    if tool_name == "project_frontend" and "operation" not in arguments:
+        raise ToolDispatchError("invalid_request", "operation is required")
     return arguments
+
+
+def _is_replay_unsafe(tool_name: str, arguments: Mapping[str, Any]) -> bool:
+    """Return whether a lost response could conceal an already executed action."""
+
+    return (
+        tool_name == "device_desktop"
+        or (tool_name == "project_shell" and arguments.get("action") == "start")
+        or (
+            tool_name == "project_frontend"
+            and arguments.get("operation") in {"session_start", "act"}
+        )
+    )
+
+
+def _uncertainty_message(tool_name: str, arguments: Mapping[str, Any]) -> str:
+    if tool_name == "device_desktop":
+        return "The browser action may have executed; do not automatically retry it"
+    if tool_name == "project_frontend" and arguments.get("operation") == "session_start":
+        return "The frontend session may have started; do not automatically start it again"
+    if tool_name == "project_frontend":
+        return "The browser interaction may have executed; do not automatically retry it"
+    return "The shell command may have started; do not automatically resubmit it"
 
 
 def _lookup_route(
@@ -438,6 +563,7 @@ def _create_operation(
     tool_name: str,
     arguments: dict[str, Any],
     action_digest: str,
+    timeout_seconds: int,
 ) -> tuple[Operation, bool]:
     idempotency_key = str(arguments.get("idempotency_key", ""))
     idempotency_scope = {
@@ -470,7 +596,7 @@ def _create_operation(
         raise ToolDispatchError(
             "device_queue_full", "The device pending queue is full", retryable=True
         )
-    deadline = timezone.now() + timedelta(seconds=settings.OPERATION_TIMEOUT_SECONDS)
+    deadline = timezone.now() + timedelta(seconds=timeout_seconds)
     try:
         with transaction.atomic():
             operation = Operation.objects.create(
@@ -595,6 +721,16 @@ async def dispatch_tool(
         )
     wire_payload = {"tool_name": tool_name, "input": arguments}
     digest = compute_action_digest(wire_payload)
+    timeout_seconds = settings.OPERATION_TIMEOUT_SECONDS
+    if tool_name == "project_frontend" and operation_name == "session_start":
+        # The configured start budget covers approval/browser overhead. The
+        # caller's separately bounded readiness wait is additive so a slow but
+        # permitted dev server cannot consume the entire approval lifecycle.
+        ready_timeout = int(arguments.get("ready_timeout_seconds", 30))
+        frontend_timeout = min(
+            max(settings.FRONTEND_START_TIMEOUT_SECONDS + ready_timeout, 60), 420
+        )
+        timeout_seconds = max(timeout_seconds, frontend_timeout)
     operation, created = await sync_to_async(_create_operation, thread_sensitive=True)(
         principal=principal,
         device=device,
@@ -602,6 +738,7 @@ async def dispatch_tool(
         tool_name=tool_name,
         arguments=arguments,
         action_digest=digest,
+        timeout_seconds=timeout_seconds,
     )
     if not created:
         if operation.result is not None:
@@ -660,20 +797,22 @@ async def dispatch_tool(
         ) from exc
     selected_transport = transport or RedisStreamTransport()
     await sync_to_async(_mark_dispatched, thread_sensitive=True)(operation.pk)
-    uncertain_start = tool_name == "device_desktop" or (
-        tool_name == "project_shell" and arguments.get("action") == "start"
-    )
-    uncertainty_message = (
-        "The browser action may have executed; do not automatically retry it"
-        if tool_name == "device_desktop"
-        else "The shell command may have started; do not automatically resubmit it"
-    )
+    uncertain_start = _is_replay_unsafe(tool_name, arguments)
+    uncertainty_message = _uncertainty_message(tool_name, arguments)
     try:
         result = await selected_transport.publish_and_wait(
             device_id=str(device.pk),
             epoch=device.connection_epoch,
             envelope=envelope,
-            timeout_seconds=settings.OPERATION_TIMEOUT_SECONDS,
+            timeout_seconds=max(
+                1,
+                int(
+                    min(
+                        float(timeout_seconds),
+                        (operation.deadline_at - timezone.now()).total_seconds(),
+                    )
+                ),
+            ),
         )
     except ToolDispatchError as exc:
         if uncertain_start and exc.code != "device_offline":
@@ -707,7 +846,7 @@ async def dispatch_tool(
         )
         raise mapped from exc
     try:
-        validated_result = _validate_device_result(tool_name, result)
+        validated_result = _validate_device_result_for_request(tool_name, arguments, result)
     except ToolDispatchError as exc:
         if uncertain_start:
             mapped = ToolDispatchError(
@@ -735,11 +874,19 @@ def success_tool_result(receipt: DispatchReceipt) -> dict[str, Any]:
     structured = {"operation_id": receipt.operation_id, **receipt.result}
     result = receipt.result.get("result")
     if not failed and isinstance(result, dict) and "image_base64" in result:
-        screenshot = DeviceScreenshotResult.model_validate(result)
-        content.append(
-            {"type": "image", "data": screenshot.image_base64, "mimeType": screenshot.mime_type}
+        image_result = (
+            FrontendSnapshotResult.model_validate(result)
+            if result.get("operation") == "snapshot"
+            else DeviceScreenshotResult.model_validate(result)
         )
-        structured["result"] = screenshot.model_dump(mode="json", exclude={"image_base64"})
+        content.append(
+            {
+                "type": "image",
+                "data": image_result.image_base64,
+                "mimeType": image_result.mime_type,
+            }
+        )
+        structured["result"] = image_result.model_dump(mode="json", exclude={"image_base64"})
     return {
         "content": content,
         "structuredContent": structured,

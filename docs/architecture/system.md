@@ -42,11 +42,16 @@ flowchart LR
     Broker[.NET 8 broker\nWin32 security APIs]
     Root[(Registered project root)]
     Sandbox[AppContainer + Job Object]
+    DevServer[Owned/reused loopback\ndev server]
+    ManagedBrowser[Codito Chromium\nPlaywright + CDP]
     UI <--> Pipe <--> Daemon
     Daemon --> DB
     Daemon <--> Broker
     Broker --> Root
     Broker --> Sandbox
+    Daemon --> DevServer
+    Daemon --> ManagedBrowser
+    ManagedBrowser --> DevServer
   end
 
   GPT -->|HTTPS OAuth + MCP| Proxy --> ASGI
@@ -61,7 +66,7 @@ flowchart LR
 | Accounts | Invite, password, session, admin bootstrap/reset | PostgreSQL |
 | OAuth | Discovery, authorization, consent, tokens, CIMD/JWKS | PostgreSQL + signing key configuration |
 | Registry | Devices, links, projects, revocation, status | PostgreSQL |
-| MCP | Three tool definitions, auth context, input/result translation | Operations in PostgreSQL |
+| MCP | Focused tool catalog, auth context, input/result translation | Operations in PostgreSQL |
 | Gateway | Proof-bound device sockets, connection epochs, envelope checks | PostgreSQL + Redis |
 | Dispatch | Admission, deadlines, queues, concurrency, notification | PostgreSQL + Redis Streams |
 | Audit | Redacted security/event history and retention | PostgreSQL |
@@ -85,6 +90,8 @@ state is explicit in PostgreSQL rather than hidden in an ASGI worker.
 | Policy engine | Local modes, approval eligibility, expiring session grants |
 | UI bridge | Mutually authenticated named-pipe messages and signed approval dialogs |
 | Broker client | Narrow request protocol to .NET boundary; fail-closed self-test |
+| Frontend runtime | Own/reuse a loopback dev server and manage project-scoped Chromium sessions |
+| Browser inspector | Viewport PNG, snapshot-bound semantic registry, CDP styles/layout/a11y, bounded interaction and validated source mapping |
 
 ## Trust invariants
 
@@ -97,6 +104,8 @@ state is explicit in PostgreSQL rather than hidden in an ASGI worker.
 6. The relay records an operation before publishing it; the device records it before
    acknowledging it.
 7. An isolated command never silently becomes native.
+8. Frontend element IDs never outlive their snapshot, and page-supplied source
+   metadata never bypasses project path validation.
 
 ## Scale and availability
 

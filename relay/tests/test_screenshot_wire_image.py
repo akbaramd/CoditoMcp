@@ -1,7 +1,10 @@
 """Synthetic pixels traverse actual MCP SDK HTTP serialization as an image."""
 
 import base64
+import binascii
 import hashlib
+import struct
+import zlib
 
 from django.utils import timezone
 from mcp_types.version import LATEST_HANDSHAKE_VERSION
@@ -13,6 +16,20 @@ PNG = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAA9hAAAPYQGoP6dp"
     "AAAADElEQVQImWNgYGAAAAAEAAGjChXjAAAAAElFTkSuQmCC"
 )
+
+
+def make_png(width: int, height: int) -> str:
+    """Create a deterministic RGB PNG using only the standard library."""
+
+    def chunk(name: bytes, data: bytes) -> bytes:
+        payload = name + data
+        return struct.pack(">I", len(data)) + payload + struct.pack(">I", binascii.crc32(payload))
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    pixels = b"".join(b"\x00" + (b"\x00" * width * 3) for _ in range(height))
+    raw = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
+    raw += chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b"")
+    return base64.b64encode(raw).decode()
 
 
 def assert_selected_screen_is_imagecontent_in_actual_sdk_response(

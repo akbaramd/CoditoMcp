@@ -10,6 +10,40 @@ def _oauth_scheme(*scopes: str) -> dict[str, Any]:
 
 
 TOOL_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
+    "project_frontend": {
+        "title": "Inspect and interact with a managed project frontend",
+        "description": (
+            "Internal wire contract behind the six frontend_* facade tools. The Windows agent "
+            "owns a local Chromium context and a configured or detected project development "
+            "server. Snapshots return bounded semantic UI data and validated PNG bytes; inspect, "
+            "act, and source calls must carry the snapshot ID that minted each element ID. "
+            "Targets never accept arbitrary selectors or JavaScript. File uploads and password "
+            "filling are forbidden, and source mappings contain only project-relative paths."
+        ),
+        "required_scopes_by_operation": {
+            "session_start": ["projects:read", "frontend:interact", "shell:execute"],
+            "snapshot": ["projects:read", "frontend:read"],
+            "inspect": ["projects:read", "frontend:read"],
+            "act": ["projects:read", "frontend:interact"],
+            "source": ["projects:read", "frontend:read", "files:read"],
+            "session_stop": ["projects:read", "frontend:interact"],
+        },
+        "securitySchemes": [
+            _oauth_scheme(
+                "projects:read",
+                "frontend:read",
+                "frontend:interact",
+                "files:read",
+                "shell:execute",
+            )
+        ],
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    },
     "project_code": {
         "title": "Code intelligence for registered projects",
         "description": (

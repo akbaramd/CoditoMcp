@@ -7,13 +7,16 @@ from codito_protocol.facade import facade_wire_request
 from codito_protocol.facade_contracts import FACADE_OUTPUT_MODELS
 from django.utils import timezone
 from mcp_types.version import LATEST_HANDSHAKE_VERSION
-from test_screenshot_wire_image import PNG
+from test_screenshot_wire_image import PNG, make_png
 
 from codito_relay.core import mcp_server
 from codito_relay.core.dispatch import DispatchReceipt
 
 PROJECT = "project_abcdefghijkl"
 KEY = "idempotency_abcdefghijkl"
+SESSION = "frontend_session_abcdefghijkl"
+SNAPSHOT = "frontend_snapshot_abcdefghijkl"
+FRONTEND_PNG = make_png(320, 240)
 CONTEXT = {"project_id": PROJECT, "purpose": "Synthetic facade contract test"}
 CASES = {
     "projects_list": {},
@@ -43,6 +46,39 @@ CASES = {
     "screen_list": {},
     "screenshot_capture": {**CONTEXT, "display": "screen_" + "a" * 64},
     "browser_open": {**CONTEXT, "browser": "firefox", "url": "https://example.com/"},
+    "frontend_session_start": {
+        **CONTEXT,
+        "route": "/dashboard",
+        "viewport": {"width": 320, "height": 240},
+        "ready_timeout_seconds": 15,
+        "idempotency_key": KEY,
+    },
+    "frontend_snapshot": {**CONTEXT, "session_id": SESSION, "max_elements": 20},
+    "frontend_inspect": {
+        **CONTEXT,
+        "session_id": SESSION,
+        "snapshot_id": SNAPSHOT,
+        "element_id": "e1",
+    },
+    "frontend_act": {
+        **CONTEXT,
+        "session_id": SESSION,
+        "snapshot_id": SNAPSHOT,
+        "element_id": "e1",
+        "action": "click",
+        "idempotency_key": KEY,
+    },
+    "frontend_source": {
+        **CONTEXT,
+        "session_id": SESSION,
+        "snapshot_id": SNAPSHOT,
+        "element_id": "e1",
+    },
+    "frontend_session_stop": {
+        **CONTEXT,
+        "session_id": SESSION,
+        "reason": "Synthetic review complete",
+    },
 }
 
 
@@ -162,6 +198,94 @@ def _synthetic_result(name, arguments):
             "url": arguments.get("url", "https://example.com/"),
             "status": "submitted",
         },
+        "frontend_session_start": {
+            "operation": "session_start",
+            "project_id": PROJECT,
+            "session_id": SESSION,
+            "base_url": "http://127.0.0.1:4173/",
+            "url": "http://127.0.0.1:4173/dashboard",
+            "viewport": arguments.get("viewport", {"width": 1440, "height": 900}),
+            "dev_server": {"ownership": "managed", "health": "ready"},
+            "warnings": [],
+        },
+        "frontend_snapshot": {
+            "operation": "snapshot",
+            "project_id": PROJECT,
+            "session_id": SESSION,
+            "snapshot_id": SNAPSHOT,
+            "url": "http://127.0.0.1:4173/dashboard",
+            "title": "Synthetic local app",
+            "viewport": {"width": 320, "height": 240},
+            "elements": [
+                {
+                    "element_id": "e1",
+                    "tag": "button",
+                    "role": "button",
+                    "name": "Save",
+                    "text": "Save",
+                    "box": {"x": 10, "y": 20, "width": 80, "height": 32},
+                    "visible": True,
+                }
+            ],
+            "console": [],
+            "network": [],
+            "truncated": False,
+            "mime_type": "image/png",
+            "width": 320,
+            "height": 240,
+            "captured_at": timezone.now().isoformat(),
+            "sha256": hashlib.sha256(base64.b64decode(FRONTEND_PNG)).hexdigest(),
+            "image_base64": FRONTEND_PNG,
+        },
+        "frontend_inspect": {
+            "operation": "inspect",
+            "project_id": PROJECT,
+            "session_id": SESSION,
+            "snapshot_id": SNAPSHOT,
+            "element": {
+                "element_id": "e1",
+                "tag": "button",
+                "role": "button",
+                "name": "Save",
+                "text": "Save",
+                "box": {"x": 10, "y": 20, "width": 80, "height": 32},
+                "visible": True,
+            },
+            "computed_styles": [],
+            "matched_rules": [],
+            "accessibility": {"role": "button", "name": "Save"},
+            "warnings": [],
+        },
+        "frontend_act": {
+            "operation": "act",
+            "project_id": PROJECT,
+            "session_id": SESSION,
+            "snapshot_id": SNAPSHOT,
+            "element_id": "e1",
+            "action": arguments.get("action", "click"),
+            "status": "completed",
+            "snapshot_invalidated": True,
+            "warnings": [],
+        },
+        "frontend_source": {
+            "operation": "source",
+            "project_id": PROJECT,
+            "session_id": SESSION,
+            "snapshot_id": SNAPSHOT,
+            "element_id": "e1",
+            "confidence": "unavailable",
+            "design_system": [],
+            "styles": [],
+            "warnings": [],
+        },
+        "frontend_session_stop": {
+            "operation": "session_stop",
+            "project_id": PROJECT,
+            "session_id": SESSION,
+            "status": "stopped",
+            "dev_server_stopped": True,
+            "warnings": [],
+        },
     }
     return results[name]
 
@@ -217,9 +341,10 @@ def assert_focused_facade_http(client, oauth_token, link, monkeypatch):
             result = call(name, arguments)
             assert result["isError"] is False, result
             assert captured[-1] == facade_wire_request(name, arguments)
-            if name == "screenshot_capture":
+            if name in {"screenshot_capture", "frontend_snapshot"}:
+                expected_png = FRONTEND_PNG if name == "frontend_snapshot" else PNG
                 assert result["content"][1]["type"] == "image"
-                assert result["content"][1]["data"] == PNG
+                assert result["content"][1]["data"] == expected_png
                 assert "image_base64" not in result["structuredContent"]["result"]
         calls_before = len(captured)
         for name, arguments in CASES.items():

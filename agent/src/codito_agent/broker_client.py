@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .errors import AgentError
+
+BROKER_ABORT_TIMEOUT_SECONDS = 10.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +29,7 @@ class BrokerClient:
     def __init__(self, executable: Path | None) -> None:
         self.executable = executable
         self._capabilities: BrokerCapabilities | None = None
+        self._cleanup_tasks: set[asyncio.Task[None]] = set()
 
     async def probe(self, *, refresh: bool = False) -> BrokerCapabilities:
         if self._capabilities is not None and not refresh:
@@ -79,6 +83,37 @@ class BrokerClient:
             "mode": "isolated" if isolated else "native",
             "specification": specification,
         }
+        start_task = asyncio.create_task(
+            self._start_process_request(request), name="codito-broker-start"
+        )
+        try:
+            # Do not propagate caller cancellation into the launch coroutine. It
+            # may already have handed a run request to the broker, in which case
+            # losing its eventual Process object would make the job untrackable.
+            return await asyncio.shield(start_task)
+        except asyncio.CancelledError:
+            cleanup = asyncio.create_task(
+                self._recover_cancelled_start(start_task),
+                name="codito-broker-start-recovery",
+            )
+            self._cleanup_tasks.add(cleanup)
+            cleanup.add_done_callback(self._cleanup_tasks.discard)
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                # A second cancellation must not cancel ownership recovery. The
+                # event loop retains the scheduled cleanup task until it exits.
+                pass
+            except Exception as cleanup_error:
+                raise AgentError(
+                    "broker_cleanup_failed",
+                    "A cancelled broker start could not be terminated",
+                    retryable=True,
+                ) from cleanup_error
+            raise
+
+    async def _start_process_request(self, request: dict[str, Any]) -> asyncio.subprocess.Process:
+        process: asyncio.subprocess.Process | None = None
         try:
             process = await asyncio.create_subprocess_exec(
                 str(self.executable),
@@ -94,11 +129,54 @@ class BrokerClient:
             process.stdin.close()
             await process.stdin.wait_closed()
             return process
-        except OSError as exc:
-            raise AgentError("broker_unavailable", "Security broker could not start") from exc
+        except BaseException as exc:
+            if process is not None:
+                try:
+                    await self._abort_started_process(process)
+                except Exception as cleanup_error:
+                    raise AgentError(
+                        "broker_cleanup_failed",
+                        "An incomplete broker start could not be terminated",
+                        retryable=True,
+                    ) from cleanup_error
+            if isinstance(exc, OSError):
+                raise AgentError("broker_unavailable", "Security broker could not start") from exc
+            raise
+
+    async def _recover_cancelled_start(
+        self, start_task: asyncio.Task[asyncio.subprocess.Process]
+    ) -> None:
+        process: asyncio.subprocess.Process | None = None
+        try:
+            process = await asyncio.wait_for(
+                asyncio.shield(start_task), BROKER_ABORT_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            # Cancelling the inner task enters _start_process_request's own
+            # process-abort path if the broker has already been created.
+            start_task.cancel()
+            with contextlib.suppress(BaseException):
+                await asyncio.shield(start_task)
+            return
+        except BaseException:
+            # The inner path owns cleanup for every failure after process
+            # creation. Nothing was returned for us to terminate.
+            return
+        await self._abort_started_process(process)
+
+    @staticmethod
+    async def _abort_started_process(process: asyncio.subprocess.Process) -> None:
+        if process.stdin is not None:
+            with contextlib.suppress(Exception):
+                process.stdin.close()
+        if process.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+        await asyncio.wait_for(process.wait(), BROKER_ABORT_TIMEOUT_SECONDS)
 
     async def _invoke(self, request: dict[str, Any], *, timeout_seconds: float) -> dict[str, Any]:
         assert self.executable is not None
+        process: asyncio.subprocess.Process | None = None
         try:
             process = await asyncio.create_subprocess_exec(
                 str(self.executable),
@@ -112,8 +190,27 @@ class BrokerClient:
                 process.communicate(json.dumps(request, separators=(",", ":")).encode()),
                 timeout_seconds,
             )
-        except (OSError, TimeoutError) as exc:
-            raise AgentError("broker_unavailable", "Security broker did not respond") from exc
+        except BaseException as exc:
+            if process is not None:
+                cleanup = asyncio.create_task(
+                    self._abort_started_process(process), name="codito-broker-probe-abort"
+                )
+                self._cleanup_tasks.add(cleanup)
+                cleanup.add_done_callback(self._cleanup_tasks.discard)
+                try:
+                    await asyncio.shield(cleanup)
+                except asyncio.CancelledError:
+                    pass
+                except Exception as cleanup_error:
+                    raise AgentError(
+                        "broker_cleanup_failed",
+                        "An incomplete broker request could not be terminated",
+                        retryable=True,
+                    ) from cleanup_error
+            if isinstance(exc, (OSError, TimeoutError)):
+                raise AgentError("broker_unavailable", "Security broker did not respond") from exc
+            raise
+        assert process is not None
         if process.returncode != 0:
             raise AgentError("broker_failed", "Security broker rejected the request")
         try:

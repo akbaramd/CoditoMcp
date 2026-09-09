@@ -21,6 +21,12 @@ tray\codito-agent-tray.exe
 broker\Codito.Broker.exe
     Self-contained .NET 8 win-x64 security broker.
 
+browsers\
+    Agent-owned Playwright Chromium. Frontend inspection never reuses a personal
+    browser profile; persistent project profiles remain under %LOCALAPPDATA%\Codito.
+    The package build also launches this exact browser and bundled Playwright
+    driver against an isolated loopback smoke page before creating the archive.
+
 SHA256SUMS
     Sorted SHA-256 manifest for every payload file except the manifest itself.
 

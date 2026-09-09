@@ -844,3 +844,12 @@ async def test_native_timeout_before_handler_is_not_marked_uncertain(tmp_path):
     stored = client.database.get_operation(envelope.message_id)
     assert stored["state"] == OperationState.FAILED.value
     assert stored["result"]["error"]["code"] == "deadline_exceeded"
+
+
+def test_frontend_native_replay_classification_is_narrow() -> None:
+    from codito_agent.websocket_client import _is_uncertain_native_action
+
+    assert _is_uncertain_native_action("project_frontend", {"operation": "session_start"})
+    assert _is_uncertain_native_action("project_frontend", {"operation": "act"})
+    for operation in ("snapshot", "inspect", "source", "session_stop"):
+        assert not _is_uncertain_native_action("project_frontend", {"operation": operation})

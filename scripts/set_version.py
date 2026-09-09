@@ -15,6 +15,10 @@ TARGETS = {
         r'(?m)^version = "[^"]+"$',
         'version = "{version}"',
     ),
+    "packages/vite-plugin-inspector/package.json": (
+        r'(?m)^  "version": "[^"]+",$',
+        '  "version": "{version}",',
+    ),
     "agent/src/codito_agent/__init__.py": (
         r'(?m)^__version__ = "[^"]+"$',
         '__version__ = "{version}"',
@@ -22,6 +26,19 @@ TARGETS = {
     "relay/codito_relay/__init__.py": (
         r'(?m)^__version__ = "[^"]+"$',
         '__version__ = "{version}"',
+    ),
+    "agent/packaging/scripts/Build-WindowsDevPackage.ps1": (
+        r"(?m)^    \[string\]\$Version = '[^']+',?$",
+        "    [string]$Version = '{version}',",
+    ),
+    "agent/packaging/scripts/Build-WindowsInstaller.ps1": (
+        r"(?m)^    \[string\]\$Version = '[^']+',?$",
+        "    [string]$Version = '{version}',",
+    ),
+    "agent/packaging/wix/Codito.Agent.wixproj": (
+        r"(?m)^(    <PackageVersion "
+        r"Condition=\"'\$\(PackageVersion\)' == ''\">)[^<]+(</PackageVersion>)$",
+        r"\g<1>{version}\g<2>",
     ),
 }
 

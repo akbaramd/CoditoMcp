@@ -1,0 +1,81 @@
+{
+  "$id": "https://codito.akbaramd.ir/schemas/v1/facade-frontend-inspect-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "element_id": {
+      "anyOf": [
+        {
+          "pattern": "^e[1-9][0-9]{0,7}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Semantic element ID from that snapshot; use this or x/y, never both.",
+      "title": "Element Id"
+    },
+    "project_id": {
+      "description": "Opaque project ID returned by projects_list; never send a local path.",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "purpose": {
+      "description": "Concise user-facing reason shown in Windows approval and local activity history.",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "session_id": {
+      "description": "Frontend session ID returned by frontend_session_start.",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "description": "Snapshot ID that minted this target registry.",
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "x": {
+      "anyOf": [
+        {
+          "maximum": 2047,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Viewport x coordinate from that snapshot; requires y and excludes element_id.",
+      "title": "X"
+    },
+    "y": {
+      "anyOf": [
+        {
+          "maximum": 2047,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Viewport y coordinate from that snapshot; requires x and excludes element_id.",
+      "title": "Y"
+    }
+  },
+  "required": [
+    "project_id",
+    "session_id",
+    "purpose",
+    "snapshot_id"
+  ],
+  "title": "FrontendInspectFacadeInput",
+  "type": "object"
+}

@@ -1,0 +1,44 @@
+{
+  "name": "@codito/vite-plugin-inspector",
+  "version": "0.3.0",
+  "packageManager": "pnpm@11.22.0",
+  "description": "Development-only source metadata for Codito managed frontend inspection",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "vite": "^6.0.0 || ^7.0.0 || ^8.0.0"
+  },
+  "dependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/types": "7.29.8"
+  },
+  "devDependencies": {
+    "@types/babel__core": "7.20.5",
+    "@types/node": "26.5.0",
+    "typescript": "7.0.2",
+    "vite": "8.2.2",
+    "vitest": "5.0.0"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

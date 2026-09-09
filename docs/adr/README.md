@@ -19,3 +19,4 @@ adds a new ADR that marks the prior one superseded.
 | [0017](0017-hybrid-durable-async-operations.md) | Hybrid HTTP/WSS durable async operations and approval continuation | Accepted |
 | [0018](0018-focused-tools-and-local-access.md) | Focused tool names, direct commands, three local modes and exact saved permissions | Implementation and verification |
 | [0019](0019-code-intelligence.md) | Language-neutral LSP + structural graph Code Intelligence with snapshot freshness | Accepted |
+| [0020](0020-managed-frontend-inspection.md) | Agent-owned loopback dev server + Chromium frontend inspection | Accepted for 0.3.0 |

@@ -73,4 +73,3 @@ The implementation expanded the original proposal into 16 focused `code_*` tools
 automatic content-hash freshness, explicit `code_reindex`, version-aware diagnostics,
 bounded provider lifecycle, structural graph fallback and per-call native execution
 authorization. The MCP contract remains language-neutral.
-

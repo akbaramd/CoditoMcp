@@ -1,7 +1,7 @@
 # Idea 001 — ChatGPT Browser Scheduler Agent
 
-**Status:** Idea / Exploration  
-**Product:** Codito  
+**Status:** Idea / Exploration
+**Product:** Codito
 **Created:** 2026-09-09
 
 ## Idea
@@ -48,4 +48,3 @@ A schedule should run in a predictable execution context rather than in an arbit
 ## Current Decision
 
 No implementation decision has been made yet. Keep this as an idea until the browser lifecycle, persistent session model, scheduling semantics, reliability model, and ChatGPT interaction strategy have been researched.
-

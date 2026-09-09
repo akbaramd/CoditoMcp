@@ -37,4 +37,3 @@ This idea must not implicitly become unrestricted desktop control. Screen readin
 ## Next Step
 
 Keep the current screen capture implementation as the baseline and revisit this idea when browser/process orchestration is mature enough to benefit from richer visual verification.
-

@@ -758,7 +758,10 @@ class PlaywrightAdapter:
             tag = _string(strings, names[node_index]).lower()
             if (
                 not tag
-                or tag.startswith("#")
+                # DOMSnapshot exposes generated CSS content as synthetic nodes
+                # named ``::before``/``::after``. They are not addressable DOM
+                # elements and cannot safely participate in the element registry.
+                or tag.startswith(("#", "::"))
                 or tag
                 in {
                     "html",

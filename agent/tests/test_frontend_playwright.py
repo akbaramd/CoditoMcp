@@ -390,6 +390,36 @@ def test_semantic_tree_uses_viewport_bounds_nested_text_and_returned_parents() -
     assert limited[0]["parent_backend_node_id"] is None
 
 
+def test_semantic_tree_excludes_css_generated_pseudo_elements() -> None:
+    adapter = PlaywrightAdapter()
+    raw = {
+        "strings": ["#document", "DIV", "::after", "#text", "Generated", ""],
+        "documents": [
+            {
+                "nodes": {
+                    "backendNodeId": [1, 10, 11, 12],
+                    "nodeName": [0, 1, 2, 3],
+                    "nodeValue": [5, 5, 5, 4],
+                    "nodeType": [9, 1, 1, 3],
+                    "attributes": [[], [], [], []],
+                    "parentIndex": [-1, 0, 1, 2],
+                },
+                "layout": {
+                    "nodeIndex": [1, 2, 3],
+                    "bounds": [[0, 0, 100, 30], [80, 0, 20, 30], [80, 0, 20, 30]],
+                    "styles": [[], [], []],
+                },
+            }
+        ],
+    }
+
+    elements, truncated = adapter._semantic_elements(raw, {"nodes": []}, 500, (320, 240))
+
+    assert not truncated
+    assert [item["tag"] for item in elements] == ["div"]
+    assert elements[0]["text"] == "Generated"
+
+
 def test_semantic_tree_prioritizes_late_actionable_nodes_over_wrapper_cap() -> None:
     adapter = PlaywrightAdapter()
     wrapper_count = 501

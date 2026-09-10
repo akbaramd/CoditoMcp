@@ -17,6 +17,7 @@ pytestmark = pytest.mark.skipif(
 
 PAGE = b"""<!doctype html>
 <meta charset=utf-8><title>Codito browser boundary</title>
+<style>body::after { content: 'decorative'; }</style>
 <a id=leave href=about:blank>Leave origin</a>
 <input id=disabled-input disabled value=before>
 <input id=readonly-input readonly value=before>
@@ -100,6 +101,7 @@ async def test_real_edge_shadow_frame_fill_and_about_navigation_boundaries(
         snapshot = await adapter.snapshot(record, max_elements=500)
         assert snapshot.warnings == ["Subframe documents are excluded from this snapshot."]
         assert all("Framed secret" not in element["text"] for element in snapshot.elements)
+        assert all(not element["tag"].startswith("::") for element in snapshot.elements)
 
         shadow = next(
             element

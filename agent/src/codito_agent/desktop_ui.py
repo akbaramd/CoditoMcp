@@ -46,6 +46,11 @@ from PySide6.QtWidgets import (
 from . import __version__
 from .account import sign_in, sign_out
 from .config import AgentConfig
+from .desktop_instance import (
+    DesktopInstanceServer,
+    activate_existing_desktop,
+    desktop_server_name,
+)
 from .diagnostics import event
 from .errors import AgentError
 from .ipc import NamedPipeClient
@@ -2553,10 +2558,15 @@ class CoditoMainWindow(QMainWindow):  # type: ignore[misc, unused-ignore]  # PyS
     def show_window(self) -> None:
         if self._quitting:
             return
+        # Windows STARTUPINFO can override the first ShowWindow call when a
+        # launcher started the tray hidden. Realize the native window first,
+        # then explicitly restore it so Open Codito is never swallowed.
+        self.show()
         self.showNormal()
         self.raise_()
         self.activateWindow()
         self.refresh()
+        event("desktop_window_opened")
 
     def quit_ui(self) -> None:
         self._quitting = True
@@ -2620,11 +2630,21 @@ def run_desktop(config: AgentConfig, client: NamedPipeClient, *, minimized: bool
     app.setQuitOnLastWindowClosed(False)
     app.setFont(QFont("Segoe UI", 10))
     app.setStyleSheet(APP_STYLE)
+    instance_name = desktop_server_name(config.data_directory)
+    if activate_existing_desktop(instance_name):
+        return 0
     icon = app.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
     app.setWindowIcon(icon)
     tray = QSystemTrayIcon(QIcon(icon), app)
     tray.setToolTip("Codito — Starting")
     window = CoditoMainWindow(config, client, tray)
+    instance_server = DesktopInstanceServer(instance_name, window.show_window, app)
+    if not instance_server.start():
+        # Close the startup race without creating a duplicate tray process.
+        if activate_existing_desktop(instance_name):
+            return 0
+        event("desktop_instance_server_failed")
+    app.aboutToQuit.connect(instance_server.close)
     tray.show()
     if not minimized:
         QTimer.singleShot(0, window.show_window)

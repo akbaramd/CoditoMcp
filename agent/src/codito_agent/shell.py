@@ -98,7 +98,6 @@ class ShellJob:
     task: asyncio.Task[None] | None = None
     changed: asyncio.Condition = field(default_factory=asyncio.Condition)
     disconnected_killer: asyncio.Task[None] | None = None
-    pending_canceller: asyncio.Task[ToolResponse] | None = None
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -899,11 +898,11 @@ class ShellManager:
     def disconnected(self) -> None:
         for job in self._jobs.values():
             if job.state == ShellState.PENDING_APPROVAL and job.task is not None:
-                job.pending_canceller = asyncio.create_task(
-                    self.cancel(
-                        job.project_id, job.job_id, grant_id=job.grant_id, link_id=job.link_id
-                    )
-                )
+                # Fence the approval task synchronously. Scheduling cancel() used
+                # to leave one event-loop turn in which a just-released prompt
+                # could reach the broker before cancellation acquired its async
+                # database lane. _run_job owns durable cancellation finalization.
+                job.task.cancel()
                 continue
             if job.state not in ShellState.TERMINAL and job.disconnected_killer is None:
                 job.disconnected_killer = asyncio.create_task(self._kill_after_grace(job))

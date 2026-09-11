@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from collections.abc import Callable
-from contextlib import suppress
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -87,7 +87,8 @@ class AgentProtocolAdapter:
         device_id: str,
         account_id: str,
         approvals: ApprovalManager,
-        read_concurrency: int = 4,
+        read_concurrency: int = 8,
+        read_concurrency_per_project: int | None = None,
         code_intelligence: CodeIntelligenceManager | None = None,
         frontends: FrontendSessionManager | None = None,
     ) -> None:
@@ -102,7 +103,18 @@ class AgentProtocolAdapter:
         self.code_intelligence = code_intelligence
         self.frontends = frontends
         self.online = True
+        if read_concurrency < 1:
+            raise ValueError("read_concurrency must be positive")
+        if read_concurrency_per_project is not None and read_concurrency_per_project < 1:
+            raise ValueError("read_concurrency_per_project must be positive")
         self._read_semaphore = asyncio.Semaphore(read_concurrency)
+        self._read_concurrency_per_project = min(
+            read_concurrency,
+            read_concurrency_per_project
+            if read_concurrency_per_project is not None
+            else min(4, read_concurrency),
+        )
+        self._project_read_semaphores: dict[str, asyncio.Semaphore] = {}
         self._read_result: TypeAdapter[Any] = TypeAdapter(ProjectReadResult)
         self._shell_result: TypeAdapter[Any] = TypeAdapter(ProjectShellResult)
         self._manage_result: TypeAdapter[Any] = TypeAdapter(ProjectManageResult)
@@ -149,9 +161,10 @@ class AgentProtocolAdapter:
                 )
                 validated = DeviceDesktopResult.model_validate(response.structured)
             elif tool_name == "device_screenshot":
-                async with self._read_semaphore:
+                screenshot_request = DeviceScreenshotInput.model_validate(payload)
+                async with self._read_slot(screenshot_request.project_id):
                     response = await self.screenshots.execute(
-                        DeviceScreenshotInput.model_validate(payload),
+                        screenshot_request,
                         grant_id=grant_id,
                         link_id=link_id,
                         connection_epoch=connection_epoch,
@@ -160,7 +173,7 @@ class AgentProtocolAdapter:
                 validated = TypeAdapter(ScreenshotToolResult).validate_python(response.structured)
             elif tool_name == "device_read":
                 device_request = DeviceReadInput.model_validate(payload)
-                async with self._read_semaphore:
+                async with self._read_slot(device_request.project_id):
                     response = await self.device_reads.execute(
                         device_request,
                         grant_id=grant_id,
@@ -171,7 +184,7 @@ class AgentProtocolAdapter:
                 validated = DeviceReadResult.model_validate(response.structured)
             elif tool_name == "project_read":
                 read_request = validate_project_read(payload)
-                async with self._read_semaphore:
+                async with self._read_slot(getattr(read_request, "project_id", None)):
                     if isinstance(read_request, ListProjectsInput):
                         response = await asyncio.to_thread(self._read, read_request)
                     else:
@@ -264,6 +277,17 @@ class AgentProtocolAdapter:
             ) from exc
         return ToolResponse(validated.model_dump(mode="json", exclude_none=True), response.text)
 
+    @asynccontextmanager
+    async def _read_slot(self, project_id: str | None) -> AsyncIterator[None]:
+        # Acquire the project lane first. A backlog from one project therefore
+        # cannot occupy every global slot while merely waiting on its own limit.
+        key = project_id or "__device__"
+        project_semaphore = self._project_read_semaphores.setdefault(
+            key, asyncio.Semaphore(self._read_concurrency_per_project)
+        )
+        async with project_semaphore, self._read_semaphore:
+            yield
+
     async def _code_operation(
         self,
         payload: dict[str, Any],
@@ -278,12 +302,12 @@ class AgentProtocolAdapter:
         if self.code_intelligence is None:
             raise AgentError("invalid_request", "Code intelligence is unavailable")
         request = validate_project_code(payload)
-        project = self.database.get_project(request.project_id)
+        project = await asyncio.to_thread(self.database.get_project, request.project_id)
         generation = self.approvals.generation
         native = request.operation not in {"code_intelligence_status", "code_workspace_summary"}
         resolver = ProjectPathResolver()
 
-        def ensure_authorized() -> None:
+        def ensure_authorized_sync() -> None:
             self.approvals.ensure_current(generation, deadline_at)
             current = self.database.get_project(project.project_id)
             if (
@@ -295,7 +319,10 @@ class AgentProtocolAdapter:
                 raise AgentError("approval_expired", "Local project analysis access changed")
             resolver.verify_project(project)
 
-        ensure_authorized()
+        async def ensure_authorized() -> None:
+            await asyncio.to_thread(ensure_authorized_sync)
+
+        await ensure_authorized()
         approval = self.approvals.build_request(
             account_id=self.account_id,
             grant_id=grant_id,
@@ -320,9 +347,9 @@ class AgentProtocolAdapter:
         await authorize_project_operation(
             project, self.approvals, approval, inside_project=True, uncertain=native
         )
-        ensure_authorized()
-        async with self._read_semaphore:
-            ensure_authorized()
+        await ensure_authorized()
+        async with self._read_slot(project.project_id):
+            await ensure_authorized()
             task = asyncio.create_task(
                 self.code_intelligence.execute(
                     request, project.root, root_identity=project.root_fingerprint
@@ -330,10 +357,10 @@ class AgentProtocolAdapter:
             )
             try:
                 while not task.done():
-                    ensure_authorized()
+                    await ensure_authorized()
                     await asyncio.wait({task}, timeout=0.2)
                 result = await task
-                ensure_authorized()
+                await ensure_authorized()
             except BaseException:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
@@ -354,7 +381,7 @@ class AgentProtocolAdapter:
         deadline_at: datetime,
         mutation: bool,
     ) -> ToolResponse:
-        project = self.database.get_project(request.project_id)
+        project = await asyncio.to_thread(self.database.get_project, request.project_id)
         generation = self.approvals.generation
         self.approvals.ensure_current(generation, deadline_at)
         scope_path = request.scope_path
@@ -462,7 +489,7 @@ class AgentProtocolAdapter:
                     return self._read(request)
 
             result = await _drain_file_worker(perform)
-            ensure_policy()
+            await asyncio.to_thread(ensure_policy)
             return result
 
     def _read(self, request: Any, target_project: Project | None = None) -> ToolResponse:

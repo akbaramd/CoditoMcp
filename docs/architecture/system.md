@@ -110,7 +110,14 @@ state is explicit in PostgreSQL rather than hidden in an ASGI worker.
 ## Scale and availability
 
 The MVP runs two ASGI workers, one PostgreSQL instance, and one Redis instance.
-Workers are stateless with respect to socket routing beyond their live connection;
-epoch ownership and Redis notifications coordinate them. This removes sticky MCP
-sessions but does not make the single host highly available. PostgreSQL or Redis
-outages make readiness fail and admission stops safely.
+Each relay worker uses a bounded ORM executor (eight lanes by default) and one
+shared bounded asynchronous Redis pool; MCP and WebSocket waits stay on the event
+loop. Workers are stateless with respect to socket routing beyond their live
+connection; epoch ownership and Redis
+notifications coordinate them. Agent operation tasks run concurrently, while the
+read scheduler permits eight reads globally and four per project by default. The
+mutation gate is keyed by project so unrelated projects do not share a write lock.
+The device WebSocket send lock preserves envelope ordering, so shell output is paged
+to keep a noisy project from delaying small results for another project. This removes
+sticky MCP sessions but does not make the single host highly available. PostgreSQL
+or Redis outages make readiness fail and admission stops safely.

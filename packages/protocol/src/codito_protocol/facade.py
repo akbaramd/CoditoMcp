@@ -277,6 +277,15 @@ class ShellStatusInput(CoditoModel):
         le=30000,
         description="Maximum long-poll wait for new output or a terminal state.",
     )
+    max_output_bytes: int = Field(
+        default=256 * 1024,
+        ge=16 * 1024,
+        le=1024 * 1024,
+        description=(
+            "Maximum output bytes in one response page. Continue from the returned cursor "
+            "while has_more_output is true."
+        ),
+    )
 
 
 class ShellCancelInput(CoditoModel):

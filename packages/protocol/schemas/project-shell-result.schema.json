@@ -79,6 +79,13 @@
           "title": "Action",
           "type": "string"
         },
+        "available_sequence_cursor": {
+          "default": 0,
+          "description": "Highest output sequence currently retained for this job.",
+          "minimum": 0,
+          "title": "Available Sequence Cursor",
+          "type": "integer"
+        },
         "chunks": {
           "items": {
             "$ref": "#/$defs/ShellOutputChunk"
@@ -97,6 +104,12 @@
           ],
           "default": null,
           "title": "Exit Code"
+        },
+        "has_more_output": {
+          "default": false,
+          "description": "More retained output follows next_sequence_cursor and should be fetched.",
+          "title": "Has More Output",
+          "type": "boolean"
         },
         "job_id": {
           "title": "Job Id",

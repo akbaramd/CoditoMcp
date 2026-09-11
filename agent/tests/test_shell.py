@@ -114,6 +114,83 @@ class FakeProcess:
 
 
 @pytest.mark.asyncio
+async def test_different_projects_execute_shell_jobs_in_parallel(
+    tmp_path: Path, project_root: Path
+) -> None:
+    database = AgentDatabase(tmp_path / "parallel.sqlite3")
+    first_project = database.register_project(
+        "First project", project_root, ProjectMode.FULL_ACCESS
+    )
+    second_root = tmp_path / "second-project"
+    second_root.mkdir()
+    second_project = database.register_project(
+        "Second project", second_root, ProjectMode.FULL_ACCESS
+    )
+    release = asyncio.Event()
+    both_started = asyncio.Event()
+    started_roots: set[str] = set()
+
+    class BlockingProcess(FakeProcess):
+        async def wait(self) -> int:
+            await release.wait()
+            self.returncode = 0
+            return 0
+
+    async def deny(_: Any) -> ApprovalDecision:
+        raise AssertionError("full access must not prompt")
+
+    async def start(specification: dict[str, Any], isolated: bool) -> BlockingProcess:
+        assert not isolated
+        started_roots.add(specification["project_root"])
+        if len(started_roots) == 2:
+            both_started.set()
+        return BlockingProcess()
+
+    manager = ShellManager(
+        database,
+        ProjectPathResolver(),
+        FakeBroker(),  # type: ignore[arg-type]
+        ApprovalManager(deny),
+        tmp_path,
+        account_id="account_abcdefghijkl",
+        device_id="device_abcdefghijkl",
+        process_starter=start,
+    )
+    binding = {
+        "grant_id": "grant_abcdefghijklmn",
+        "link_id": "link_abcdefghijklmnop",
+        "connection_epoch": 2,
+        "deadline_at": datetime.now(UTC) + timedelta(minutes=1),
+    }
+
+    async def start_project(project_id: str, key: str):
+        return await manager.start(
+            {
+                "action": "start",
+                "project_id": project_id,
+                "purpose": "Parallel project regression test",
+                "idempotency_key": key,
+                "start_wait_milliseconds": 0,
+                "command": {"kind": "exec", "executable": "uv", "arguments": ["--version"]},
+            },
+            **binding,  # type: ignore[arg-type]
+        )
+
+    first, second = await asyncio.gather(
+        start_project(first_project.project_id, "parallel_first_key"),
+        start_project(second_project.project_id, "parallel_second_key"),
+    )
+    await asyncio.wait_for(both_started.wait(), 1)
+    assert started_roots == {str(project_root), str(second_root)}
+
+    release.set()
+    await asyncio.gather(
+        manager._jobs[first.structured["job_id"]].task,
+        manager._jobs[second.structured["job_id"]].task,
+    )
+
+
+@pytest.mark.asyncio
 async def test_full_access_shell_start_poll_and_terminal_journal(
     tmp_path: Path, project_root: Path
 ) -> None:
@@ -144,7 +221,7 @@ async def test_full_access_shell_start_poll_and_terminal_journal(
             "working_directory": "",
             "purpose": "Print greeting",
             "timeout_seconds": 30,
-            "output_limit_bytes": 1024,
+            "output_limit_bytes": 64 * 1024,
             "idempotency_key": "shell_key_abcdefghijkl",
             "command": {"kind": "exec", "executable": "cmd.exe", "arguments": ["/c", "echo"]},
         },
@@ -165,6 +242,32 @@ async def test_full_access_shell_start_poll_and_terminal_journal(
     )
     assert poll.structured["state"] == "completed"
     assert poll.structured["chunks"][0]["text"] == "hello\n"
+    job = manager._jobs[job_id]
+    for character in ("a", "b", "c"):
+        manager._append(job, "stdout", character * 8192)
+    first_page = await manager.poll(
+        project.project_id,
+        job_id,
+        1,
+        max_output_bytes=16 * 1024,
+        grant_id="grant_abcdefghijklmn",
+        link_id="link_abcdefghijklmnop",
+    )
+    assert [chunk["sequence"] for chunk in first_page.structured["chunks"]] == [2, 3]
+    assert first_page.structured["next_sequence_cursor"] == 3
+    assert first_page.structured["available_sequence_cursor"] == 4
+    assert first_page.structured["has_more_output"] is True
+
+    last_page = await manager.poll(
+        project.project_id,
+        job_id,
+        3,
+        max_output_bytes=16 * 1024,
+        grant_id="grant_abcdefghijklmn",
+        link_id="link_abcdefghijklmnop",
+    )
+    assert [chunk["sequence"] for chunk in last_page.structured["chunks"]] == [4]
+    assert last_page.structured["has_more_output"] is False
     journal = database.get_idempotency(
         project.project_id,
         "project_shell",

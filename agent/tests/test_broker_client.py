@@ -10,6 +10,47 @@ from codito_agent.broker_client import BrokerCapabilities, BrokerClient
 
 
 @pytest.mark.asyncio
+async def test_concurrent_first_probe_is_single_flight(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    executable = tmp_path / "Codito.Broker.exe"
+    executable.write_bytes(b"broker")
+    client = BrokerClient(executable)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def invoke(_request: dict[str, Any], *, timeout_seconds: float) -> dict[str, Any]:
+        nonlocal calls
+        assert timeout_seconds == 15
+        calls += 1
+        entered.set()
+        await release.wait()
+        return {
+            "capabilities": {
+                "job_object": True,
+                "appcontainer_api": False,
+                "filesystem_acl": False,
+                "network_denial": False,
+                "child_containment": True,
+                "isolation_proven": False,
+            }
+        }
+
+    monkeypatch.setattr(client, "_invoke", invoke)
+    probes = [asyncio.create_task(client.probe()) for _ in range(8)]
+    await asyncio.wait_for(entered.wait(), 1)
+    await asyncio.sleep(0)
+    assert calls == 1
+
+    release.set()
+    capabilities = await asyncio.gather(*probes)
+
+    assert calls == 1
+    assert all(item is capabilities[0] for item in capabilities)
+
+
+@pytest.mark.asyncio
 async def test_cancelled_run_request_recovers_and_kills_returned_broker(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

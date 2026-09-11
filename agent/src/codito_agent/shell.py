@@ -98,7 +98,6 @@ class ShellJob:
     task: asyncio.Task[None] | None = None
     changed: asyncio.Condition = field(default_factory=asyncio.Condition)
     disconnected_killer: asyncio.Task[None] | None = None
-    pending_canceller: asyncio.Task[ToolResponse] | None = None
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -259,6 +258,7 @@ class ShellManager:
                 str(request.get("job_id", "")),
                 int(request.get("sequence_cursor", 0)),
                 int(request.get("wait_milliseconds", 0)),
+                int(request.get("max_output_bytes", 256 * 1024)),
                 grant_id=grant_id,
                 link_id=link_id,
             )
@@ -303,7 +303,7 @@ class ShellManager:
             "link_id": link_id,
             "device_id": self.device_id,
         }
-        project = self.database.get_project(project_id)
+        project = await asyncio.to_thread(self.database.get_project, project_id)
         if not project.enabled:
             raise AgentError("project_disabled", "The requested project is disabled")
         # Remote execution selectors cannot activate a legacy disabled sandbox.
@@ -312,7 +312,9 @@ class ShellManager:
         if execution not in {"project_policy", "native_approval"}:
             raise AgentError("invalid_request", "Unknown execution policy request")
         mode = ProjectMode.NATIVE_APPROVAL if execution == "native_approval" else project.mode
-        prior = self.database.get_idempotency(project_id, "project_shell", key, **binding)
+        prior = await asyncio.to_thread(
+            self.database.get_idempotency, project_id, "project_shell", key, **binding
+        )
         if prior is not None:
             return self._existing_start(prior, digest)
         working_relative = str(request.get("working_directory", ".")) or "."
@@ -424,7 +426,9 @@ class ShellManager:
                 )
             # Close the in-process race between the initial lookup and journal
             # insertion. Identical concurrent starts must never create two jobs.
-            prior = self.database.get_idempotency(project_id, "project_shell", key, **binding)
+            prior = await asyncio.to_thread(
+                self.database.get_idempotency, project_id, "project_shell", key, **binding
+            )
             if prior is not None:
                 return self._existing_start(prior, digest)
             owner = f"shell:{key}"
@@ -454,7 +458,8 @@ class ShellManager:
                     "state": job.state,
                     "connection_epoch": connection_epoch,
                 }
-                self.database.put_idempotency(
+                await asyncio.to_thread(
+                    self.database.put_idempotency,
                     project_id,
                     "project_shell",
                     key,
@@ -485,7 +490,9 @@ class ShellManager:
                 if job is not None:
                     self._jobs.pop(job.job_id, None)
                 if journal_created:
-                    self.database.delete_idempotency(project_id, "project_shell", key)
+                    await asyncio.to_thread(
+                        self.database.delete_idempotency, project_id, "project_shell", key
+                    )
                 self.operation_gate.release(project_id, owner)
                 raise
         assert job is not None
@@ -576,7 +583,7 @@ class ShellManager:
     ) -> None:
         pinned: WindowsReadScope | None = None
         try:
-            self._require_enabled(job.project_id)
+            await self._require_enabled(job.project_id)
             identity = specification["root_fingerprint"]
             if external_cwd:
                 pinned = WindowsReadScope(specification["working_directory"]).__enter__()
@@ -600,8 +607,8 @@ class ShellManager:
                 job.state = ShellState.QUEUED
                 await self._notify(job)
             self.approvals.ensure_current(generation, approval.deadline_at)
-            self._require_enabled(job.project_id)
-            current_project = self.database.get_project(job.project_id)
+            await self._require_enabled(job.project_id)
+            current_project = await asyncio.to_thread(self.database.get_project, job.project_id)
             if current_project.mode is not original_mode:
                 raise AgentError(
                     "approval_expired", "Project access mode changed before command start"
@@ -659,7 +666,8 @@ class ShellManager:
                 if job.state == ShellState.OUTCOME_UNKNOWN
                 else OperationState.FAILED
             )
-            self.database.put_idempotency(
+            await asyncio.to_thread(
+                self.database.put_idempotency,
                 job.project_id,
                 "project_shell",
                 job.idempotency_key,
@@ -711,13 +719,20 @@ class ShellManager:
         job_id: str,
         cursor: int,
         wait_milliseconds: int = 0,
+        max_output_bytes: int = 256 * 1024,
         *,
         grant_id: str,
         link_id: str,
     ) -> ToolResponse:
-        if cursor < 0 or not 0 <= wait_milliseconds <= 30_000:
-            raise AgentError("invalid_request", "Poll cursor or wait is out of range")
-        self._require_enabled(project_id)
+        if (
+            cursor < 0
+            or not 0 <= wait_milliseconds <= 30_000
+            or not 16 * 1024 <= max_output_bytes <= 1024 * 1024
+        ):
+            raise AgentError(
+                "invalid_request", "Poll cursor, wait, or output page size is out of range"
+            )
+        await self._require_enabled(project_id)
         job = self._jobs.get(job_id)
         if job is None or job.project_id != project_id:
             raise AgentError("job_not_found", "Shell job was not found")
@@ -728,16 +743,30 @@ class ShellManager:
                     await asyncio.wait_for(job.changed.wait(), wait_milliseconds / 1000)
                 except TimeoutError:
                     pass
-        chunks = [chunk.as_dict() for chunk in job.chunks if chunk.sequence > cursor]
-        result = self._poll_result(job, cursor)
+        result = self._poll_result(job, cursor, max_output_bytes)
         return ToolResponse(
-            result, f"Shell job is {job.state}; returned {len(chunks)} output chunk(s)."
+            result,
+            f"Shell job is {job.state}; returned {len(result['chunks'])} output chunk(s).",
         )
 
     @staticmethod
-    def _poll_result(job: ShellJob, cursor: int) -> dict[str, Any]:
-        chunks = [chunk.as_dict() for chunk in job.chunks if chunk.sequence > cursor]
+    def _poll_result(
+        job: ShellJob, cursor: int, max_output_bytes: int = 256 * 1024
+    ) -> dict[str, Any]:
+        # Sequence numbers are contiguous and one-based, so the cursor is also
+        # the exact list offset. Avoid rescanning all historical output on every
+        # status call as a long-running build accumulates chunks.
+        start_index = min(cursor, len(job.chunks))
+        chunks: list[dict[str, Any]] = []
+        page_bytes = 0
+        for chunk in job.chunks[start_index:]:
+            chunk_bytes = len(chunk.text.encode("utf-8"))
+            if chunks and page_bytes + chunk_bytes > max_output_bytes:
+                break
+            chunks.append(chunk.as_dict())
+            page_bytes += chunk_bytes
         next_cursor = chunks[-1]["sequence"] if chunks else cursor
+        available_cursor = len(job.chunks)
         return {
             "action": "poll",
             "project_id": job.project_id,
@@ -745,6 +774,8 @@ class ShellManager:
             "state": job.state,
             "chunks": chunks,
             "next_sequence_cursor": next_cursor,
+            "available_sequence_cursor": available_cursor,
+            "has_more_output": next_cursor < available_cursor,
             "exit_code": job.exit_code,
             "output_truncated": job.output_truncated,
         }
@@ -752,7 +783,7 @@ class ShellManager:
     async def cancel(
         self, project_id: str, job_id: str, *, grant_id: str, link_id: str
     ) -> ToolResponse:
-        self._require_enabled(project_id)
+        await self._require_enabled(project_id)
         job = self._jobs.get(job_id)
         if job is None or job.project_id != project_id:
             result = {
@@ -778,7 +809,8 @@ class ShellManager:
             job.task.cancel()
         async with self._guard:
             self.operation_gate.release(project_id, f"shell:{job.idempotency_key}")
-        self.database.put_idempotency(
+        await asyncio.to_thread(
+            self.database.put_idempotency,
             job.project_id,
             "project_shell",
             job.idempotency_key,
@@ -810,8 +842,9 @@ class ShellManager:
                 "binding_mismatch", "Shell job belongs to another authorization binding"
             )
 
-    def _require_enabled(self, project_id: str) -> None:
-        if not self.database.get_project(project_id).enabled:
+    async def _require_enabled(self, project_id: str) -> None:
+        project = await asyncio.to_thread(self.database.get_project, project_id)
+        if not project.enabled:
             raise AgentError("project_disabled", "The requested project is disabled")
 
     @staticmethod
@@ -865,11 +898,11 @@ class ShellManager:
     def disconnected(self) -> None:
         for job in self._jobs.values():
             if job.state == ShellState.PENDING_APPROVAL and job.task is not None:
-                job.pending_canceller = asyncio.create_task(
-                    self.cancel(
-                        job.project_id, job.job_id, grant_id=job.grant_id, link_id=job.link_id
-                    )
-                )
+                # Fence the approval task synchronously. Scheduling cancel() used
+                # to leave one event-loop turn in which a just-released prompt
+                # could reach the broker before cancellation acquired its async
+                # database lane. _run_job owns durable cancellation finalization.
+                job.task.cancel()
                 continue
             if job.state not in ShellState.TERMINAL and job.disconnected_killer is None:
                 job.disconnected_killer = asyncio.create_task(self._kill_after_grace(job))

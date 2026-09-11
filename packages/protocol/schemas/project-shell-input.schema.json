@@ -101,6 +101,14 @@
           "title": "Job Id",
           "type": "string"
         },
+        "max_output_bytes": {
+          "default": 262144,
+          "description": "Maximum UTF-8 output bytes returned by one poll page. Continue from next_sequence_cursor while has_more_output is true.",
+          "maximum": 1048576,
+          "minimum": 16384,
+          "title": "Max Output Bytes",
+          "type": "integer"
+        },
         "project_id": {
           "description": "Original job project binding.",
           "title": "Project Id",

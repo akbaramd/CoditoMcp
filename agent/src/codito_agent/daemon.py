@@ -106,6 +106,7 @@ class CoditoDaemon:
             account_id=state.account_id,
             approvals=self.approvals,
             read_concurrency=config.read_concurrency,
+            read_concurrency_per_project=config.read_concurrency_per_project,
             code_intelligence=self.code_intelligence,
             frontends=self.frontends,
         )

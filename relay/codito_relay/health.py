@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import secrets
 
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db import connection
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -12,6 +11,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from . import __version__
+from .core.database_async import database_sync
 from .core.models import Device
 
 
@@ -29,7 +29,7 @@ def _database_ready() -> None:
 async def ready(request: Request) -> JSONResponse:
     checks: dict[str, str] = {}
     try:
-        await asyncio.wait_for(sync_to_async(_database_ready, thread_sensitive=True)(), timeout=2)
+        await asyncio.wait_for(database_sync(_database_ready), timeout=2)
         checks["database"] = "ok"
     except Exception:
         checks["database"] = "unavailable"

@@ -170,6 +170,15 @@ class ShellPollInput(CoditoModel):
         le=30_000,
         description="Maximum bounded long-poll wait; zero returns immediately.",
     )
+    max_output_bytes: int = Field(
+        default=256 * 1024,
+        ge=16 * 1024,
+        le=1024 * 1024,
+        description=(
+            "Maximum UTF-8 output bytes returned by one poll page. Continue from "
+            "next_sequence_cursor while has_more_output is true."
+        ),
+    )
 
 
 class ShellCancelInput(CoditoModel):
@@ -231,6 +240,15 @@ class ShellPollResult(CoditoModel):
     ]
     chunks: list[ShellOutputChunk]
     next_sequence_cursor: int = Field(ge=0)
+    available_sequence_cursor: int = Field(
+        default=0,
+        ge=0,
+        description="Highest output sequence currently retained for this job.",
+    )
+    has_more_output: bool = Field(
+        default=False,
+        description="More retained output follows next_sequence_cursor and should be fetched.",
+    )
     exit_code: int | None = None
     output_truncated: bool = False
 

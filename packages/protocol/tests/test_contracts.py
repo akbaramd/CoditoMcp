@@ -186,6 +186,17 @@ def test_shell_poll_keeps_project_binding() -> None:
     )
     assert request.project_id == PROJECT_ID
     assert request.sequence_cursor == 4
+    assert request.max_output_bytes == 256 * 1024
+
+    with pytest.raises(ValidationError):
+        validate_project_shell(
+            {
+                "action": "poll",
+                "project_id": PROJECT_ID,
+                "job_id": "shelljob_01J123456789ABCDEF",
+                "max_output_bytes": 1024,
+            }
+        )
 
 
 def test_shell_start_defaults_to_bounded_interaction_wait() -> None:

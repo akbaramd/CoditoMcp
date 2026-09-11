@@ -6,7 +6,6 @@ import secrets
 from dataclasses import dataclass
 from typing import Any
 
-from asgiref.sync import sync_to_async
 from codito_protocol import (
     ErrorCode,
     MessageKind,
@@ -19,11 +18,12 @@ from codito_protocol.screenshot import durable_tool_result
 from django.db import transaction
 from django.utils import timezone
 from pydantic import ValidationError
-from redis.asyncio import from_url
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from .database_async import database_sync
 from .device_crypto import verify_device_signature, websocket_proof_message
 from .models import AuditEvent, Device, DeviceConnectionTicket, Operation, Project, hash_secret
+from .redis_async import shared_redis
 
 
 class DeviceAuthenticationError(Exception):
@@ -515,9 +515,7 @@ def _recoverable_operation_correlations(connection: DeviceConnection) -> list[st
 async def _deliver_operation(
     websocket: WebSocket, redis: Any, connection: DeviceConnection, correlation_id: str
 ) -> None:
-    prepared = await sync_to_async(_prepare_operation_dispatch, thread_sensitive=True)(
-        connection, correlation_id
-    )
+    prepared = await database_sync(_prepare_operation_dispatch, connection, correlation_id)
     if prepared is None:
         return
     if prepared.terminal is not None:
@@ -533,17 +531,13 @@ async def _deliver_operation(
     if prepared.outbound is None:
         return
     await websocket.send_json(prepared.outbound.model_dump(mode="json", exclude_none=True))
-    await sync_to_async(_mark_operation_sent, thread_sensitive=True)(
-        prepared.operation_id, connection
-    )
+    await database_sync(_mark_operation_sent, prepared.operation_id, connection)
 
 
 async def _recover_unsent_operations(
     websocket: WebSocket, redis: Any, connection: DeviceConnection
 ) -> None:
-    correlations = await sync_to_async(_recoverable_operation_correlations, thread_sensitive=True)(
-        connection
-    )
+    correlations = await database_sync(_recoverable_operation_correlations, connection)
     for correlation_id in correlations:
         await _deliver_operation(websocket, redis, connection, correlation_id)
 
@@ -630,9 +624,7 @@ async def _receive_loop(websocket: WebSocket, redis: Any, connection: DeviceConn
             if envelope.bindings.device_id != connection.device_id:
                 raise ValueError("device substitution")
             if envelope.kind is MessageKind.HELLO and "projects" in envelope.payload:
-                await sync_to_async(_synchronize_projects, thread_sensitive=True)(
-                    connection, envelope.payload
-                )
+                await database_sync(_synchronize_projects, connection, envelope.payload)
             elif envelope.kind in {
                 MessageKind.OPERATION_RECEIVED,
                 MessageKind.OPERATION_STARTED,
@@ -640,9 +632,7 @@ async def _receive_loop(websocket: WebSocket, redis: Any, connection: DeviceConn
                 MessageKind.OPERATION_RESULT,
                 MessageKind.TERMINAL_ACK,
             }:
-                operation = await sync_to_async(_record_device_message, thread_sensitive=True)(
-                    connection, envelope
-                )
+                operation = await database_sync(_record_device_message, connection, envelope)
                 if envelope.kind in {MessageKind.OPERATION_PROGRESS, MessageKind.OPERATION_RESULT}:
                     stream = f"codito:operation:{envelope.correlation_id}:results"
                     await redis.xadd(
@@ -669,7 +659,7 @@ async def _receive_loop(websocket: WebSocket, redis: Any, connection: DeviceConn
                     ),
                 )
                 await websocket.send_json(reply.model_dump(mode="json", exclude_none=True))
-            await sync_to_async(_touch, thread_sensitive=True)(connection)
+            await database_sync(_touch, connection)
         except (ValidationError, ValueError, Operation.DoesNotExist):
             await websocket.close(code=1008, reason="invalid or substituted envelope")
             return
@@ -733,49 +723,46 @@ async def device_websocket(websocket: WebSocket) -> None:
         await websocket.close(code=1008, reason="device ticket or protocol missing")
         return
     try:
-        connection = await sync_to_async(_consume_ticket, thread_sensitive=True)(
-            raw_ticket, signature
-        )
+        connection = await database_sync(_consume_ticket, raw_ticket, signature)
     except DeviceAuthenticationError:
         await websocket.close(code=1008, reason="device authentication failed")
         return
-    redis = from_url(settings.REDIS_URL, decode_responses=True)
-    try:
-        cursor = "0-0"
-        await redis.set(
-            f"codito:device:{connection.device_id}:epoch", str(connection.epoch), ex=120
-        )
-        await websocket.accept(subprotocol="codito.device.v1")
-        welcome = TunnelEnvelope(
-            kind=MessageKind.WELCOME,
-            message_id=f"welcome_{connection.epoch:08x}_00000000",
-            sequence=0,
-            connection_epoch=connection.epoch,
-            bindings=TunnelBindings(
-                account_id=connection.account_wire_id,
-                device_id=connection.device_id,
-            ),
-            payload={
-                "heartbeat_interval_seconds": 30,
-                "offline_after_seconds": 75,
-                "queue_limit": settings.DEVICE_QUEUE_LIMIT,
-            },
-        )
-        await websocket.send_json(welcome.model_dump(mode="json", exclude_none=True))
-        await sync_to_async(_mark_online, thread_sensitive=True)(connection)
-        tasks = {
-            asyncio.create_task(_receive_loop(websocket, redis, connection)),
-            asyncio.create_task(_dispatch_loop(websocket, redis, connection, cursor)),
-            asyncio.create_task(_heartbeat_loop(websocket, connection)),
-        }
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
-        for task in done:
-            task.result()
-    except (WebSocketDisconnect, RuntimeError, ConnectionError, asyncio.CancelledError):
-        pass
-    finally:
-        await sync_to_async(_mark_offline, thread_sensitive=True)(connection)
-        await redis.close()
+    async with shared_redis(settings.REDIS_URL, decode_responses=True) as redis:
+        try:
+            cursor = "0-0"
+            await redis.set(
+                f"codito:device:{connection.device_id}:epoch", str(connection.epoch), ex=120
+            )
+            await websocket.accept(subprotocol="codito.device.v1")
+            welcome = TunnelEnvelope(
+                kind=MessageKind.WELCOME,
+                message_id=f"welcome_{connection.epoch:08x}_00000000",
+                sequence=0,
+                connection_epoch=connection.epoch,
+                bindings=TunnelBindings(
+                    account_id=connection.account_wire_id,
+                    device_id=connection.device_id,
+                ),
+                payload={
+                    "heartbeat_interval_seconds": 30,
+                    "offline_after_seconds": 75,
+                    "queue_limit": settings.DEVICE_QUEUE_LIMIT,
+                },
+            )
+            await websocket.send_json(welcome.model_dump(mode="json", exclude_none=True))
+            await database_sync(_mark_online, connection)
+            tasks = {
+                asyncio.create_task(_receive_loop(websocket, redis, connection)),
+                asyncio.create_task(_dispatch_loop(websocket, redis, connection, cursor)),
+                asyncio.create_task(_heartbeat_loop(websocket, connection)),
+            }
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+            for task in done:
+                task.result()
+        except (WebSocketDisconnect, RuntimeError, ConnectionError, asyncio.CancelledError):
+            pass
+        finally:
+            await database_sync(_mark_offline, connection)

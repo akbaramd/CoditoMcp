@@ -2,7 +2,7 @@
   <PropertyGroup>
     <InstallerPlatform>x64</InstallerPlatform>
     <OutputType>Package</OutputType>
-    <PackageVersion Condition="'$(PackageVersion)' == ''">0.3.2</PackageVersion>
+    <PackageVersion Condition="'$(PackageVersion)' == ''">0.3.3</PackageVersion>
     <PayloadDir Condition="'$(PayloadDir)' == ''">$(MSBuildThisFileDirectory)..\..\..\installer-output\staging\Codito-$(PackageVersion)-win-x64-dev</PayloadDir>
     <DefineConstants>PackageVersion=$(PackageVersion);PayloadDir=$(PayloadDir)</DefineConstants>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>

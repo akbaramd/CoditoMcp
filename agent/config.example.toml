@@ -5,4 +5,5 @@ data_directory = "%LOCALAPPDATA%/Codito"
 broker_path = "broker/publish/Codito.Broker.exe"
 log_level = "INFO"
 max_pending_operations = 32
-read_concurrency = 4
+read_concurrency = 8
+read_concurrency_per_project = 4

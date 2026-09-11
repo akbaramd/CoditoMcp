@@ -10,7 +10,6 @@ from datetime import timedelta
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
-from asgiref.sync import sync_to_async
 from codito_protocol import (
     DeviceReadInput,
     DeviceReadResult,
@@ -43,7 +42,9 @@ from django.utils import timezone
 from pydantic import TypeAdapter, ValidationError
 
 from .authz import AuthorizationFailure, MCPPrincipal
+from .database_async import database_sync
 from .models import AuditEvent, Device, Operation, Project
+from .redis_async import shared_redis
 
 
 class ToolDispatchError(Exception):
@@ -133,12 +134,9 @@ class RedisStreamTransport:
     async def publish_and_wait(
         self, *, device_id: str, epoch: int, envelope: dict[str, Any], timeout_seconds: int
     ) -> dict[str, Any]:
-        from redis.asyncio import from_url
-
-        redis = from_url(self.redis_url, decode_responses=True)
         dispatch_stream = f"codito:device:{device_id}:dispatch"
         result_stream = f"codito:operation:{envelope['correlation_id']}:results"
-        try:
+        async with shared_redis(self.redis_url, decode_responses=True) as redis:
             await redis.xadd(
                 dispatch_stream,
                 {
@@ -197,17 +195,15 @@ class RedisStreamTransport:
                                 "protocol_error", "Device result binding does not match the request"
                             )
                         if result_envelope.kind is MessageKind.OPERATION_RESULT:
-                            current_epoch = await sync_to_async(
+                            current_epoch = await database_sync(
                                 Operation.objects.values_list("connection_epoch", flat=True).get,
-                                thread_sensitive=True,
-                            )(correlation_id=envelope["correlation_id"])
+                                correlation_id=envelope["correlation_id"],
+                            )
                             if result_envelope.connection_epoch != current_epoch:
                                 raise ToolDispatchError(
                                     "protocol_error", "Device result used a stale connection epoch"
                                 )
                             return result_envelope.payload
-        finally:
-            await redis.close()
 
 
 def _canonical_digest(arguments: Mapping[str, Any]) -> str:
@@ -583,26 +579,41 @@ def _create_operation(
                     "idempotency_conflict", "Idempotency key was already used for another action"
                 )
             return existing, False
-    pending_count = Operation.objects.filter(
-        device=device,
-        status__in=[
-            Operation.Status.ACCEPTED,
-            Operation.Status.DISPATCHED,
-            Operation.Status.RECEIVED,
-            Operation.Status.RUNNING,
-        ],
-    ).count()
-    if pending_count >= settings.DEVICE_QUEUE_LIMIT:
-        raise ToolDispatchError(
-            "device_queue_full", "The device pending queue is full", retryable=True
-        )
     deadline = timezone.now() + timedelta(seconds=timeout_seconds)
     try:
         with transaction.atomic():
+            # Parallel relay database lanes must not turn the device queue cap
+            # into a check-then-create race. Hold this row only for admission;
+            # device execution and result waiting remain fully asynchronous.
+            locked_device = Device.objects.select_for_update().get(
+                pk=device.pk, account_id=principal.account_id
+            )
+            if idempotency_key:
+                existing = Operation.objects.filter(**idempotency_scope).first()
+                if existing:
+                    if existing.action_digest != action_digest:
+                        raise ToolDispatchError(
+                            "idempotency_conflict",
+                            "Idempotency key was already used for another action",
+                        )
+                    return existing, False
+            pending_count = Operation.objects.filter(
+                device=locked_device,
+                status__in=[
+                    Operation.Status.ACCEPTED,
+                    Operation.Status.DISPATCHED,
+                    Operation.Status.RECEIVED,
+                    Operation.Status.RUNNING,
+                ],
+            ).count()
+            if pending_count >= settings.DEVICE_QUEUE_LIMIT:
+                raise ToolDispatchError(
+                    "device_queue_full", "The device pending queue is full", retryable=True
+                )
             operation = Operation.objects.create(
                 account_id=principal.account_id,
                 oauth_grant_id=principal.oauth_grant_id,
-                device=device,
+                device=locked_device,
                 device_link_id=principal.device_link_id,
                 project=project,
                 kind=tool_name,
@@ -618,7 +629,7 @@ def _create_operation(
                 actor_type="oauth_grant",
                 actor_id=principal.oauth_grant_id,
                 event_type="operation.accepted",
-                device=device,
+                device=locked_device,
                 project=project,
                 operation=operation,
                 metadata={"kind": tool_name, "action_digest": action_digest},
@@ -695,16 +706,12 @@ async def dispatch_tool(
         raise ToolDispatchError(
             exc.code, exc.description, details={"required_scopes": sorted(required_scopes)}
         ) from exc
-    device, project = await sync_to_async(_lookup_route, thread_sensitive=True)(
-        principal, tool_name, arguments
-    )
+    device, project = await database_sync(_lookup_route, principal, tool_name, arguments)
     if tool_name == "project_read" and operation_name == "list_projects":
-        result = await sync_to_async(_list_projects, thread_sensitive=True)(principal, arguments)
+        result = await database_sync(_list_projects, principal, arguments)
         return DispatchReceipt(operation_id="local", result=result)
     if tool_name == "project_manage" and operation_name == "get_projects":
-        result = await sync_to_async(_list_managed_projects, thread_sensitive=True)(
-            principal, arguments
-        )
+        result = await database_sync(_list_managed_projects, principal, arguments)
         return DispatchReceipt(operation_id="local", result=result)
     now = timezone.now()
     if (
@@ -731,7 +738,8 @@ async def dispatch_tool(
             max(settings.FRONTEND_START_TIMEOUT_SECONDS + ready_timeout, 60), 420
         )
         timeout_seconds = max(timeout_seconds, frontend_timeout)
-    operation, created = await sync_to_async(_create_operation, thread_sensitive=True)(
+    operation, created = await database_sync(
+        _create_operation,
         principal=principal,
         device=device,
         project=project,
@@ -789,14 +797,17 @@ async def dispatch_tool(
             payload=wire_payload,
         ).model_dump(mode="json", exclude_none=True)
     except (ImportError, ValueError) as exc:
-        await sync_to_async(_mark_delivery_failure, thread_sensitive=True)(
-            operation.pk, tool_name, ToolDispatchError("protocol_error", str(exc))
+        await database_sync(
+            _mark_delivery_failure,
+            operation.pk,
+            tool_name,
+            ToolDispatchError("protocol_error", str(exc)),
         )
         raise ToolDispatchError(
             "protocol_error", "Could not construct a valid tunnel envelope"
         ) from exc
     selected_transport = transport or RedisStreamTransport()
-    await sync_to_async(_mark_dispatched, thread_sensitive=True)(operation.pk)
+    await database_sync(_mark_dispatched, operation.pk)
     uncertain_start = _is_replay_unsafe(tool_name, arguments)
     uncertainty_message = _uncertainty_message(tool_name, arguments)
     try:
@@ -822,13 +833,9 @@ async def dispatch_tool(
                 retryable=False,
                 details={"operation_id": str(operation.pk)},
             )
-            await sync_to_async(_mark_delivery_failure, thread_sensitive=True)(
-                operation.pk, tool_name, mapped
-            )
+            await database_sync(_mark_delivery_failure, operation.pk, tool_name, mapped)
             raise mapped from exc
-        await sync_to_async(_mark_delivery_failure, thread_sensitive=True)(
-            operation.pk, tool_name, exc
-        )
+        await database_sync(_mark_delivery_failure, operation.pk, tool_name, exc)
         raise
     except Exception as exc:
         mapped = ToolDispatchError(
@@ -841,9 +848,7 @@ async def dispatch_tool(
             retryable=not uncertain_start,
             details={"operation_id": str(operation.pk)},
         )
-        await sync_to_async(_mark_delivery_failure, thread_sensitive=True)(
-            operation.pk, tool_name, mapped
-        )
+        await database_sync(_mark_delivery_failure, operation.pk, tool_name, mapped)
         raise mapped from exc
     try:
         validated_result = _validate_device_result_for_request(tool_name, arguments, result)
@@ -855,15 +860,11 @@ async def dispatch_tool(
                 retryable=False,
                 details={"operation_id": str(operation.pk)},
             )
-            await sync_to_async(_mark_delivery_failure, thread_sensitive=True)(
-                operation.pk, tool_name, mapped
-            )
+            await database_sync(_mark_delivery_failure, operation.pk, tool_name, mapped)
             raise mapped from exc
-        await sync_to_async(_mark_delivery_failure, thread_sensitive=True)(
-            operation.pk, tool_name, exc
-        )
+        await database_sync(_mark_delivery_failure, operation.pk, tool_name, exc)
         raise
-    await sync_to_async(_finish, thread_sensitive=True)(operation.pk, validated_result)
+    await database_sync(_finish, operation.pk, validated_result)
     return DispatchReceipt(str(operation.pk), validated_result)
 
 

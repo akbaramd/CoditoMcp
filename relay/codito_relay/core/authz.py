@@ -4,10 +4,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from uuid import UUID
 
-from asgiref.sync import sync_to_async
 from django.utils import timezone
 from oauth2_provider.models import AccessToken
 
+from .database_async import database_sync
 from .models import DeviceLink, OAuthGrantBinding
 
 
@@ -96,4 +96,4 @@ async def authenticate_mcp(headers: Mapping[str, str], link_id_text: str) -> MCP
     except ValueError as exc:
         raise AuthorizationFailure("invalid_target", "Malformed device link", status=404) from exc
     raw_token = _bearer(headers)
-    return await sync_to_async(_authenticate, thread_sensitive=True)(raw_token, link_id)
+    return await database_sync(_authenticate, raw_token, link_id)

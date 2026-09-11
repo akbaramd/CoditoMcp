@@ -34,11 +34,18 @@ class ConcurrentReadService:
         self._lock = threading.Lock()
         self.active = 0
         self.maximum = 0
+        self.active_by_project: dict[str, int] = {}
+        self.maximum_by_project: dict[str, int] = {}
 
     def execute(self, request: dict[str, Any]) -> ToolResponse:
         with self._lock:
             self.active += 1
             self.maximum = max(self.maximum, self.active)
+            project_id = request["project_id"]
+            self.active_by_project[project_id] = self.active_by_project.get(project_id, 0) + 1
+            self.maximum_by_project[project_id] = max(
+                self.maximum_by_project.get(project_id, 0), self.active_by_project[project_id]
+            )
         try:
             time.sleep(0.05)
             return ToolResponse(
@@ -62,6 +69,7 @@ class ConcurrentReadService:
         finally:
             with self._lock:
                 self.active -= 1
+                self.active_by_project[project_id] -= 1
 
 
 @pytest.mark.asyncio
@@ -105,6 +113,50 @@ async def test_adapter_enforces_configured_read_concurrency(
         )
     )
     assert reads.maximum == 2
+
+
+@pytest.mark.asyncio
+async def test_read_capacity_is_partitioned_across_projects(
+    tmp_path: Path, project_root: Path
+) -> None:
+    async def deny(_: Any) -> ApprovalDecision:
+        raise AssertionError("reads must not prompt")
+
+    reads = ConcurrentReadService()
+    database = AgentDatabase(tmp_path / "fair-reads.sqlite")
+    first = database.register_project("First reads", project_root, ProjectMode.NATIVE_PROJECT)
+    second_root = tmp_path / "second-reads"
+    second_root.mkdir()
+    second = database.register_project("Second reads", second_root, ProjectMode.NATIVE_PROJECT)
+    adapter = AgentProtocolAdapter(
+        database=database,
+        reads=reads,  # type: ignore[arg-type]
+        patches=object(),  # type: ignore[arg-type]
+        shells=object(),  # type: ignore[arg-type]
+        device_id="device_abcdefghijkl",
+        account_id="account_abcdefghijkl",
+        approvals=ApprovalManager(deny),
+        read_concurrency=4,
+        read_concurrency_per_project=2,
+    )
+
+    async def read(project_id: str):
+        return await adapter.execute(
+            "project_read",
+            {"operation": "read_file", "project_id": project_id, "path": "file.txt"},
+            grant_id="grant_abcdefghijkl",
+            link_id="link_abcdefghijklmnop",
+            connection_epoch=1,
+            deadline_at=datetime.now(UTC) + timedelta(minutes=1),
+        )
+
+    await asyncio.gather(
+        *(read(first.project_id) for _ in range(6)),
+        *(read(second.project_id) for _ in range(6)),
+    )
+
+    assert reads.maximum == 4
+    assert reads.maximum_by_project == {first.project_id: 2, second.project_id: 2}
 
 
 @pytest.mark.asyncio

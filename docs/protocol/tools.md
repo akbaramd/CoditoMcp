@@ -172,9 +172,12 @@ Idempotency binds account/grant/link/device/project and target scope.
 No action enum or preselected command recipe is required. `executor` is
 `powershell` (default) or `cmd`. Empty cwd means project root; a relative cwd
 stays below it; an absolute cwd requests outside access. Execution timeout is
-1–1800 seconds. The initial response waits up to 30 seconds for output; a
+1–1800 seconds. The initial response waits up to 30 seconds for a lifecycle transition; a
 nonterminal response returns a job ID for `shell_status`, not a reason to resend
-the command. Output is bounded and sequenced; `shell_cancel` cancels that job.
+the command. Output is bounded, sequenced, and paged to prevent one noisy process
+from blocking unrelated project responses on the shared device tunnel. Continue
+from `next_sequence_cursor` while the job is nonterminal or `has_more_output=true`;
+`shell_cancel` cancels that job.
 Approval waiting has a separate bounded timeout.
 
 Native commands use the installed Windows environment. Cwd is not a sandbox.

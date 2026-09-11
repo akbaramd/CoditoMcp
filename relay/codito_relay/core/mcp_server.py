@@ -31,6 +31,7 @@ from codito_relay import __version__
 from .authz import AuthorizationFailure, MCPPrincipal, authenticate_mcp
 from .diagnostics import emit
 from .dispatch import ToolDispatchError, dispatch_tool, error_tool_result, success_tool_result
+from .redis_async import close_shared_redis
 
 
 class CoditoMCPServer(MCPServer[Any]):
@@ -267,6 +268,7 @@ async def project_shell(
     command: dict[str, Any] | None = None,
     sequence_cursor: int = 0,
     wait_milliseconds: int = 0,
+    max_output_bytes: int = 256 * 1024,
     reason: str = "cancelled by caller",
     execution: Literal["project_policy", "native_approval"] = "project_policy",
     external_working_directory: str | None = None,
@@ -297,6 +299,7 @@ async def project_shell(
             "job_id": job_id,
             "sequence_cursor": sequence_cursor,
             "wait_milliseconds": wait_milliseconds,
+            "max_output_bytes": max_output_bytes,
         }
     else:
         arguments = {"action": action, "project_id": project_id, "job_id": job_id, "reason": reason}
@@ -560,5 +563,8 @@ class DeviceMCPGateway:
 
 @asynccontextmanager
 async def mcp_lifespan(app: Any) -> AsyncIterator[None]:
-    async with mcp.session_manager.run():
-        yield
+    try:
+        async with mcp.session_manager.run():
+            yield
+    finally:
+        await close_shared_redis()

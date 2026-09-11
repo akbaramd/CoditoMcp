@@ -8,4 +8,5 @@ data_directory = "%LOCALAPPDATA%/Codito"
 # the sibling broker/Codito.Broker.exe from its signed installation layout.
 log_level = "INFO"
 max_pending_operations = 32
-read_concurrency = 4
+read_concurrency = 8
+read_concurrency_per_project = 4

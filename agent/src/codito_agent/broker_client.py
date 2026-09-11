@@ -29,11 +29,18 @@ class BrokerClient:
     def __init__(self, executable: Path | None) -> None:
         self.executable = executable
         self._capabilities: BrokerCapabilities | None = None
+        self._probe_lock = asyncio.Lock()
         self._cleanup_tasks: set[asyncio.Task[None]] = set()
 
     async def probe(self, *, refresh: bool = False) -> BrokerCapabilities:
         if self._capabilities is not None and not refresh:
             return self._capabilities
+        async with self._probe_lock:
+            if self._capabilities is not None and not refresh:
+                return self._capabilities
+            return await self._probe_uncached()
+
+    async def _probe_uncached(self) -> BrokerCapabilities:
         if self.executable is None or not self.executable.is_file():
             self._capabilities = BrokerCapabilities(
                 False, False, False, False, False, False, "broker executable is unavailable"

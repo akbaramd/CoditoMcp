@@ -169,7 +169,7 @@ class DeviceWebSocketClient:
                 ) as socket:
                     self._socket = socket
                     await self._receive_welcome(socket)
-                    self.database.set_connection_epoch(self._epoch)
+                    await asyncio.to_thread(self.database.set_connection_epoch, self._epoch)
                     self._out_sequence = 0
                     self._last_disconnect_reason = None
                     self.connection_callback(True)
@@ -289,7 +289,8 @@ class DeviceWebSocketClient:
                 and bindings.link_id is not None
                 and pending.action_digest is not None
             ):
-                self.database.acknowledge_terminal(
+                await asyncio.to_thread(
+                    self.database.acknowledge_terminal,
                     correlation_id=envelope.correlation_id,
                     action_digest=pending.action_digest,
                     account_id=bindings.account_id,
@@ -369,7 +370,8 @@ class DeviceWebSocketClient:
             )
             return
         request_digest = compute_action_digest(action_payload)
-        inserted = self.database.record_received(
+        inserted = await asyncio.to_thread(
+            self.database.record_received,
             operation_id=envelope.message_id,
             correlation_id=envelope.correlation_id or envelope.message_id,
             account_id=bindings.account_id,
@@ -394,7 +396,7 @@ class DeviceWebSocketClient:
         )
         budget = _ExecutionBudget.from_envelope(envelope, received_at, received_monotonic)
         if not inserted:
-            prior = self.database.get_operation(envelope.message_id)
+            prior = await asyncio.to_thread(self.database.get_operation, envelope.message_id)
             if prior and prior.get("result"):
                 await self._send_new(
                     MessageKind.OPERATION_RESULT,
@@ -507,7 +509,9 @@ class DeviceWebSocketClient:
         budget: _ExecutionBudget,
         reconcile_duplicate: bool,
     ) -> None:
-        self.database.transition_operation(envelope.message_id, OperationState.RUNNING)
+        await asyncio.to_thread(
+            self.database.transition_operation, envelope.message_id, OperationState.RUNNING
+        )
         handler_started = False
         native_action = _is_uncertain_native_action(tool_name, tool_input)
 
@@ -587,7 +591,12 @@ class DeviceWebSocketClient:
             state = OperationState.FAILED
         from codito_protocol.screenshot import durable_tool_result
 
-        self.database.transition_operation(envelope.message_id, state, durable_tool_result(payload))
+        await asyncio.to_thread(
+            self.database.transition_operation,
+            envelope.message_id,
+            state,
+            durable_tool_result(payload),
+        )
         self._operation_budgets.pop(envelope.message_id, None)
         await self._send_new(
             MessageKind.OPERATION_RESULT,
@@ -607,8 +616,11 @@ class DeviceWebSocketClient:
         payload = to_tool_failure(error, envelope.correlation_id).model_dump(
             mode="json", exclude_none=True
         )
-        self.database.transition_operation(
-            envelope.message_id, OperationState.OUTCOME_UNKNOWN, payload
+        await asyncio.to_thread(
+            self.database.transition_operation,
+            envelope.message_id,
+            OperationState.OUTCOME_UNKNOWN,
+            payload,
         )
         await self._send_new(
             MessageKind.OPERATION_RESULT,
@@ -686,7 +698,8 @@ class DeviceWebSocketClient:
 
         memory = list(self._terminal_pending.values())
         durable_correlations: set[str] = set()
-        for row in self.database.list_unacknowledged_terminals():
+        rows = await asyncio.to_thread(self.database.list_unacknowledged_terminals)
+        for row in rows:
             correlation_id = str(row["correlation_id"])
             durable_correlations.add(correlation_id)
             result = row.get("result")

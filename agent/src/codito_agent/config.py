@@ -24,7 +24,8 @@ class AgentConfig:
     broker_path: Path | None = None
     log_level: str = "INFO"
     max_pending_operations: int = 32
-    read_concurrency: int = 4
+    read_concurrency: int = 8
+    read_concurrency_per_project: int = 4
 
     @classmethod
     def load(cls, path: Path | None = None) -> AgentConfig:
@@ -48,6 +49,7 @@ class AgentConfig:
             broker_path = (
                 Path(sys.executable).resolve().parent.parent / "broker" / "Codito.Broker.exe"
             )
+        read_concurrency = int(str(values.get("read_concurrency", 8)))
         config = cls(
             relay_http_url=str(values.get("relay_http_url", DEFAULT_RELAY_HTTP_URL)),
             relay_websocket_url=str(values.get("relay_websocket_url", DEFAULT_RELAY_WEBSOCKET_URL)),
@@ -56,7 +58,10 @@ class AgentConfig:
             broker_path=broker_path,
             log_level=str(values.get("log_level", "INFO")),
             max_pending_operations=int(str(values.get("max_pending_operations", 32))),
-            read_concurrency=int(str(values.get("read_concurrency", 4))),
+            read_concurrency=read_concurrency,
+            read_concurrency_per_project=int(
+                str(values.get("read_concurrency_per_project", min(4, read_concurrency)))
+            ),
         )
         config.validate()
         return config
@@ -72,6 +77,12 @@ class AgentConfig:
             raise AgentError("invalid_config", "max_pending_operations is out of range")
         if not (1 <= self.read_concurrency <= 16):
             raise AgentError("invalid_config", "read_concurrency is out of range")
+        if not (1 <= self.read_concurrency_per_project <= self.read_concurrency):
+            raise AgentError(
+                "invalid_config",
+                "read_concurrency_per_project must be positive and no greater than "
+                "read_concurrency",
+            )
 
     def ensure_directories(self) -> None:
         self.data_directory.mkdir(parents=True, exist_ok=True)

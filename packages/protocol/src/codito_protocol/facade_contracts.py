@@ -305,7 +305,8 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
         "Read shell status",
         "Use only after execute_shell returns a nonterminal job. Poll that existing job's state "
         "and sequenced stdout/stderr; never start or resubmit a command here. "
-        "Reuse project_id/job_id and the returned sequence cursor; keep polling nonterminal jobs.",
+        "Reuse project_id/job_id and the returned sequence cursor. Keep polling while the job is "
+        "nonterminal or has_more_output is true; each response is a bounded output page.",
         _SHELL,
         "Waiting for shell output…",
         "Shell status ready",

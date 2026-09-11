@@ -45,7 +45,7 @@ def activate_existing_desktop(name: str, *, timeout_ms: int = 500) -> bool:
     return True
 
 
-class DesktopInstanceServer(QObject):
+class DesktopInstanceServer(QObject):  # type: ignore[misc, unused-ignore]
     """Single-instance activation endpoint owned by the primary tray process."""
 
     def __init__(
@@ -75,7 +75,7 @@ class DesktopInstanceServer(QObject):
         listening = self.server.listen(self.name)
         if listening:
             self._accept_timer.start()
-        return listening
+        return bool(listening)
 
     def close(self) -> None:
         self._accept_timer.stop()

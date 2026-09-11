@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -10,9 +12,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from codito_agent.config import AgentConfig
+from codito_agent.desktop_instance import (
+    DesktopInstanceServer,
+    desktop_server_name,
+)
 from codito_agent.desktop_ui import CoditoMainWindow
 
 
@@ -67,3 +74,65 @@ def test_desktop_dashboard_renders_live_device_state(tmp_path: Path) -> None:
     window.close()
     tray.hide()
     app.processEvents()
+
+
+def test_show_window_realizes_hidden_native_window_before_restore(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = QApplication.instance() or QApplication(["Codito UI test"])
+    tray = QSystemTrayIcon()
+    window = CoditoMainWindow(AgentConfig(data_directory=tmp_path), FakeIpcClient(), tray)
+    for timer in (
+        window.refresh_timer,
+        window.approval_timer,
+        window.capture_timer,
+        window.project_request_timer,
+        window.update_timer,
+    ):
+        timer.stop()
+    calls: list[str] = []
+    monkeypatch.setattr(window, "show", lambda: calls.append("show"))
+    monkeypatch.setattr(window, "showNormal", lambda: calls.append("showNormal"))
+    monkeypatch.setattr(window, "raise_", lambda: calls.append("raise"))
+    monkeypatch.setattr(window, "activateWindow", lambda: calls.append("activate"))
+    monkeypatch.setattr(window, "refresh", lambda: calls.append("refresh"))
+
+    window.show_window()
+
+    assert calls == ["show", "showNormal", "raise", "activate", "refresh"]
+    window._quitting = True
+    window.close()
+    tray.hide()
+    app.processEvents()
+
+
+def test_second_desktop_launch_activates_primary_instance(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication(["Codito UI test"])
+    name = desktop_server_name(tmp_path)
+    activations: list[str] = []
+    loop = QEventLoop()
+
+    def activate() -> None:
+        activations.append("show")
+        loop.quit()
+
+    server = DesktopInstanceServer(name, activate, app)
+    assert server.start()
+
+    client = subprocess.Popen(  # noqa: S603 - fixed interpreter and synthetic test input.
+        [
+            sys.executable,
+            "-c",
+            "import sys; from codito_agent.desktop_instance import "
+            "activate_existing_desktop; raise SystemExit(0 if "
+            "activate_existing_desktop(sys.argv[1]) else 1)",
+            name,
+        ]
+    )
+    QTimer.singleShot(2000, loop.quit)
+    loop.exec()
+    return_code = client.wait(timeout=2)
+
+    assert return_code == 0
+    assert activations == ["show"]
+    server.close()

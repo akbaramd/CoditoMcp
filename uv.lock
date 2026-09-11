@@ -216,7 +216,7 @@ wheels = [
 
 [[package]]
 name = "codito-agent"
-version = "0.3.3"
+version = "0.3.4"
 source = { editable = "agent" }
 dependencies = [
     { name = "codito-protocol" },
@@ -272,7 +272,7 @@ provides-extras = ["ui", "package", "dev"]
 
 [[package]]
 name = "codito-protocol"
-version = "0.3.3"
+version = "0.3.4"
 source = { editable = "packages/protocol" }
 dependencies = [
     { name = "pydantic" },
@@ -283,7 +283,7 @@ requires-dist = [{ name = "pydantic", specifier = ">=2.12.0,<3" }]
 
 [[package]]
 name = "codito-relay"
-version = "0.3.3"
+version = "0.3.4"
 source = { editable = "relay" }
 dependencies = [
     { name = "argon2-cffi" },
@@ -350,7 +350,7 @@ dev = [
 
 [[package]]
 name = "codito-workspace"
-version = "0.3.3"
+version = "0.3.4"
 source = { virtual = "." }
 
 [package.dev-dependencies]

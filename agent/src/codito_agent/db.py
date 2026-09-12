@@ -167,6 +167,7 @@ class AgentDatabase:
                     request_digest TEXT NOT NULL,
                     state TEXT NOT NULL,
                     result_json TEXT,
+                    job_id TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     PRIMARY KEY(project_id, capability, idempotency_key),
@@ -273,6 +274,28 @@ class AgentDatabase:
                     connection.execute(
                         f"ALTER TABLE idempotency ADD COLUMN {name} TEXT NOT NULL DEFAULT ''"
                     )
+            if "job_id" not in idempotency_columns:
+                connection.execute("ALTER TABLE idempotency ADD COLUMN job_id TEXT")
+                rows = connection.execute(
+                    "SELECT rowid,result_json FROM idempotency "
+                    "WHERE capability='project_shell' AND result_json IS NOT NULL"
+                ).fetchall()
+                recovered_job_ids: list[tuple[str, int]] = []
+                for row in rows:
+                    try:
+                        result = json.loads(str(row["result_json"]))
+                    except (TypeError, ValueError):
+                        continue
+                    job_id = result.get("job_id") if isinstance(result, dict) else None
+                    if isinstance(job_id, str) and job_id:
+                        recovered_job_ids.append((job_id, int(row["rowid"])))
+                connection.executemany(
+                    "UPDATE idempotency SET job_id=? WHERE rowid=?", recovered_job_ids
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idempotency_shell_job_idx "
+                "ON idempotency(project_id,capability,job_id) WHERE job_id IS NOT NULL"
+            )
 
     def register_project(
         self,
@@ -1019,6 +1042,8 @@ class AgentDatabase:
     ) -> None:
         now = _now()
         encoded = json.dumps(result, separators=(",", ":"), sort_keys=True) if result else None
+        job_id_value = result.get("job_id") if capability == "project_shell" and result else None
+        job_id = job_id_value if isinstance(job_id_value, str) and job_id_value else None
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
@@ -1038,10 +1063,11 @@ class AgentDatabase:
             connection.execute(
                 """INSERT INTO idempotency
                    (project_id,capability,idempotency_key,account_id,grant_id,link_id,device_id,
-                    request_digest,state,result_json,created_at,updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                    request_digest,state,result_json,job_id,created_at,updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(project_id,capability,idempotency_key) DO UPDATE SET
-                     state=excluded.state,result_json=excluded.result_json,updated_at=excluded.updated_at""",
+                      state=excluded.state,result_json=excluded.result_json,job_id=excluded.job_id,
+                      updated_at=excluded.updated_at""",
                 (
                     project_id,
                     capability,
@@ -1053,11 +1079,45 @@ class AgentDatabase:
                     request_digest,
                     state.value,
                     encoded,
+                    job_id,
                     now,
                     now,
                 ),
             )
             connection.commit()
+
+    def get_shell_job(
+        self,
+        project_id: str,
+        job_id: str,
+        *,
+        account_id: str,
+        grant_id: str,
+        link_id: str,
+        device_id: str,
+    ) -> dict[str, Any] | None:
+        """Resolve a shell job by its public job ID after in-memory eviction or restart."""
+
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT account_id,grant_id,link_id,device_id,state,result_json
+                   FROM idempotency
+                   WHERE project_id=? AND capability='project_shell' AND job_id=?""",
+                (project_id, job_id),
+            ).fetchone()
+        if row is None:
+            return None
+        if tuple(row[name] for name in ("account_id", "grant_id", "link_id", "device_id")) != (
+            account_id,
+            grant_id,
+            link_id,
+            device_id,
+        ):
+            raise AgentError("binding_mismatch", "Shell job authorization binding does not match")
+        return {
+            "state": str(row["state"]),
+            "result": json.loads(row["result_json"]) if row["result_json"] else None,
+        }
 
     def delete_idempotency(self, project_id: str, capability: str, key: str) -> None:
         with self._connect() as connection:

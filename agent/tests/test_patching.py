@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,9 @@ import pytest
 from codito_agent.db import AgentDatabase
 from codito_agent.errors import AgentError
 from codito_agent.models import OperationState
+from codito_agent.operation_gate import ProjectOperationGate
 from codito_agent.patching import AnchoredPatchParser, PatchService, _request_digest
+from codito_agent.paths import root_fingerprint
 
 
 def sha(value: bytes) -> str:
@@ -286,6 +289,74 @@ def test_commit_rejects_in_place_edit_after_preflight(
 
     assert error.value.code == "patch_conflict"
     assert target.read_bytes() == raced
+    assert not any((tmp_path / "journals").iterdir())
+
+
+def test_external_patch_gate_is_keyed_by_physical_target_root(
+    tmp_path: Path, project_root: Path
+) -> None:
+    external_root = tmp_path / "external"
+    external_root.mkdir()
+    original = b"before\n"
+    (external_root / "file.txt").write_bytes(original)
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    project = database.register_project("Origin", project_root)
+    target = replace(
+        project,
+        root=external_root,
+        root_fingerprint=root_fingerprint(external_root),
+    )
+    gate = ProjectOperationGate()
+    service = PatchService(database, tmp_path / "journals", operation_gate=gate)
+
+    # Reusing an idempotency key from another project must not make the gate
+    # accidentally re-entrant for the shared physical target.
+    with gate.hold(target.root_fingerprint, "patch:external_target_gate_key"):
+        with pytest.raises(AgentError) as error:
+            service.apply(
+                project_id=project.project_id,
+                scope_path=str(external_root),
+                target_project=target,
+                patch=(
+                    "*** Begin Patch\n*** Update File: file.txt\n@@\n-before\n+after\n*** End Patch"
+                ),
+                base_hashes={"file.txt": sha(original)},
+                idempotency_key="external_target_gate_key",
+                **BINDING,
+            )
+
+    assert error.value.code == "project_busy"
+    assert (external_root / "file.txt").read_bytes() == original
+
+
+def test_failed_atomic_replace_does_not_rewrite_an_unchanged_original(
+    tmp_path: Path, project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = b"before\n"
+    target = project_root / "file.txt"
+    target.write_bytes(original)
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    project = database.register_project("Example", project_root)
+    service = PatchService(database, tmp_path / "journals")
+    calls = 0
+
+    def locked_replace(_: Path, __: bytes) -> None:
+        nonlocal calls
+        calls += 1
+        raise PermissionError("simulated sharing violation")
+
+    monkeypatch.setattr(service, "_atomic_replace", locked_replace)
+    with pytest.raises(PermissionError, match="sharing violation"):
+        service.apply(
+            project_id=project.project_id,
+            patch="*** Begin Patch\n*** Update File: file.txt\n@@\n-before\n+after\n*** End Patch",
+            base_hashes={"file.txt": sha(original)},
+            idempotency_key="locked_replace_patch_key",
+            **BINDING,
+        )
+
+    assert calls == 1
+    assert target.read_bytes() == original
     assert not any((tmp_path / "journals").iterdir())
 
 

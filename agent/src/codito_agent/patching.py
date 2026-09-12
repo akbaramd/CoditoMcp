@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -181,7 +182,12 @@ class AnchoredPatchParser:
                 if not old_lines:
                     raise AgentError("invalid_patch", "Insertion hunks need exact context")
                 if not any(prefix in {"+", "-"} for prefix, _ in hunk_lines):
-                    raise AgentError("invalid_patch", "A hunk must make a change")
+                    raise AgentError(
+                        "invalid_patch",
+                        "A hunk needs at least one '+' or '-' line; do not send a patch "
+                        "when the file already has the desired content",
+                        {"resolution": "reread_and_build_a_changing_hunk"},
+                    )
                 hunks.append(Hunk(tuple(hunk_lines)))
             if not hunks:
                 raise AgentError(
@@ -215,8 +221,12 @@ def _apply_hunks(document: _TextFile, hunks: tuple[Hunk, ...], path: str) -> _Te
         if len(candidates) != 1:
             raise AgentError(
                 "patch_conflict",
-                "Patch context is ambiguous",
-                {"conflicts": [{"path": path, "hunk": hunk_number, "reason": "ambiguous"}]},
+                "Patch context matches more than once; include additional unchanged lines "
+                "that uniquely identify this location",
+                {
+                    "resolution": "reread_and_expand_context",
+                    "conflicts": [{"path": path, "hunk": hunk_number, "reason": "ambiguous"}],
+                },
             )
         index = candidates[0]
         lines[index : index + len(expected)] = replacement
@@ -241,9 +251,9 @@ class PatchService:
         self._locks_guard = threading.Lock()
         self._locks: dict[str, threading.Lock] = {}
 
-    def _project_lock(self, project_id: str) -> threading.Lock:
+    def _project_lock(self, resource_key: str) -> threading.Lock:
         with self._locks_guard:
-            return self._locks.setdefault(project_id, threading.Lock())
+            return self._locks.setdefault(resource_key, threading.Lock())
 
     @staticmethod
     def _normalize_base_hashes(base_hashes: dict[str, str | None]) -> dict[str, str | None]:
@@ -395,7 +405,8 @@ class PatchService:
 
         sections = self.parser.parse(patch)
         owner = f"patch:{idempotency_key}"
-        with self.operation_gate.hold(project_id, owner), self._project_lock(project_id):
+        resource_key = project.root_fingerprint
+        with self.operation_gate.hold(resource_key, owner), self._project_lock(resource_key):
             check()
             preflight = self._preflight(project, sections, normalized_hashes, check=check)
             check()
@@ -486,7 +497,23 @@ class PatchService:
 
         owner = f"patch:{idempotency_key}"
         matched = False
-        with self.operation_gate.hold(project_id, owner), self._project_lock(project_id):
+        resource_key = self.database.get_project(project_id).root_fingerprint
+        for transaction in self.journal_root.iterdir():
+            manifest_path = transaction / "manifest.json"
+            if not transaction.is_dir() or not manifest_path.is_file():
+                continue
+            try:
+                candidate = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if (
+                str(candidate.get("project_id")) == project_id
+                and str(candidate.get("idempotency_key")) == idempotency_key
+                and isinstance(candidate.get("root_fingerprint"), str)
+            ):
+                resource_key = str(candidate["root_fingerprint"])
+                break
+        with self.operation_gate.hold(resource_key, owner), self._project_lock(resource_key):
             for transaction in self.journal_root.iterdir():
                 manifest_path = transaction / "manifest.json"
                 if not transaction.is_dir() or not manifest_path.is_file():
@@ -683,9 +710,18 @@ class PatchService:
                         backup.write(raw)
                         backup.flush()
                         os.fsync(backup.fileno())
-                records.append({"path": relative, "existed": existed, "backup": backup_name})
+                desired = preflight.desired[relative]
+                records.append(
+                    {
+                        "path": relative,
+                        "existed": existed,
+                        "backup": backup_name,
+                        "original_sha256": expected if existed else None,
+                        "desired_sha256": _sha(desired) if desired is not None else None,
+                    }
+                )
             manifest = {
-                "version": 1,
+                "version": 2,
                 "project_id": project.project_id,
                 "root_fingerprint": project.root_fingerprint,
                 "idempotency_key": idempotency_key,
@@ -717,7 +753,7 @@ class PatchService:
             self._write_manifest(transaction, manifest)
         except Exception:
             if mutated:
-                self._restore(project, transaction, records)
+                self._restore(project, transaction, records, result=result)
             else:
                 shutil.rmtree(transaction, ignore_errors=True)
             raise
@@ -786,7 +822,18 @@ class PatchService:
                 stream.write(raw)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, target)
+            delays = (0.02, 0.05, 0.1, 0.2)
+            for attempt in range(len(delays) + 1):
+                try:
+                    os.replace(temporary, target)
+                    break
+                except OSError as exc:
+                    retryable = isinstance(exc, PermissionError) or getattr(
+                        exc, "winerror", None
+                    ) in {5, 32, 33}
+                    if not retryable or attempt == len(delays):
+                        raise
+                    time.sleep(delays[attempt])
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -800,8 +847,43 @@ class PatchService:
             os.fsync(stream.fileno())
         os.replace(temporary, target)
 
-    def _restore(self, project: Any, transaction: Path, records: list[dict[str, Any]]) -> None:
+    @staticmethod
+    def _desired_hashes(result: dict[str, Any] | None) -> dict[str, str | None]:
+        desired: dict[str, str | None] = {}
+        for change in (result or {}).get("files", []):
+            if not isinstance(change, dict):
+                continue
+            source = change.get("path")
+            action = change.get("operation")
+            new_hash = change.get("new_sha256")
+            if isinstance(source, str):
+                desired[source] = None if action in {"delete", "move"} else new_hash
+            destination = change.get("destination")
+            if action == "move" and isinstance(destination, str):
+                desired[destination] = new_hash
+        return desired
+
+    @staticmethod
+    def _path_hash(path: Path) -> str | None:
+        try:
+            digest = hashlib.sha256()
+            with path.open("rb") as stream:
+                while chunk := stream.read(65_536):
+                    digest.update(chunk)
+            return digest.hexdigest()
+        except FileNotFoundError:
+            return None
+
+    def _restore(
+        self,
+        project: Any,
+        transaction: Path,
+        records: list[dict[str, Any]],
+        *,
+        result: dict[str, Any] | None = None,
+    ) -> None:
         errors: list[str] = []
+        legacy_desired = self._desired_hashes(result)
         for record in reversed(records):
             relative = str(record["path"])
             try:
@@ -812,12 +894,22 @@ class PatchService:
                     directory=False,
                     for_write=True,
                 )
+                current_hash = self._path_hash(current.absolute)
+                desired_hash = record.get("desired_sha256", legacy_desired.get(relative))
                 if record["existed"]:
                     backup = transaction / "backups" / str(record["backup"])
                     if not backup.is_file():
                         raise OSError("recovery backup is missing")
-                    self._atomic_replace(current.absolute, backup.read_bytes())
-                elif current.absolute.exists():
+                    backup_raw = backup.read_bytes()
+                    original_hash = record.get("original_sha256") or _sha(backup_raw)
+                    if current_hash == original_hash:
+                        continue
+                    if current_hash is not None and current_hash != desired_hash:
+                        raise OSError("recovery target changed independently")
+                    self._atomic_replace(current.absolute, backup_raw)
+                elif current_hash is not None:
+                    if current_hash != desired_hash:
+                        raise OSError("recovery target changed independently")
                     current.absolute.unlink()
             except Exception:
                 errors.append(relative)
@@ -866,7 +958,12 @@ class PatchService:
                 for record in manifest["records"]:
                     target.pinned_scope.directory(str(Path(record["path"]).parent))
                 target.pinned_scope.release_for_mutation()
-            self._restore(target.project, transaction, list(manifest["records"]))
+            self._restore(
+                target.project,
+                transaction,
+                list(manifest["records"]),
+                result=dict(manifest.get("result") or {}),
+            )
         self.database.delete_idempotency(
             str(manifest["project_id"]),
             "project_apply_patch",

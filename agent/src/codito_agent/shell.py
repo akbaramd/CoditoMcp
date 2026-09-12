@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import uuid
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -21,7 +22,7 @@ from .diagnostics import event
 from .errors import AgentError
 from .models import OperationState, Project, ProjectMode
 from .operation_gate import ProjectOperationGate
-from .paths import ProjectPathResolver
+from .paths import ProjectPathResolver, root_fingerprint
 from .read_tools import ToolResponse
 from .shell_policy import (
     executable_identity,
@@ -89,6 +90,7 @@ class ShellJob:
     connection_epoch: int
     timeout_seconds: int
     output_limit_bytes: int
+    resource_key: str
     state: str = ShellState.QUEUED
     chunks: list[OutputChunk] = field(default_factory=list)
     output_bytes: int = 0
@@ -225,6 +227,8 @@ class ShellManager:
         self.account_id = account_id
         self.device_id = device_id
         self._jobs: dict[str, ShellJob] = {}
+        self._terminal_jobs: deque[str] = deque()
+        self._terminal_job_limit = 32
         self._guard = asyncio.Lock()
         self.operation_gate = operation_gate or ProjectOperationGate()
         self._process_starter = process_starter or self._start_with_broker
@@ -339,6 +343,11 @@ class ShellManager:
             working_path = self.resolver.resolve(
                 project, working_relative, directory=True, allow_root=True
             ).absolute
+        resource_key = (
+            project.root_fingerprint
+            if working_path.is_relative_to(project.root)
+            else root_fingerprint(working_path)
+        )
         references = outside_references(
             str(project.root),
             str(working_path),
@@ -432,7 +441,7 @@ class ShellManager:
             if prior is not None:
                 return self._existing_start(prior, digest)
             owner = f"shell:{key}"
-            self.operation_gate.reserve(project_id, owner)
+            self.operation_gate.reserve(resource_key, owner)
             journal_created = False
             job: ShellJob | None = None
             try:
@@ -448,6 +457,7 @@ class ShellManager:
                     connection_epoch=connection_epoch,
                     timeout_seconds=timeout,
                     output_limit_bytes=output_limit,
+                    resource_key=resource_key,
                     state=ShellState.PENDING_APPROVAL if needs_approval else ShellState.QUEUED,
                 )
                 self._jobs[job.job_id] = job
@@ -493,7 +503,7 @@ class ShellManager:
                     await asyncio.to_thread(
                         self.database.delete_idempotency, project_id, "project_shell", key
                     )
-                self.operation_gate.release(project_id, owner)
+                self.operation_gate.release(resource_key, owner)
                 raise
         assert job is not None
         await self._wait_for_start_transition(job, start_wait_milliseconds, deadline_at)
@@ -655,7 +665,7 @@ class ShellManager:
             if pinned is not None:
                 pinned.close()
             async with self._guard:
-                self.operation_gate.release(job.project_id, f"shell:{job.idempotency_key}")
+                self.operation_gate.release(job.resource_key, f"shell:{job.idempotency_key}")
             terminal_result = self._poll_result(job, 0)
             terminal_state = (
                 OperationState.SUCCEEDED
@@ -680,6 +690,13 @@ class ShellManager:
                 device_id=job.device_id,
             )
             await self._notify(job)
+            async with self._guard:
+                self._terminal_jobs.append(job.job_id)
+                while len(self._terminal_jobs) > self._terminal_job_limit:
+                    expired_id = self._terminal_jobs.popleft()
+                    expired = self._jobs.get(expired_id)
+                    if expired is not None and expired.state in ShellState.TERMINAL:
+                        self._jobs.pop(expired_id, None)
 
     async def _capture(
         self, job: ShellJob, stream: asyncio.StreamReader | None, stream_name: str
@@ -735,7 +752,32 @@ class ShellManager:
         await self._require_enabled(project_id)
         job = self._jobs.get(job_id)
         if job is None or job.project_id != project_id:
-            raise AgentError("job_not_found", "Shell job was not found")
+            durable = await asyncio.to_thread(
+                self.database.get_shell_job,
+                project_id,
+                job_id,
+                account_id=self.account_id,
+                grant_id=grant_id,
+                link_id=link_id,
+                device_id=self.device_id,
+            )
+            if durable is None:
+                raise AgentError("job_not_found", "Shell job was not found")
+            if durable["state"] == OperationState.RUNNING.value or durable["result"] is None:
+                raise AgentError(
+                    "outcome_unknown",
+                    "The shell job was interrupted by an agent restart; "
+                    "its terminal outcome is unavailable",
+                    retryable=False,
+                )
+            result = self._page_durable_result(
+                durable["result"], cursor=cursor, max_output_bytes=max_output_bytes
+            )
+            return ToolResponse(
+                result,
+                f"Recovered terminal shell job {result['state']} from the durable journal; "
+                f"returned {len(result['chunks'])} output chunk(s).",
+            )
         self._validate_job_binding(job, grant_id=grant_id, link_id=link_id)
         if wait_milliseconds and cursor >= len(job.chunks) and job.state not in ShellState.TERMINAL:
             async with job.changed:
@@ -780,6 +822,37 @@ class ShellManager:
             "output_truncated": job.output_truncated,
         }
 
+    @staticmethod
+    def _page_durable_result(
+        durable: dict[str, Any], *, cursor: int, max_output_bytes: int
+    ) -> dict[str, Any]:
+        stored_chunks = durable.get("chunks")
+        if not isinstance(stored_chunks, list):
+            stored_chunks = []
+        start_index = min(cursor, len(stored_chunks))
+        chunks: list[dict[str, Any]] = []
+        page_bytes = 0
+        for value in stored_chunks[start_index:]:
+            if not isinstance(value, dict) or not isinstance(value.get("text"), str):
+                continue
+            chunk_bytes = len(value["text"].encode("utf-8"))
+            if chunks and page_bytes + chunk_bytes > max_output_bytes:
+                break
+            chunks.append(dict(value))
+            page_bytes += chunk_bytes
+        next_cursor = int(chunks[-1].get("sequence", cursor)) if chunks else cursor
+        result = dict(durable)
+        result.update(
+            {
+                "action": "poll",
+                "chunks": chunks,
+                "next_sequence_cursor": next_cursor,
+                "available_sequence_cursor": len(stored_chunks),
+                "has_more_output": next_cursor < len(stored_chunks),
+            }
+        )
+        return result
+
     async def cancel(
         self, project_id: str, job_id: str, *, grant_id: str, link_id: str
     ) -> ToolResponse:
@@ -808,7 +881,7 @@ class ShellManager:
         if job.task is not None and not job.task.done():
             job.task.cancel()
         async with self._guard:
-            self.operation_gate.release(project_id, f"shell:{job.idempotency_key}")
+            self.operation_gate.release(job.resource_key, f"shell:{job.idempotency_key}")
         await asyncio.to_thread(
             self.database.put_idempotency,
             job.project_id,

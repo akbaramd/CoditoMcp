@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -39,6 +41,66 @@ def test_project_metadata_updates_validate_identity_and_title(
         database.set_project_title("missing-project", "Name")
     with pytest.raises(AgentError, match="not registered"):
         database.set_project_enabled("missing-project", enabled=False)
+
+
+def test_shell_job_index_migrates_and_backfills_existing_journals(tmp_path: Path) -> None:
+    path = tmp_path / "legacy.sqlite3"
+    terminal = {
+        "action": "poll",
+        "project_id": "project",
+        "job_id": "job_durable",
+        "state": "completed",
+        "chunks": [],
+    }
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE idempotency (
+                project_id TEXT NOT NULL,
+                capability TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                grant_id TEXT NOT NULL,
+                link_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                request_digest TEXT NOT NULL,
+                state TEXT NOT NULL,
+                result_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(project_id, capability, idempotency_key)
+            );
+            """
+        )
+        connection.execute(
+            "INSERT INTO idempotency VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "project",
+                "project_shell",
+                "shell_key",
+                "account",
+                "grant",
+                "link",
+                "device",
+                "digest",
+                "succeeded",
+                json.dumps(terminal),
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00+00:00",
+            ),
+        )
+
+    database = AgentDatabase(path)
+    recovered = database.get_shell_job(
+        "project",
+        "job_durable",
+        account_id="account",
+        grant_id="grant",
+        link_id="link",
+        device_id="device",
+    )
+
+    assert recovered == {"state": "succeeded", "result": terminal}
 
 
 def test_reenrollment_rotates_device_scoped_project_ids(tmp_path: Path, project_root: Path) -> None:

@@ -157,8 +157,10 @@ Tool-selection rules (follow in this order):
    references, diagnostics, hierarchies, dependencies, architecture, impact, and related tests.
    Use file_read after discovery when exact source text or a mutation hash is required.
 4. Use file_patch for all text-file additions, updates, moves, and multi-file deletions. Use
-   file_delete for one exact deletion. Do not create/edit/delete files through execute_shell when
-   these dedicated tools can perform the request. Read current files first and supply exact hashes.
+    file_delete for one exact deletion. Do not create/edit/delete files through execute_shell when
+    these dedicated tools can perform the request. Read current files first and supply exact hashes.
+    Every Update hunk must contain at least one '+' or '-' line plus enough unchanged context to
+    match exactly once. If the desired content is already present, do not send a no-op patch.
 5. Use execute_shell only for genuine command execution such as builds, tests, formatters, Git,
    package managers, Docker, SSH, or programs without a dedicated Codito tool. Do not use it merely
    to read, list, search, concatenate, edit, or delete files. Poll nonterminal jobs with
@@ -262,7 +264,9 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
         "redirection or scripts. Apply an exact anchored *** Begin Patch document with "
         "Add/Update/Delete/Move "
         "sections. Supply every touched path's base hash (null only for new files). "
-        "No fuzzy matching; the full batch is preflighted and journaled. "
+        "Every Update hunk needs a '+' or '-' line and enough unchanged context to match once. "
+        "Do not submit a no-op patch when content is already correct. No fuzzy matching; the full "
+        "batch is preflighted and journaled. "
         "dry_run performs no writes.",
         _WRITE,
         "Checking and applying patch…",

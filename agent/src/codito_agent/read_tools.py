@@ -22,6 +22,26 @@ MAX_DIRECTORY_RESULTS = 1000
 MAX_SEARCH_RESULTS = 500
 MAX_DIRECTORY_SCANNED = 10_000
 MAX_SEARCH_FILES = 10_000
+DEFAULT_IGNORED_DIRECTORIES = frozenset(
+    {
+        ".git",
+        ".hg",
+        ".mypy_cache",
+        ".next",
+        ".nuxt",
+        ".output",
+        ".pnpm-store",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".svn",
+        ".tox",
+        ".turbo",
+        ".venv",
+        ".yarn",
+        "__pycache__",
+        "node_modules",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +136,20 @@ def _glob_matches(path: str, pattern: str) -> bool:
     return any(fnmatch.fnmatchcase(path, candidate) for candidate in candidates)
 
 
+def _prune_directories(current_path: Path, directories: list[str]) -> None:
+    """Prune dependency/VCS caches while retaining deterministic traversal order."""
+
+    directories[:] = sorted(
+        (
+            name
+            for name in directories
+            if name.casefold() not in DEFAULT_IGNORED_DIRECTORIES
+            and not _is_reparse(current_path / name)
+        ),
+        key=str.casefold,
+    )
+
+
 def _payload_codec(encoding: str) -> str:
     return "utf-8" if encoding == "utf-8-sig" else encoding
 
@@ -206,9 +240,8 @@ class ProjectReadService:
         if recursive:
             for current, directories, files in os.walk(directory, followlinks=False):
                 current_path = Path(current)
-                directories[:] = [
-                    name for name in directories if not _is_reparse(current_path / name)
-                ]
+                _prune_directories(current_path, directories)
+                files.sort(key=str.casefold)
                 children.extend(current_path / name for name in directories)
                 children.extend(current_path / name for name in files)
         else:
@@ -390,9 +423,8 @@ class ProjectReadService:
         else:
             for current, directories, files in os.walk(target, followlinks=False):
                 current_path = Path(current)
-                directories[:] = [
-                    name for name in directories if not _is_reparse(current_path / name)
-                ]
+                _prune_directories(current_path, directories)
+                files.sort(key=str.casefold)
                 for name in files:
                     candidate = current_path / name
                     if _is_reparse(candidate):

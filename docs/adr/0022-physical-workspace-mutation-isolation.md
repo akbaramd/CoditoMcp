@@ -41,9 +41,14 @@ violation into a fail-closed recovery journal.
 7. Rollback compares current, original, and intended hashes. If the original is already present, it
    performs no write. If the file changed independently, it preserves that file and remains
    fail-closed rather than overwriting newer work.
-8. Recursive read/search traversal prunes standard VCS and dependency caches such as `.git`,
-   `node_modules`, `.venv`, and framework caches before candidate accounting. A caller can still
-   target an ignored directory explicitly as the operation root.
+8. Recursive read/search traversal prunes standard VCS, dependency, IDE, and generated-build
+   directories such as `.git`, `node_modules`, `.venv`, `.vs`, `bin`, `obj`, and `target` before
+   candidate accounting. A caller can still target an ignored directory explicitly as the
+   operation root.
+9. Text-search continuation records the next candidate and line rather than only the number of
+   matches already returned. Filling a per-call scan budget without finding a match therefore
+   advances on the next page instead of repeating the same scan. The per-page byte budget is 32
+   MiB after generated-directory pruning.
 
 ## Consequences
 
@@ -56,6 +61,8 @@ violation into a fail-closed recovery journal.
   internally, while MCP responses remain durable, pageable, and replayable.
 - Dependency trees no longer dominate ordinary whole-project searches, reducing both latency and
   `output_limit_exceeded` failures without raising safety ceilings.
+- A broad no-match search can continue through a large source tree without looping on an unchanged
+  cursor; each page still has a deterministic resource ceiling.
 
 ## Verification
 
@@ -65,3 +72,5 @@ violation into a fail-closed recovery journal.
 - A failed replace that leaves the original intact performs no rollback rewrite and leaves no stale
   recovery journal.
 - Recursive listing and search stay below candidate limits when a large dependency cache is present.
+- Search-continuation tests cover scan-budget exhaustion with zero matches and resumption within a
+  matching file.

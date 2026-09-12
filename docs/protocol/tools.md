@@ -124,6 +124,12 @@ Its whole-file SHA-256 is the precondition for patch/delete. UTF-8 and BOM-marke
 UTF-16 can be read; text patches currently require UTF-8. Limits and complete
 schemas are generated from `codito_protocol.facade`, not duplicated by hand.
 
+Whole-tree `directory_list` and `text_search` skip standard VCS, dependency, IDE,
+cache, and generated-build directories before applying their safety budgets. A
+caller that explicitly selects one of those directories as `path` can still inspect
+it. Search continuation records the next file and line, so exhausting a scan page
+always makes forward progress even when that page contains no matches.
+
 `file_patch` takes `patch`, `base_hashes`, `idempotency_key`, `dry_run`.
 A hash means the existing file must match; null means the destination must not
 exist. All source and move destination paths must be covered exactly.

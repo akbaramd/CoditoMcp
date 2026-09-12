@@ -172,10 +172,11 @@ def test_recursive_tools_prune_dependency_caches_before_candidate_limits(
     source = project_root / "src"
     source.mkdir()
     (source / "app.py").write_text("needle\n", encoding="utf-8")
-    dependencies = project_root / "node_modules" / "package"
-    dependencies.mkdir(parents=True)
-    for index in range(4):
-        (dependencies / f"generated-{index}.js").write_text("needle\n", encoding="utf-8")
+    for ignored_name in ("node_modules", "bin", "obj", ".build-check", ".npm-cache"):
+        dependencies = project_root / ignored_name / "package"
+        dependencies.mkdir(parents=True)
+        for index in range(4):
+            (dependencies / f"generated-{index}.js").write_text("needle\n", encoding="utf-8")
     database = AgentDatabase(tmp_path / "agent.sqlite3")
     project = database.register_project("Example", project_root)
     service = ProjectReadService(database)
@@ -187,3 +188,49 @@ def test_recursive_tools_prune_dependency_caches_before_candidate_limits(
 
     assert [match["path"] for match in searched.structured["matches"]] == ["src/app.py"]
     assert [entry["path"] for entry in listed.structured["entries"]] == ["src/app.py"]
+
+
+def test_search_continuation_advances_after_scan_budget_without_matches(
+    tmp_path: Path, project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (project_root / "a.txt").write_text("first\n", encoding="utf-8")
+    (project_root / "b.txt").write_text("needle\n", encoding="utf-8")
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    project = database.register_project("Example", project_root)
+    service = ProjectReadService(database)
+    monkeypatch.setattr(read_tools, "MAX_SEARCH_SCANNED_BYTES", 8)
+
+    first = service.search_text(project.project_id, query="needle", globs=["**/*"])
+    second = service.search_text(
+        project.project_id,
+        query="needle",
+        globs=["**/*"],
+        cursor=first.structured["continuation"],
+    )
+
+    assert first.structured["matches"] == []
+    assert first.structured["truncated"] is True
+    assert second.structured["matches"][0]["path"] == "b.txt"
+    assert second.structured["truncated"] is False
+
+
+def test_search_continuation_resumes_within_a_matching_file(
+    tmp_path: Path, project_root: Path
+) -> None:
+    (project_root / "matches.txt").write_text("needle one\nneedle two\n", encoding="utf-8")
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    project = database.register_project("Example", project_root)
+    service = ProjectReadService(database)
+
+    first = service.search_text(project.project_id, query="needle", limit=1)
+    second = service.search_text(
+        project.project_id,
+        query="needle",
+        limit=1,
+        cursor=first.structured["continuation"],
+    )
+
+    assert [match["line"] for match in first.structured["matches"]] == [1]
+    assert first.structured["truncated"] is True
+    assert [match["line"] for match in second.structured["matches"]] == [2]
+    assert second.structured["truncated"] is False

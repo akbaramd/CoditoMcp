@@ -225,7 +225,9 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     "directory_list": _contract(
         "List directory",
         _SCOPE + "Use to discover file/directory names, types, sizes, and hashes with glob, "
-        "recursion, and pagination. Prefer this over execute_shell dir/Get-ChildItem/find.",
+        "recursion, and pagination. Recursive traversal skips standard dependency, cache, IDE, "
+        "and generated-build directories unless one is the explicit path. Prefer this over "
+        "execute_shell dir/Get-ChildItem/find.",
         _READ,
         "Listing directory…",
         "Directory response ready",
@@ -248,9 +250,10 @@ FACADE_CONTRACTS: dict[str, dict[str, Any]] = {
     "text_search": _contract(
         "Search file text",
         _SCOPE + "Use to locate literal or regex text across a file or filtered tree when exact "
-        "locations are unknown. Returns paths, line/column, previews, and continuation; prefer "
-        "this over execute_shell Select-String/findstr/grep, then use file_read for surrounding "
-        "source.",
+        "locations are unknown. Recursive traversal skips standard dependency, cache, IDE, and "
+        "generated-build directories unless one is the explicit path. Returns paths, line/column, "
+        "previews, and forward-progress continuation; prefer this over execute_shell "
+        "Select-String/findstr/grep, then use file_read for surrounding source.",
         _READ,
         "Searching file text…",
         "Search response ready",

@@ -8,6 +8,7 @@ from typing import BinaryIO
 
 import pytest
 
+import codito_agent.read_tools as read_tools
 from codito_agent.db import AgentDatabase
 from codito_agent.errors import AgentError
 from codito_agent.read_tools import ProjectReadService
@@ -163,3 +164,26 @@ def test_utf16_newlines_are_classified_after_decoding(tmp_path: Path, project_ro
     assert result.structured["newline"] == "crlf"
     assert result.structured["size"] == len(raw)
     assert result.structured["sha256"] == hashlib.sha256(raw).hexdigest()
+
+
+def test_recursive_tools_prune_dependency_caches_before_candidate_limits(
+    tmp_path: Path, project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = project_root / "src"
+    source.mkdir()
+    (source / "app.py").write_text("needle\n", encoding="utf-8")
+    dependencies = project_root / "node_modules" / "package"
+    dependencies.mkdir(parents=True)
+    for index in range(4):
+        (dependencies / f"generated-{index}.js").write_text("needle\n", encoding="utf-8")
+    database = AgentDatabase(tmp_path / "agent.sqlite3")
+    project = database.register_project("Example", project_root)
+    service = ProjectReadService(database)
+    monkeypatch.setattr(read_tools, "MAX_SEARCH_FILES", 2)
+    monkeypatch.setattr(read_tools, "MAX_DIRECTORY_SCANNED", 2)
+
+    searched = service.search_text(project.project_id, query="needle", globs=["**/*"])
+    listed = service.list_directory(project.project_id, ".", glob="**/*.py", recursive=True)
+
+    assert [match["path"] for match in searched.structured["matches"]] == ["src/app.py"]
+    assert [entry["path"] for entry in listed.structured["entries"]] == ["src/app.py"]

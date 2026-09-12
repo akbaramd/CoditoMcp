@@ -158,7 +158,8 @@ TOOL_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
         "title": "Apply an anchored project patch",
         "description": (
             "Preflight and atomically apply an exact Begin Patch document against required "
-            "base hashes. Context is exact; fuzzy or ambiguous hunks are rejected."
+            "base hashes. Every Update hunk needs a '+' or '-' line and enough unchanged context "
+            "to match once; do not send no-op patches. Fuzzy or ambiguous hunks are rejected."
         ),
         "required_scopes": ["projects:read", "files:read", "files:write"],
         "securitySchemes": [_oauth_scheme("projects:read", "files:read", "files:write")],

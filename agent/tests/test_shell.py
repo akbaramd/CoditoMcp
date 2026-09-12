@@ -279,6 +279,26 @@ async def test_full_access_shell_start_poll_and_terminal_journal(
     )
     assert journal is not None and journal["state"] == "succeeded"
 
+    restarted = ShellManager(
+        database,
+        ProjectPathResolver(),
+        FakeBroker(),  # type: ignore[arg-type]
+        ApprovalManager(deny),
+        tmp_path,
+        account_id="account_abcdefghijkl",
+        device_id="device_abcdefghijkl",
+        process_starter=start,
+    )
+    recovered = await restarted.poll(
+        project.project_id,
+        job_id,
+        0,
+        grant_id="grant_abcdefghijklmn",
+        link_id="link_abcdefghijklmnop",
+    )
+    assert recovered.structured["state"] == "completed"
+    assert recovered.structured["chunks"][0]["text"] == "hello\n"
+
 
 def test_path_hijack_environment_override_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(AgentError):

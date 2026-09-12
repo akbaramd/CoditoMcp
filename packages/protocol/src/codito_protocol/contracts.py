@@ -134,6 +134,9 @@ TOOL_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
         "description": (
             "List registered projects, list a project-relative directory, read a bounded "
             "range of a file, or search text. This tool accepts only project-relative paths. "
+            "Recursive operations skip standard dependency, cache, IDE, and generated-build "
+            "directories unless one is selected directly, and search continuation always "
+            "advances by file and line. "
             "For user-requested reads outside registered projects, use device_read, which "
             "requests Windows consent."
         ),

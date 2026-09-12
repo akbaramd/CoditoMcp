@@ -17,7 +17,7 @@ from .paths import ProjectPathResolver, _is_reparse, validate_relative_path
 
 MAX_READ_BYTES = 2_097_152
 MAX_SEARCH_FILE_BYTES = 2_097_152
-MAX_SEARCH_SCANNED_BYTES = 16_777_216
+MAX_SEARCH_SCANNED_BYTES = 33_554_432
 MAX_DIRECTORY_RESULTS = 1000
 MAX_SEARCH_RESULTS = 500
 MAX_DIRECTORY_SCANNED = 10_000
@@ -26,8 +26,12 @@ DEFAULT_IGNORED_DIRECTORIES = frozenset(
     {
         ".git",
         ".hg",
+        ".build-check",
+        ".cache",
         ".mypy_cache",
         ".next",
+        ".npm",
+        ".npm-cache",
         ".nuxt",
         ".output",
         ".pnpm-store",
@@ -37,9 +41,16 @@ DEFAULT_IGNORED_DIRECTORIES = frozenset(
         ".tox",
         ".turbo",
         ".venv",
+        ".vs",
         ".yarn",
         "__pycache__",
+        "artifacts",
+        "bin",
+        "coverage",
+        "dist",
         "node_modules",
+        "obj",
+        "target",
     }
 )
 
@@ -68,6 +79,26 @@ def _decode_cursor(value: str | None) -> int:
     if offset < 0:
         raise AgentError("invalid_cursor", "Continuation cursor is invalid")
     return offset
+
+
+def _encode_search_cursor(candidate_index: int, line_index: int) -> str:
+    raw = f"search-v2:{candidate_index}:{line_index}".encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _decode_search_cursor(value: str | None) -> tuple[int, int]:
+    if not value:
+        return 0, 0
+    try:
+        decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)).decode()
+        version, candidate_text, line_text = decoded.split(":")
+        candidate_index = int(candidate_text)
+        line_index = int(line_text)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise AgentError("invalid_cursor", "Search continuation cursor is invalid") from exc
+    if version != "search-v2" or candidate_index < 0 or line_index < 0:
+        raise AgentError("invalid_cursor", "Search continuation cursor is invalid")
+    return candidate_index, line_index
 
 
 def _encode_read_cursor(line_index: int, character_offset: int) -> str:
@@ -413,7 +444,7 @@ class ProjectReadService:
             self._validate_glob(pattern)
 
         project = target_project or self.database.get_project(project_id)
-        result_offset = _decode_cursor(cursor)
+        candidate_offset, line_offset = _decode_search_cursor(cursor)
         target = self.resolver.resolve(project, path, directory=None, allow_root=True).absolute
         candidates: list[Path] = []
         if target.is_file():
@@ -438,6 +469,11 @@ class ProjectReadService:
                             )
         candidates.sort(key=lambda value: value.relative_to(project.root).as_posix().casefold())
 
+        if candidate_offset > len(candidates) or (
+            candidate_offset == len(candidates) and line_offset
+        ):
+            raise AgentError("invalid_cursor", "Search continuation cursor exceeds the project")
+
         needle = query if case_sensitive else query.casefold()
         expression = None
         if regex:
@@ -447,17 +483,19 @@ class ProjectReadService:
                 )
             except regex_module.error as exc:
                 raise AgentError("invalid_request", "Search regular expression is invalid") from exc
-        all_matches: list[dict[str, Any]] = []
+        matches: list[dict[str, Any]] = []
         scanned = 0
-        exhausted = False
-        for candidate in candidates:
+        next_cursor: str | None = None
+        for candidate_index in range(candidate_offset, len(candidates)):
+            candidate = candidates[candidate_index]
             size = candidate.stat().st_size
             if size > MAX_SEARCH_FILE_BYTES:
                 continue
-            scanned += size
-            if scanned > MAX_SEARCH_SCANNED_BYTES:
-                exhausted = True
+            current_line_offset = line_offset if candidate_index == candidate_offset else 0
+            if scanned + size > MAX_SEARCH_SCANNED_BYTES:
+                next_cursor = _encode_search_cursor(candidate_index, current_line_offset)
                 break
+            scanned += size
             relative = candidate.relative_to(project.root).as_posix()
             try:
                 with self.resolver.open_read(project, relative) as stream:
@@ -467,7 +505,11 @@ class ProjectReadService:
                 if exc.code in {"binary_file", "unsupported_encoding"}:
                     continue
                 raise
-            for line_number, line in enumerate(text.splitlines(), 1):
+            lines = text.splitlines()
+            if current_line_offset > len(lines):
+                raise AgentError("invalid_cursor", "Search continuation cursor exceeds the file")
+            for line_index in range(current_line_offset, len(lines)):
+                line = lines[line_index]
                 haystack = line if case_sensitive else line.casefold()
                 try:
                     match = (
@@ -479,36 +521,35 @@ class ProjectReadService:
                     ) from exc
                 column = match.start() if match is not None else haystack.find(needle)
                 if column >= 0:
-                    all_matches.append(
+                    matches.append(
                         {
                             "path": relative,
-                            "line": line_number,
+                            "line": line_index + 1,
                             "column": column + 1,
                             "preview": line.encode("utf-8")[:max_bytes_per_match].decode(
                                 "utf-8", errors="ignore"
                             ),
                         }
                     )
-                    if len(all_matches) >= result_offset + limit + 1:
-                        exhausted = True
+                    if len(matches) >= limit:
+                        if line_index + 1 < len(lines):
+                            next_cursor = _encode_search_cursor(candidate_index, line_index + 1)
+                        elif candidate_index + 1 < len(candidates):
+                            next_cursor = _encode_search_cursor(candidate_index + 1, 0)
                         break
-            if exhausted and len(all_matches) >= result_offset + limit + 1:
+            if next_cursor is not None:
                 break
 
-        offset = result_offset
-        page = all_matches[offset : offset + limit]
-        next_offset = offset + len(page)
-        more = next_offset < len(all_matches) or exhausted
         structured = {
             "operation": "search_text",
             "project_id": project_id,
             "query": query,
-            "matches": page,
-            "truncated": more,
-            "continuation": _encode_cursor(next_offset) if more else None,
+            "matches": matches,
+            "truncated": next_cursor is not None,
+            "continuation": next_cursor,
             "scanned_bytes": scanned,
         }
-        return ToolResponse(structured, f"Found {len(page)} matching line(s).")
+        return ToolResponse(structured, f"Found {len(matches)} matching line(s).")
 
     @staticmethod
     def _validate_glob(pattern: str) -> None:

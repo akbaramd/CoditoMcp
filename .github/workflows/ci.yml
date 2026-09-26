@@ -62,7 +62,7 @@ jobs:
           uv run --package codito-protocol python packages/protocol/scripts/export_schemas.py
           git diff --exit-code -- packages/protocol/schemas
           test -z "$(git status --porcelain -- packages/protocol/schemas)"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: python-coverage
